@@ -1,0 +1,18 @@
+# Node függőségek
+node_modules/
+npm-debug.log
+
+# Tauri / Rust build kimenetek
+src-tauri/target/
+src-tauri/gen/
+
+# Helyi adatok és adatbázisok
+data/
+cache/
+*.db
+*.log
+.vs/
+
+# OS által generált fájlok
+.DS_Store
+Thumbs.db
