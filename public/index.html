@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EPG Megjelenítő</title>
+    <style>
+        :root {
+            --minute-height: 2px;
+            --time-col-width: 80px;
+            --channel-col-width: 200px;
+            --header-height: 85px;
+        }
+
+        /* EGYEDI GÖRGETŐSÁV DESIGN */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #181818; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #4a5568; }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0; padding: 0;
+            background-color: #121212; color: #fff;
+            overflow: hidden;
+        }
+
+        header {
+            height: 60px; background-color: #1f1f1f;
+            padding: 0 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            display: flex; gap: 8px; align-items: center; box-sizing: border-box;
+            z-index: 100; position: relative;
+        }
+
+        .search-box { display: flex; align-items: center; gap: 4px; }
+        input[type="text"], select {
+            padding: 8px 12px; border-radius: 5px;
+            border: 1px solid #444; background-color: #2a2a2a; color: #fff; font-size: 13px;
+        }
+        input[type="text"] { width: 160px; }
+
+        .btn {
+            padding: 8px 12px; border-radius: 5px; border: none;
+            font-weight: bold; font-size: 12px; cursor: pointer; color: #fff;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .btn:hover { opacity: 0.85; }
+        .btn:active { transform: scale(0.96); }
+
+        #searchBtn { background-color: #3182ce; }
+        #clearSearchBtn { background-color: #4a5568; }
+        #nowBtn { background-color: #e53e3e; }
+        #favListBtn { background-color: #d69e2e; color: #000; }
+        #settingsBtn { background-color: #4a5568; }
+        .btn-green { background-color: #38a169; }
+        .btn-blue { background-color: #3182ce; }
+        .btn-red { background-color: #e53e3e; }
+
+        .view-btn.active { outline: 2px solid #fff; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
+        .btn-1h { background-color: #319795; }
+        .btn-30m { background-color: #3182ce; }
+        .btn-20m { background-color: #805ad5; }
+        .btn-10m { background-color: #dd6b20; }
+        .btn-5m { background-color: #38a169; }
+
+        #status { color: #aaa; font-size: 13px; margin-left: auto; }
+
+        .epg-viewport { height: calc(100vh - 60px); overflow: auto; position: relative; }
+        .epg-grid { display: flex; position: relative; min-width: max-content; }
+
+        .grid-corner {
+            position: sticky; top: 0; left: 0;
+            width: var(--time-col-width); min-width: var(--time-col-width);
+            height: var(--header-height); background-color: #181818;
+            border-right: 2px solid #333; border-bottom: 2px solid #333;
+            z-index: 100; box-sizing: border-box; margin-right: calc(-1 * var(--time-col-width));
+        }
+
+        .time-column {
+            position: sticky; left: 0; z-index: 70;
+            background-color: #181818; width: var(--time-col-width); min-width: var(--time-col-width);
+            border-right: 2px solid #333; margin-top: var(--header-height); box-sizing: border-box;
+        }
+
+        .time-slot {
+            height: calc((var(--step-min) * var(--minute-height)));
+            border-top: 1px solid #2a2a2a; display: flex; align-items: center; justify-content: center;
+            font-size: 11px; color: #888; box-sizing: border-box;
+        }
+        .time-slot.full-hour { border-top: 2px solid #777 !important; color: #fff; font-weight: bold; }
+
+        .channels-container { display: flex; position: relative; }
+        .channel-column-wrapper {
+            width: var(--channel-col-width); min-width: var(--channel-col-width);
+            border-right: 1px solid #2a2a2a; display: flex; flex-direction: column; position: relative;
+        }
+
+        .channel-header-item {
+            height: var(--header-height); min-height: var(--header-height);
+            position: sticky; top: 0; z-index: 80; background-color: #1f1f1f;
+            border-bottom: 2px solid #333; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; padding: 5px; box-sizing: border-box;
+        }
+
+        /* FEHÉR HÁTTERŰ LOGÓ WRAPPER */
+        .logo-wrapper {
+            width: 140px; height: 45px; background-color: #ffffff;
+            border-radius: 4px; display: flex; align-items: center; justify-content: center;
+            padding: 2px; box-sizing: border-box; border: 1px solid #333;
+        }
+        .logo-wrapper img { max-height: 100%; max-width: 100%; object-fit: contain; }
+
+        .programme-grid { position: relative; flex: 1; }
+        .programme {
+            position: absolute; width: calc(100% - 6px); left: 3px;
+            background-color: #2d3748; border-radius: 4px; padding: 4px 6px;
+            box-sizing: border-box; overflow: hidden; border-left: 3px solid #4299e1;
+            font-size: 11px; cursor: pointer; transition: background-color 0.2s;
+            z-index: 10;
+        }
+        .programme:hover { background-color: #4a5568; z-index: 25 !important; }
+
+        .programme.favorite {
+            background-color: #5a2328 !important;
+            border-left: 3px solid #e53e3e !important;
+        }
+
+        .programme.highlight {
+            background-color: #1c4532 !important;
+            border-left: 4px solid #48bb78 !important;
+            box-shadow: 0 0 8px rgba(72, 187, 120, 0.4);
+            z-index: 30 !important;
+        }
+
+        .start-badge {
+            background-color: #ffffff; color: #3182ce; font-weight: bold;
+            font-size: 10px; padding: 2px 5px; border-radius: 3px;
+            display: inline-flex; align-items: center; justify-content: center; margin-right: 6px;
+        }
+
+        .channel-badge {
+            background-color: #000000; color: #ffffff; font-weight: bold;
+            font-size: 10px; padding: 2px 6px; border-radius: 3px;
+            display: inline-flex; align-items: center; justify-content: center; margin-left: auto;
+        }
+
+        .fav-star {
+            position: absolute; top: 2px; right: 4px; font-size: 12px;
+            color: #718096; cursor: pointer; transition: color 0.2s, transform 0.1s; z-index: 10;
+        }
+        .fav-star:hover { transform: scale(1.2); }
+        .fav-star.active { color: #f6e05e !important; }
+
+        /* JAVÍTOTT ÁTTETSZŐ PIROS IDŐVONAL (SZÖVEG MÖGÖTT) */
+        .now-line {
+            position: absolute; left: 0; right: 0; height: 2px;
+            background-color: rgba(229, 62, 62, 0.45); z-index: 5; pointer-events: none;
+        }
+        .now-line::before {
+            content: ''; position: absolute; left: -5px; top: -4px;
+            width: 10px; height: 10px; background-color: rgba(229, 62, 62, 0.85); border-radius: 50%;
+        }
+
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.75); display: flex; align-items: center; justify-content: center;
+            z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal-content {
+            background: #1f1f1f; border: 1px solid #444; border-radius: 8px;
+            width: 90%; max-width: 650px; padding: 20px; position: relative;
+            box-sizing: border-box;
+        }
+
+        #favOverlay .modal-content {
+            resize: both;
+            overflow: auto;
+            width: 35vw;
+            height: 80vh;
+            min-width: 300px;
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-close { position: absolute; top: 10px; right: 15px; font-size: 20px; background: none; border: none; color: #aaa; cursor: pointer; }
+        .modal-fav-star { position: absolute; top: 10px; right: 45px; font-size: 20px; color: #718096; cursor: pointer; }
+        .modal-fav-star.active { color: #f6e05e !important; }
+        .modal-title { font-size: 18px; font-weight: bold; margin-bottom: 8px; color: #4299e1; padding-right: 60px; }
+        .modal-time { font-size: 13px; color: #a0aec0; margin-bottom: 15px; }
+        .modal-desc { font-size: 14px; line-height: 1.5; color: #e2e8f0; max-height: 300px; overflow-y: auto; }
+        
+        .source-item { 
+            background: #2a2a2a; border: 1px solid #444; padding: 12px; border-radius: 5px; 
+            margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 15px;
+        }
+        .source-info { flex: 1; min-width: 0; }
+        .source-info strong { font-size: 14px; color: #4299e1; display: block; }
+        .source-info small { color: #aaa; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .source-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+        .fav-day-group { margin-bottom: 15px; }
+        .fav-day-header { font-size: 13px; font-weight: bold; color: #f6e05e; border-bottom: 1px solid #444; padding-bottom: 4px; margin-bottom: 8px; }
+        .fav-item-row { 
+            padding: 8px 12px; background: #2a2a2a; margin-bottom: 6px; 
+            border-radius: 4px; display: flex; align-items: center; gap: 8px; font-size: 13px; 
+        }
+        .fav-item-title { flex: 1; font-weight: bold; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Keresés...">
+            <button class="btn" id="searchBtn">KERESÉS</button>
+            <button class="btn" id="clearSearchBtn">X</button>
+        </div>
+
+        <select id="sourceSelect"></select>
+        <select id="dateSelect"></select>
+        <button class="btn" id="nowBtn">MOST</button>
+        <button class="btn" id="favListBtn">★ KEDVENCEK</button>
+
+        <button class="btn view-btn btn-1h" data-step="60" data-height="1.2">1 ÓRA</button>
+        <button class="btn view-btn btn-30m" data-step="30" data-height="1.5">30 PERC</button>
+        <button class="btn view-btn btn-20m active" data-step="20" data-height="2">20 PERC</button>
+        <button class="btn view-btn btn-10m" data-step="10" data-height="3.5">10 PERC</button>
+        <button class="btn view-btn btn-5m" data-step="5" data-height="6">5 PERC</button>
+
+        <button class="btn" id="settingsBtn">⚙ BEÁLLÍTÁSOK</button>
+        <span id="status">Indítás...</span>
+    </header>
+
+    <div class="epg-viewport" id="epgViewport">
+        <div class="epg-grid">
+            <div class="grid-corner"></div>
+            <div class="time-column" id="timeColumn"></div>
+            <div class="channels-container" id="channelsContainer"></div>
+        </div>
+    </div>
+
+    <!-- MŰSOR RÉSZLETEI MODAL -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-content">
+            <button class="modal-close" id="modalClose">&times;</button>
+            <span class="modal-fav-star" id="modalFavStar">★</span>
+            <div class="modal-title" id="modalTitle"></div>
+            <div class="modal-time" id="modalTime"></div>
+            <div class="modal-desc" id="modalDesc"></div>
+        </div>
+    </div>
+
+    <!-- KEDVENCEK MODAL -->
+    <div class="modal-overlay" id="favOverlay">
+        <div class="modal-content" id="favModalContent">
+            <button class="modal-close" id="favClose">&times;</button>
+            <div class="modal-title" style="color: #f6e05e;">★ Kedvenc Műsorok</div>
+            <div id="favListContent" style="margin-top: 10px; flex: 1; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <!-- BEÁLLÍTÁSOK MODAL -->
+    <div class="modal-overlay" id="settingsOverlay">
+        <div class="modal-content">
+            <button class="modal-close" id="settingsClose">&times;</button>
+            <h3>EPG Források Kezelése</h3>
+            <div style="margin-bottom: 15px; display: flex; gap: 8px;">
+                <input type="hidden" id="editSourceId">
+                <input type="text" id="sourceNameInput" placeholder="Forrás neve" style="flex: 1;">
+                <input type="text" id="sourceUrlInput" placeholder="EPG URL (.xml vagy .gz)" style="flex: 2;">
+                <button class="btn btn-green" id="saveSourceBtn">MENTÉS</button>
+            </div>
+            <div id="sourcesList" style="max-height: 250px; overflow-y: auto; margin-bottom: 15px;"></div>
+            
+            <div style="border-top: 1px solid #333; padding-top: 15px; display: flex; justify-content: flex-end;">
+                <button class="btn btn-red" id="clearDbBtn">EPG ADATBÁZIS TÖRLESE</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { invoke } = window.__TAURI__.core;
+
+        let epgData = { channels: [], programmes: [] };
+        let selectedDateStr = "";
+        let currentSourceId = "";
+        let currentStepMin = 20;
+        let currentMinuteHeight = 2;
+        let currentModalTitle = "";
+        let searchTimeout = null;
+
+        let favorites = JSON.parse(localStorage.getItem('epg_favorites') || '[]');
+        let sources = JSON.parse(localStorage.getItem('epg_sources') || '[]');
+
+        if (sources.length === 0) {
+            sources = [
+                { id: 'src_porthu', name: 'Port.hu (Saját GitHub)', url: 'https://github.com/norti/EPG/raw/refs/heads/main/EPG/porthu.xml.gz', lastDownloaded: null },
+                { id: 'src_magenta', name: 'Magenta DE (Saját GitHub)', url: 'https://github.com/norti/EPG/raw/refs/heads/main/EPG/magenta_de.xml.gz', lastDownloaded: null },
+                { id: 'src_sky', name: 'Sky UK (Saját GitHub)', url: 'https://github.com/norti/EPG/raw/refs/heads/main/EPG/sky.xml.gz', lastDownloaded: null }
+            ];
+            localStorage.setItem('epg_sources', JSON.stringify(sources));
+        }
+
+        async function init() {
+            loadSourcesDropdown();
+            restoreFavModalSize();
+            if (sources.length > 0) {
+                await fetchEPG();
+            }
+        }
+
+        function restoreFavModalSize() {
+            const size = JSON.parse(localStorage.getItem('fav_modal_size') || 'null');
+            if (size) {
+                const modal = document.getElementById('favModalContent');
+                modal.style.width = size.width + 'px';
+                modal.style.height = size.height + 'px';
+            }
+        }
+
+        const favModalContent = document.getElementById('favModalContent');
+        new ResizeObserver(entries => {
+            for (let entry of entries) {
+                if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+                    localStorage.setItem('fav_modal_size', JSON.stringify({
+                        width: Math.round(entry.contentRect.width + 40),
+                        height: Math.round(entry.contentRect.height + 40)
+                    }));
+                }
+            }
+        }).observe(favModalContent);
+
+        function loadSourcesDropdown() {
+            const sourceSelect = document.getElementById('sourceSelect');
+            const sourcesList = document.getElementById('sourcesList');
+            sourceSelect.innerHTML = '';
+            sourcesList.innerHTML = '';
+
+            sources.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = s.name;
+                sourceSelect.appendChild(opt);
+
+                const lastDate = s.lastDownloaded ? new Date(s.lastDownloaded).toLocaleString('hu-HU') : 'Még nem frissült';
+
+                const item = document.createElement('div');
+                item.className = 'source-item';
+                item.innerHTML = `
+                    <div class="source-info">
+                        <strong>${s.name}</strong>
+                        <small>${s.url}</small>
+                        <small style="color: #3182ce; margin-top: 3px;">Frissítve: ${lastDate}</small>
+                    </div>
+                    <div class="source-actions">
+                        <button class="btn btn-green" onclick="downloadSource('${s.id}')">Frissítés</button>
+                        <button class="btn btn-blue" onclick="editSource('${s.id}')">Módosítás</button>
+                        <button class="btn btn-red" onclick="deleteSource('${s.id}')">Törlés</button>
+                    </div>
+                `;
+                sourcesList.appendChild(item);
+            });
+
+            if (!currentSourceId && sources.length > 0) {
+                currentSourceId = sources[0].id;
+            }
+            sourceSelect.value = currentSourceId;
+
+            sourceSelect.onchange = (e) => {
+                currentSourceId = e.target.value;
+                fetchEPG();
+            };
+        }
+
+        function parseEPGDate(str) {
+            if (!str || str.length < 12) return new Date();
+            const y = str.substring(0, 4);
+            const m = str.substring(4, 6) - 1;
+            const d = str.substring(6, 8);
+            const h = str.substring(8, 10);
+            const min = str.substring(10, 12);
+            return new Date(Date.UTC(y, m, d, h, min));
+        }
+
+        // FRISSÍTETT DÁTUM FORMÁTUM: Tegnap / Ma / Holnap / Nap neve - YYYY. MMMM d. (VEZETŐ NULLA NÉLKÜL)
+        function formatDateLabel(dateStr) {
+            const date = new Date(dateStr + 'T00:00:00');
+            const months = ['január', 'február', 'március', 'április', 'május', 'június', 'július', 'augusztus', 'szeptember', 'október', 'november', 'december'];
+            const days = ['Vasárnap', 'Hétfő', 'Kedd', 'Szerda', 'Csütörtök', 'Péntek', 'Szombat'];
+
+            const today = new Date(); today.setHours(0,0,0,0);
+            const target = new Date(date); target.setHours(0,0,0,0);
+            const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
+
+            let dayName = days[date.getDay()];
+            if (diffDays === 0) dayName = 'Ma';
+            else if (diffDays === -1) dayName = 'Tegnap';
+            else if (diffDays === 1) dayName = 'Holnap';
+
+            const dayNum = date.getDate(); // Vezető 0 nélkül
+
+            return `${dayName} - ${date.getFullYear()}. ${months[date.getMonth()]} ${dayNum}.`;
+        }
+
+        async function fetchEPG() {
+            document.getElementById('status').innerText = 'Adatok betöltése...';
+            try {
+                epgData = await invoke('get_epg_data', { sourceId: currentSourceId });
+
+                if (!epgData.channels || epgData.channels.length === 0) {
+                    await downloadSource(currentSourceId);
+                    epgData = await invoke('get_epg_data', { sourceId: currentSourceId });
+                }
+
+                epgData.programmes.forEach(p => {
+                    p.start = parseEPGDate(p.start);
+                    p.stop = parseEPGDate(p.stop);
+                });
+
+                document.getElementById('status').innerText = 'Kész!';
+                setupDateSelector();
+                renderEPG();
+                scrollToNow();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('status').innerText = 'Hiba az adatok feldolgozásakor.';
+            }
+        }
+
+        window.downloadSource = async function(id) {
+            const src = sources.find(s => s.id === id);
+            if (!src) return;
+
+            document.getElementById('status').innerText = `EPG letöltése: ${src.name}...`;
+            try {
+                await invoke('update_source_epg', { sourceId: src.id, url: src.url });
+                
+                src.lastDownloaded = new Date().toISOString();
+                localStorage.setItem('epg_sources', JSON.stringify(sources));
+                loadSourcesDropdown();
+
+                document.getElementById('status').innerText = 'Sikeres frissítés!';
+                if (id === currentSourceId) {
+                    epgData = await invoke('get_epg_data', { sourceId: currentSourceId });
+                    epgData.programmes.forEach(p => {
+                        p.start = parseEPGDate(p.start);
+                        p.stop = parseEPGDate(p.stop);
+                    });
+                    setupDateSelector();
+                    renderEPG();
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Hiba a letöltés során: ' + err);
+                document.getElementById('status').innerText = 'Hiba történt a frissítéskor.';
+            }
+        };
+
+        window.editSource = function(id) {
+            const src = sources.find(s => s.id === id);
+            if (!src) return;
+
+            document.getElementById('editSourceId').value = src.id;
+            document.getElementById('sourceNameInput').value = src.name;
+            document.getElementById('sourceUrlInput').value = src.url;
+            document.getElementById('saveSourceBtn').innerText = 'MÓDOSÍTÁS MENTÉSE';
+        };
+
+        window.deleteSource = async function(id) {
+            if (!confirm('Biztosan törölni szeretné ezt a forrást?')) return;
+
+            try {
+                await invoke('delete_source_data', { sourceId: id });
+                sources = sources.filter(s => s.id !== id);
+                localStorage.setItem('epg_sources', JSON.stringify(sources));
+
+                if (currentSourceId === id) {
+                    currentSourceId = sources.length > 0 ? sources[0].id : "";
+                }
+
+                loadSourcesDropdown();
+                if (currentSourceId) {
+                    await fetchEPG();
+                } else {
+                    epgData = { channels: [], programmes: [] };
+                    renderEPG();
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Hiba az adatok törlésekor: ' + err);
+            }
+        };
+
+        document.getElementById('clearDbBtn').onclick = async () => {
+            if (!confirm('Biztosan törölni szeretné a teljes EPG adatbázist? Minden letöltött műsor elveszik.')) return;
+
+            try {
+                await invoke('clear_entire_database');
+                sources.forEach(s => s.lastDownloaded = null);
+                localStorage.setItem('epg_sources', JSON.stringify(sources));
+                
+                loadSourcesDropdown();
+                epgData = { channels: [], programmes: [] };
+                renderEPG();
+                alert('Az adatbázis sikeresen kiürítve!');
+            } catch (err) {
+                console.error(err);
+                alert('Hiba az adatbázis törlésekor: ' + err);
+            }
+        };
+
+        document.getElementById('saveSourceBtn').onclick = () => {
+            const editId = document.getElementById('editSourceId').value;
+            const name = document.getElementById('sourceNameInput').value.trim();
+            const url = document.getElementById('sourceUrlInput').value.trim();
+            if (!name || !url) return alert('Kérjük töltsön ki minden mezőt!');
+
+            if (editId) {
+                const src = sources.find(s => s.id === editId);
+                if (src) {
+                    src.name = name;
+                    src.url = url;
+                }
+                document.getElementById('editSourceId').value = '';
+                document.getElementById('saveSourceBtn').innerText = 'MENTÉS';
+            } else {
+                sources.push({ id: 'src_' + Date.now(), name, url, lastDownloaded: null });
+            }
+
+            localStorage.setItem('epg_sources', JSON.stringify(sources));
+            document.getElementById('sourceNameInput').value = '';
+            document.getElementById('sourceUrlInput').value = '';
+            loadSourcesDropdown();
+        };
+
+        function setupDateSelector() {
+            const dateSelect = document.getElementById('dateSelect');
+            const dates = new Set();
+
+            epgData.programmes.forEach(p => {
+                if (p.start && !isNaN(p.start.getTime())) {
+                    const y = p.start.getFullYear();
+                    const m = String(p.start.getMonth() + 1).padStart(2, '0');
+                    const d = String(p.start.getDate()).padStart(2, '0');
+                    dates.add(`${y}-${m}-${d}`);
+                }
+            });
+
+            const sortedDates = Array.from(dates).sort();
+            dateSelect.innerHTML = '';
+
+            sortedDates.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.textContent = formatDateLabel(d);
+                dateSelect.appendChild(opt);
+            });
+
+            if (sortedDates.length > 0) {
+                selectedDateStr = sortedDates[0];
+                dateSelect.value = selectedDateStr;
+            }
+
+            dateSelect.onchange = (e) => {
+                selectedDateStr = e.target.value;
+                renderEPG();
+            };
+        }
+
+        function renderEPG() {
+            const filterText = document.getElementById('searchInput').value.toLowerCase().trim();
+            const timeColumn = document.getElementById('timeColumn');
+            const channelsContainer = document.getElementById('channelsContainer');
+            timeColumn.innerHTML = '';
+            channelsContainer.innerHTML = '';
+
+            document.documentElement.style.setProperty('--minute-height', `${currentMinuteHeight}px`);
+            document.documentElement.style.setProperty('--step-min', currentStepMin);
+
+            const totalMinutes = 1440;
+            for (let min = 0; min < totalMinutes; min += currentStepMin) {
+                const h = Math.floor(min / 60) % 24;
+                const m = min % 60;
+                const timeDiv = document.createElement('div');
+                timeDiv.className = 'time-slot';
+                if (m === 0) timeDiv.classList.add('full-hour');
+                timeDiv.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                timeColumn.appendChild(timeDiv);
+            }
+
+            const dayStart = new Date(`${selectedDateStr}T00:00:00`);
+            const dayEnd = new Date(dayStart.getTime() + totalMinutes * 60000);
+
+            let firstMatchEl = null;
+
+            epgData.channels.forEach(channel => {
+                const channelProgs = epgData.programmes.filter(p => 
+                    p.channel === channel.id && p.stop > dayStart && p.start < dayEnd
+                );
+
+                if (channelProgs.length === 0) return;
+
+                if (filterText) {
+                    const chNameMatch = String(channel.name || '').toLowerCase().includes(filterText);
+                    const progMatch = channelProgs.some(p => String(p.title || '').toLowerCase().includes(filterText));
+                    if (!chNameMatch && !progMatch) return;
+                }
+
+                const columnWrapper = document.createElement('div');
+                columnWrapper.className = 'channel-column-wrapper';
+
+                const headerItem = document.createElement('div');
+                headerItem.className = 'channel-header-item';
+                
+                // HTTP/HTTPS PROTOKOL BIZTONSÁGOS LOGÓ FORMÁZÁS
+                let iconUrl = channel.icon || '';
+                if (iconUrl.startsWith('http://')) {
+                    iconUrl = iconUrl.replace('http://', 'https://');
+                }
+
+                headerItem.innerHTML = `
+                    <div class="logo-wrapper">
+                        ${iconUrl ? `<img src="${iconUrl}" alt="${channel.name}" onerror="this.parentElement.style.display='none'">` : ''}
+                    </div>
+                    <span>${channel.name}</span>
+                `;
+                columnWrapper.appendChild(headerItem);
+
+                const grid = document.createElement('div');
+                grid.className = 'programme-grid';
+
+                channelProgs.forEach(prog => {
+                    const startDiffMin = Math.max(0, (prog.start - dayStart) / 1000 / 60);
+                    const endDiffMin = Math.min(totalMinutes, (prog.stop - dayStart) / 1000 / 60);
+                    const durationMin = endDiffMin - startDiffMin;
+
+                    if (durationMin <= 0) return;
+
+                    const isFav = favorites.includes(prog.title);
+                    const isHighlight = filterText && prog.title.toLowerCase().includes(filterText);
+
+                    const progEl = document.createElement('div');
+                    progEl.className = `programme ${isFav ? 'favorite' : ''} ${isHighlight ? 'highlight' : ''}`;
+                    progEl.style.top = `${startDiffMin * currentMinuteHeight}px`;
+                    progEl.style.height = `${Math.max(14, durationMin * currentMinuteHeight - 1)}px`;
+
+                    const startStr = prog.start.toTimeString().substring(0, 5);
+                    const stopStr = prog.stop.toTimeString().substring(0, 5);
+
+                    progEl.innerHTML = `
+                        <span class="fav-star ${isFav ? 'active' : ''}">★</span>
+                        <span class="start-badge">${startStr}</span>
+                        <div class="title">${prog.title}</div>
+                    `;
+
+                    if (isHighlight && !firstMatchEl) {
+                        firstMatchEl = progEl;
+                    }
+
+                    progEl.querySelector('.fav-star').onclick = (e) => {
+                        e.stopPropagation();
+                        toggleFavorite(prog.title);
+                    };
+
+                    progEl.onclick = () => openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc);
+                    grid.appendChild(progEl);
+                });
+
+                columnWrapper.appendChild(grid);
+                channelsContainer.appendChild(columnWrapper);
+            });
+
+            renderNowLine(dayStart);
+
+            if (firstMatchEl) {
+                const viewport = document.getElementById('epgViewport');
+                viewport.scrollTop = firstMatchEl.offsetTop - 150;
+            }
+        }
+
+        function toggleFavorite(title) {
+            if (favorites.includes(title)) {
+                favorites = favorites.filter(t => t !== title);
+            } else {
+                favorites.push(title);
+            }
+            localStorage.setItem('epg_favorites', JSON.stringify(favorites));
+            updateModalFavStar();
+            renderEPG();
+        }
+
+        function openModal(title, time, desc) {
+            currentModalTitle = title;
+            document.getElementById('modalTitle').innerText = title;
+            document.getElementById('modalTime').innerText = time;
+            document.getElementById('modalDesc').innerText = desc || 'Nincs leírás.';
+            updateModalFavStar();
+            document.getElementById('modalOverlay').classList.add('active');
+        }
+
+        function updateModalFavStar() {
+            const star = document.getElementById('modalFavStar');
+            if (favorites.includes(currentModalTitle)) {
+                star.classList.add('active');
+            } else {
+                star.classList.remove('active');
+            }
+        }
+
+        document.getElementById('modalFavStar').onclick = () => {
+            if (currentModalTitle) toggleFavorite(currentModalTitle);
+        };
+
+        function renderNowLine(dayStart) {
+            const now = new Date();
+            const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            if (selectedDateStr === todayStr) {
+                const currentMin = now.getHours() * 60 + now.getMinutes();
+                const topPx = (currentMin * currentMinuteHeight) + 85;
+                const line = document.createElement('div');
+                line.className = 'now-line';
+                line.style.top = `${topPx}px`;
+                document.getElementById('channelsContainer').appendChild(line);
+            }
+        }
+
+        function scrollToNow() {
+            const nowLine = document.querySelector('.now-line');
+            if (nowLine) {
+                document.getElementById('epgViewport').scrollTop = nowLine.offsetTop - 200;
+            }
+        }
+
+        document.getElementById('favListBtn').onclick = () => {
+            const content = document.getElementById('favListContent');
+            content.innerHTML = '';
+            
+            if (favorites.length === 0) {
+                content.innerHTML = '<p style="color:#aaa;">Még nincsenek kedvenc műsorok kiválasztva.</p>';
+            } else {
+                let matchedList = [];
+                favorites.forEach(favTitle => {
+                    const progs = epgData.programmes.filter(p => p.title === favTitle);
+                    progs.forEach(p => matchedList.push(p));
+                });
+
+                matchedList.sort((a, b) => a.start - b.start);
+
+                const groupedByDay = {};
+                matchedList.forEach(prog => {
+                    const dayKey = formatDateLabel(`${prog.start.getFullYear()}-${String(prog.start.getMonth() + 1).padStart(2, '0')}-${String(prog.start.getDate()).padStart(2, '0')}`);
+                    if (!groupedByDay[dayKey]) groupedByDay[dayKey] = [];
+                    groupedByDay[dayKey].push(prog);
+                });
+
+                for (const [dayHeader, progs] of Object.entries(groupedByDay)) {
+                    const groupDiv = document.createElement('div');
+                    groupDiv.className = 'fav-day-group';
+
+                    const header = document.createElement('div');
+                    header.className = 'fav-day-header';
+                    header.textContent = dayHeader;
+                    groupDiv.appendChild(header);
+
+                    progs.forEach(prog => {
+                        const ch = epgData.channels.find(c => c.id === prog.channel);
+                        const chName = ch ? ch.name : prog.channel;
+                        const startStr = prog.start.toTimeString().substring(0, 5);
+
+                        const row = document.createElement('div');
+                        row.className = 'fav-item-row';
+                        row.innerHTML = `
+                            <span class="start-badge">${startStr}</span>
+                            <span class="fav-item-title">${prog.title}</span>
+                            <span class="channel-badge">${chName}</span>
+                            <button class="btn btn-red" style="padding: 2px 6px; margin-left: 6px;">X</button>
+                        `;
+                        row.querySelector('button').onclick = () => {
+                            toggleFavorite(prog.title);
+                            document.getElementById('favListBtn').click();
+                        };
+                        groupDiv.appendChild(row);
+                    });
+
+                    content.appendChild(groupDiv);
+                }
+            }
+            document.getElementById('favOverlay').classList.add('active');
+        };
+
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.onclick = (e) => {
+                if (e.target === overlay) {
+                    overlay.classList.remove('active');
+                }
+            };
+        });
+
+        document.getElementById('searchInput').oninput = () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(renderEPG, 300);
+        };
+
+        document.getElementById('searchBtn').onclick = renderEPG;
+        document.getElementById('clearSearchBtn').onclick = () => {
+            document.getElementById('searchInput').value = '';
+            renderEPG();
+        };
+
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentStepMin = parseInt(btn.dataset.step);
+                currentMinuteHeight = parseFloat(btn.dataset.height);
+                renderEPG();
+            };
+        });
+
+        document.getElementById('nowBtn').onclick = () => {
+            const now = new Date();
+            const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            if (selectedDateStr !== todayStr) {
+                selectedDateStr = todayStr;
+                document.getElementById('dateSelect').value = selectedDateStr;
+                renderEPG();
+            }
+            scrollToNow();
+        };
+
+        document.getElementById('modalClose').onclick = () => document.getElementById('modalOverlay').classList.remove('active');
+        document.getElementById('favClose').onclick = () => document.getElementById('favOverlay').classList.remove('active');
+        document.getElementById('settingsBtn').onclick = () => document.getElementById('settingsOverlay').classList.add('active');
+        document.getElementById('settingsClose').onclick = () => document.getElementById('settingsOverlay').classList.remove('active');
+
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
