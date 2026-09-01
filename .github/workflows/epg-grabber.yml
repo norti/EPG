@@ -25,13 +25,18 @@ jobs:
           cd iptv-epg
           npm install
 
-      - name: EPG adatok letöltése (Magenta, Port.hu, Sky)
+      - name: EPG adatok letöltése (Magenta, Port.hu, Sky, TVHeute)
         run: |
           mkdir -p ../temp_xml
           cd iptv-epg
-          npm run grab --- --sites=www.magenta.tv --days=7 --output=../temp_xml/magenta_de.xml
+          npm run channels:parse --- --config=./sites/www.magenta.tv/www.magenta.tv.config.js --output=./sites/www.magenta.tv/www.magenta.tv.channels.xml
+          npm run grab --- --sites=www.magenta.tv --days=5 --output=../temp_xml/magenta_de.xml
+          npm run channels:parse --- --config=./sites/port.hu/port.hu.config.js --output=./sites/port.hu/port.hu.channels.xml
           npm run grab --- --sites=port.hu --delay=2000 --days=7 --output=../temp_xml/porthu.xml
-          npm run grab --- --sites=sky.com --days=7 --output=../temp_xml/sky.xml
+          npm run channels:parse --- --config=./sites/sky.com/sky.com.config.js --output=./sites/sky.com/sky.com.channels.xml
+          npm run grab --- --sites=sky.com --days=5 --output=../temp_xml/sky.xml
+          npm run channels:parse --- --config=./sites/tvheute.at/tvheute.at.config.js --output=./sites/tvheute.at/tvheute.at.channels.xml
+          npm run grab --- --sites=tvheute.at --days=5 --output=../temp_xml/tvheute.xml
 
       - name: Fájlok tömörítése GZ formátumba
         run: |
@@ -39,6 +44,7 @@ jobs:
           gzip -c temp_xml/magenta_de.xml > EPG/magenta_de.xml.gz
           gzip -c temp_xml/porthu.xml > EPG/porthu.xml.gz
           gzip -c temp_xml/sky.xml > EPG/sky.xml.gz
+          gzip -c temp_xml/tvheute.xml > EPG/tvheute.xml.gz
 
       - name: Frissített .gz fájlok visszatöltése a repóba (Git Commit & Push)
         run: |
