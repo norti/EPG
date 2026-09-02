@@ -37,6 +37,8 @@ struct Source {
     name: String,
     url: String,
     last_downloaded: Option<String>,
+    country_code: Option<String>,
+    time_offset: Option<i32>,
 }
 
 fn get_db_path() -> PathBuf {
@@ -62,7 +64,9 @@ fn init_db() -> Connection {
             id TEXT PRIMARY KEY,
             name TEXT,
             url TEXT,
-            last_downloaded TEXT
+            last_downloaded TEXT,
+            country_code TEXT,
+            time_offset INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS favorites (
@@ -81,6 +85,10 @@ fn init_db() -> Connection {
             value TEXT
         );",
     ).unwrap();
+
+    // Meglévő adatbázis sémakorrekció, ha hiányoznának az új oszlopok
+    let _ = conn.execute("ALTER TABLE sources ADD COLUMN country_code TEXT", []);
+    let _ = conn.execute("ALTER TABLE sources ADD COLUMN time_offset INTEGER", []);
 
     // Korábbi alapértelmezett források törlése a tiszta induláshoz
     conn.execute("DELETE FROM sources WHERE id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
@@ -142,13 +150,15 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
 #[tauri::command]
 async fn get_sources() -> Result<Vec<Source>, String> {
     let conn = init_db();
-    let mut stmt = conn.prepare("SELECT id, name, url, last_downloaded FROM sources ORDER BY rowid ASC").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT id, name, url, last_downloaded, country_code, time_offset FROM sources ORDER BY rowid ASC").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
         Ok(Source {
             id: row.get(0)?,
             name: row.get(1)?,
             url: row.get(2)?,
             last_downloaded: row.get(3)?,
+            country_code: row.get(4)?,
+            time_offset: row.get(5)?,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -163,9 +173,14 @@ async fn get_sources() -> Result<Vec<Source>, String> {
 async fn save_source(source: Source) -> Result<(), String> {
     let conn = init_db();
     conn.execute(
-        "INSERT INTO sources (id, name, url, last_downloaded) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT(id) DO UPDATE SET name = excluded.name, url = excluded.url, last_downloaded = COALESCE(excluded.last_downloaded, sources.last_downloaded)",
-        params![source.id, source.name, source.url, source.last_downloaded],
+        "INSERT INTO sources (id, name, url, last_downloaded, country_code, time_offset) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(id) DO UPDATE SET 
+            name = excluded.name, 
+            url = excluded.url, 
+            last_downloaded = COALESCE(excluded.last_downloaded, sources.last_downloaded),
+            country_code = excluded.country_code,
+            time_offset = excluded.time_offset",
+        params![source.id, source.name, source.url, source.last_downloaded, source.country_code, source.time_offset],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -416,7 +431,6 @@ async fn update_source_epg(source_id: String, url: String) -> Result<(), String>
         buf.clear();
     }
 
-    // Frissítési időbélyeg elmentése a sources táblába
     tx.execute(
         "UPDATE sources SET last_downloaded = datetime('now', 'localtime') WHERE id = ?1",
         params![source_id],
@@ -446,15 +460,12 @@ fn apply_windows_dark_titlebar(hwnd: isize) {
         if !dwmapi.is_null() {
             let func = GetProcAddress(dwmapi, b"DwmSetWindowAttribute\0".as_ptr());
             if let Some(set_attr) = std::mem::transmute::<_, Option<DwmSetWindowAttributeFn>>(func) {
-                // DWMWA_USE_IMMERSIVE_DARK_MODE = 20
                 let dark_mode: i32 = 1;
                 set_attr(hwnd, 20, &dark_mode as *const _ as *const c_void, 4);
 
-                // DWMWA_CAPTION_COLOR = 35 (Windows 11): 0x001F1F1F (#1F1F1F szürke az inaktív ablak stílusához)
                 let caption_color: u32 = 0x001F1F1F;
                 set_attr(hwnd, 35, &caption_color as *const _ as *const c_void, 4);
 
-                // DWMWA_TEXT_COLOR = 36 (Windows 11): fehér felirat
                 let text_color: u32 = 0x00FFFFFF;
                 set_attr(hwnd, 36, &text_color as *const _ as *const c_void, 4);
             }
