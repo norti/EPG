@@ -2,8 +2,8 @@ name: Automatic EPG Grabber
 
 on:
   schedule:
-    # Minden hétfőn és csütörtökön hajnali 02:00 UTC-kor fut le
-    - cron: '0 2 * * 1,4'
+    # Minden hétfő, csütörtök és szombati napon hajnali 2:00 UTC időben fut le (kb. 1 óra futási idővel)
+    - cron: '0 2 * * 1,4,6'
   workflow_dispatch: # Kézi indítási lehetőség a GitHub felületéről
 
 jobs:
