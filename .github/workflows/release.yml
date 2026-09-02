@@ -21,7 +21,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
-          releaseName: 'EPG Viewer v__VERSION__'
-          releaseBody: 'Új EPG Viewer kiadás.'
+          releaseName: 'EPG/XML TV műsor megjelenítő v__VERSION__'
+          releaseBody: 'Új EPG/XML TV műsor megjelenítő kiadás'
           releaseDraft: true
           prerelease: false
