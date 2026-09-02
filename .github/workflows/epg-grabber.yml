@@ -9,6 +9,9 @@ on:
 jobs:
   grab-epg:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
 
     steps:
       - name: Repository klónozása
