@@ -1,8 +1,8 @@
 [package]
 name = "epg-viewer"
 version = "1.0.0"
-description = "EPG Viewer Native App"
-authors = ["You"]
+description = "EPG/XML TV Guide Viewer"
+authors = ["norti"]
 edition = "2021"
 build = "build.rs"
 

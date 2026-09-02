@@ -1,5 +1,5 @@
 {
-  "identifier": "com.epgviewer.app",
+  "identifier": "epgviewer.nrt",
   "build": {
     "beforeDevCommand": "",
     "beforeBuildCommand": "",
@@ -10,10 +10,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "EPG Megjelenítő",
+        "title": "EPG/XML TV műsor megjelenítő",
         "width": 1280,
         "height": 800,
-        "resizable": true
+        "resizable": true,
+        "theme": "Dark"
       }
     ]
   },
