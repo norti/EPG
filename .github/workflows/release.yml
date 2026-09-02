@@ -12,16 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: setup node
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
-
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
-
-      - name: install app dependencies
-        run: npm install
 
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0
@@ -30,6 +22,6 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'EPG Viewer v__VERSION__'
-          releaseBody: 'Új EPG Megjelenítő kiadás.'
+          releaseBody: 'Új EPG Viewer kiadás.'
           releaseDraft: true
           prerelease: false
