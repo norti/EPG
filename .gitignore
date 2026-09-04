@@ -12,6 +12,7 @@ cache/
 *.db
 *.log
 .vs/
+.crossnote
 
 # OS által generált fájlok
 .DS_Store
