@@ -28,7 +28,7 @@ jobs:
           cd iptv-epg
           npm install
 
-      - name: EPG adatok letöltése (Magenta, Port.hu, TVheute, TV Mustra)
+      - name: EPG adatok letöltése (Magenta, Port.hu, TVheute)
         run: |
           mkdir -p ../temp_xml
           cd iptv-epg
@@ -53,6 +53,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull
           git add EPG/*.gz
           git commit -m "Auto-update EPG files [skip ci]" || exit 0
           git push
