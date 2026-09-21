@@ -2,8 +2,8 @@ name: Automatic EPG Grabber
 
 on:
   schedule:
-    # Minden hétfő, csütörtök és szombati napon hajnali 2:00 UTC időben fut le (kb. 1 óra futási idővel)
-    - cron: "0 2 * * 1,4,6"
+    # Minden nap, nem csúcsidőben fut le (kb. 1 óra futási idővel)
+    - cron: "13 23 * * *"
   workflow_dispatch: # Kézi indítási lehetőség a GitHub felületéről
 
 jobs:
@@ -15,10 +15,10 @@ jobs:
 
     steps:
       - name: Repository klónozása
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Node.js beállítása
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v7
         with:
           node-version: 24
 
@@ -28,18 +28,19 @@ jobs:
           cd iptv-epg
           npm install
 
-      - name: EPG adatok letöltése (Magenta, Port.hu, TVheute)
+      - name: EPG adatok letöltése (Magenta, Port.hu, TVheute, TV Mustra)
         run: |
           mkdir -p ../temp_xml
+          cp -f epg-fix/tvmustra.hu.config.js iptv-epg/sites/tvmustra.hu/
           cd iptv-epg
           npm run channels:parse --- --config=./sites/www.magenta.tv/www.magenta.tv.config.js --output=./sites/www.magenta.tv/www.magenta.tv.channels.xml
           npm run grab --- --sites=www.magenta.tv --days=5 --output=../temp_xml/magenta_de.xml
           npm run channels:parse --- --config=./sites/port.hu/port.hu.config.js --output=./sites/port.hu/port.hu.channels.xml
-          npm run grab --- --sites=port.hu --delay=2000 --days=7 --output=../temp_xml/porthu.xml
+          npm run grab --- --sites=port.hu --delay=2000 --days=5 --output=../temp_xml/porthu.xml
           npm run channels:parse --- --config=./sites/tvheute.at/tvheute.at.config.js --output=./sites/tvheute.at/tvheute.at.channels.xml
           npm run grab --- --sites=tvheute.at --days=5 --output=../temp_xml/tvheute.xml
-#          npm run channels:parse --- --config=./sites/tvmustra.hu/tvmustra.hu.config.js --output=./sites/tvmustra.hu/tvmustra.hu.channels.xml
-#          npm run grab --- --sites=tvmustra.hu --days=7 --output=../temp_xml/tvmustra.xml
+          npm run channels:parse --- --config=./sites/tvmustra.hu/tvmustra.hu.config.js --output=./sites/tvmustra.hu/tvmustra.hu.channels.xml
+          npm run grab --- --sites=tvmustra.hu --days=5 --maxConnections=1 --delay=1000 --output=../temp_xml/tvmustra.xml
 
       - name: Fájlok tömörítése GZ formátumba
         run: |
@@ -47,8 +48,7 @@ jobs:
           gzip -c temp_xml/magenta_de.xml > EPG/magenta_de.xml.gz
           gzip -c temp_xml/porthu.xml > EPG/porthu.xml.gz
           gzip -c temp_xml/tvheute.xml > EPG/tvheute.xml.gz
-#          gzip -c temp_xml/tvmustra.xml > EPG/tvmustra.xml.gz
-
+          gzip -c temp_xml/tvmustra.xml > EPG/tvmustra.xml.gz
       - name: Frissített .gz fájlok visszatöltése a repóba (Git Commit & Push)
         run: |
           git config --global user.name "github-actions[bot]"
