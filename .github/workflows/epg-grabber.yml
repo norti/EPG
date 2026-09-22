@@ -34,9 +34,9 @@ jobs:
           cp -f epg-fix/tvmustra.hu.config.js iptv-epg/sites/tvmustra.hu/
           cd iptv-epg
           npm run channels:parse --- --config=./sites/www.magenta.tv/www.magenta.tv.config.js --output=./sites/www.magenta.tv/www.magenta.tv.channels.xml
-          npm run grab --- --sites=www.magenta.tv --days=5 --output=../temp_xml/magenta_de.xml
+          npm run grab --- --sites=www.magenta.tv --days=7 --output=../temp_xml/magenta_de.xml
           npm run channels:parse --- --config=./sites/port.hu/port.hu.config.js --output=./sites/port.hu/port.hu.channels.xml
-          npm run grab --- --sites=port.hu --delay=2000 --days=5 --output=../temp_xml/porthu.xml
+          npm run grab --- --sites=port.hu --delay=2000 --days=7 --output=../temp_xml/porthu.xml
           npm run channels:parse --- --config=./sites/tvheute.at/tvheute.at.config.js --output=./sites/tvheute.at/tvheute.at.channels.xml
           npm run grab --- --sites=tvheute.at --days=5 --output=../temp_xml/tvheute.xml
           npm run channels:parse --- --config=./sites/tvmustra.hu/tvmustra.hu.config.js --output=./sites/tvmustra.hu/tvmustra.hu.channels.xml
