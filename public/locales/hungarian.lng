@@ -16,6 +16,7 @@
   "status_ready": "Kész!",
   "status_error": "Hiba az adatok feldolgozásakor.",
   "status_downloading": "EPG letöltése: {name}...",
+  "status_updating": "Frissítés alatt...",
   "status_download_success": "Sikeres frissítés!",
   "status_download_error": "Hiba történt a frissítéskor.",
   "settings_title": "BEÁLLÍTÁSOK",
@@ -55,6 +56,27 @@
   "day_today": "Ma",
   "day_yesterday": "Tegnap",
   "day_tomorrow": "Holnap",
-  "days": ["Vasárnap", "Hétfő", "Kedd", "Szerda", "Csütörtök", "Péntek", "Szombat"],
-  "months": ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"]
+  "days": [
+    "Vasárnap",
+    "Hétfő",
+    "Kedd",
+    "Szerda",
+    "Csütörtök",
+    "Péntek",
+    "Szombat"
+  ],
+  "months": [
+    "január",
+    "február",
+    "március",
+    "április",
+    "május",
+    "június",
+    "július",
+    "augusztus",
+    "szeptember",
+    "október",
+    "november",
+    "december"
+  ]
 }

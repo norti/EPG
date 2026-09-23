@@ -16,6 +16,7 @@
   "status_ready": "Ready!",
   "status_error": "Error processing data.",
   "status_downloading": "Downloading EPG: {name}...",
+  "status_updating": "Updating...",
   "status_download_success": "Update successful!",
   "status_download_error": "Error occurred during update.",
   "settings_title": "SETTINGS",
@@ -55,6 +56,27 @@
   "day_today": "Today",
   "day_yesterday": "Yesterday",
   "day_tomorrow": "Tomorrow",
-  "days": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
-  "months": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+  "days": [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday"
+  ],
+  "months": [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ]
 }
