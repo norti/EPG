@@ -58,12 +58,7 @@
       button,
       textarea {
         font-family:
-          "Segoe UI",
-          -apple-system,
-          BlinkMacSystemFont,
-          Roboto,
-          Helvetica,
-          Arial,
+          Inter, "Asap Condensed", Roboto, Bookerly, "Segoe UI", Arial,
           sans-serif;
       }
 
@@ -98,7 +93,7 @@
       select {
         padding: 8px 12px;
         border-radius: 5px;
-        border: 1px solid #444;
+        border: 1px solid #fff;
         background-color: #2a2a2a;
         color: #fff;
         font-size: 13px;
@@ -114,18 +109,26 @@
 
       .btn {
         padding: 8px 12px;
-        border-radius: 5px;
+        border-radius: 6px;
         border: none;
         font-weight: bold;
         font-size: 12px;
         cursor: pointer;
         color: #fff;
+        box-shadow:
+          2px 2px 2px #000,
+          -2px -2px 2px #2f2f2f;
         transition:
           opacity 0.2s,
-          transform 0.1s;
+          transform 0.35s;
       }
-      .btn:hover {
-        opacity: 0.85;
+      .btn:hover,
+      :focus {
+        border: 0px solid #008cff;
+        box-shadow:
+          inset 0 5px 25px 0 #af40ff,
+          inset 0 10px 15px 0px #5b42f3,
+          inset 0 5px 25px 0px #00ddeb;
       }
       .btn:active {
         transform: scale(0.96);
@@ -135,7 +138,7 @@
         background-color: #3182ce;
       }
       #clearSearchBtn {
-        background-color: #4a5568;
+        background-color: #ff0000;
       }
       #nowBtn {
         background-color: #e53e3e;
@@ -158,8 +161,8 @@
       }
 
       #status {
-        color: #aaa;
-        font-size: 13px;
+        color: #0cb80c;
+        font-size: 12px;
         margin-left: auto;
       }
 
@@ -181,7 +184,7 @@
         width: var(--time-col-width);
         min-width: var(--time-col-width);
         height: var(--header-height);
-        background-color: #181818;
+        background-color: #1f1f1f;
         border-right: 2px solid #333;
         border-bottom: 2px solid #333;
         z-index: 100;
@@ -236,8 +239,8 @@
           border-color 0.15s;
       }
       .channel-column-wrapper.drag-over {
-        background-color: #1a2f20;
-        outline: 2px dashed var(--accent-green-active);
+        background-color: #f2f5f3;
+        outline: 5px dashed var(--accent-green-active);
         outline-offset: -2px;
       }
       .channel-column-wrapper.dragging {
@@ -268,7 +271,7 @@
         background-color: #48bb78;
         color: #000000;
         font-weight: bold;
-        font-size: 13px;
+        font-size: 16px;
         border-radius: 6px;
         padding: 4px 8px;
         width: 100%;
@@ -278,7 +281,10 @@
         align-items: center;
         justify-content: center;
         text-align: center;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        box-shadow:
+          inset 0 5px 25px 0 #00ff00,
+          inset 0 10px 15px 0px #fff,
+          inset 0 5px 25px 0px #000;
         pointer-events: none;
       }
       .channel-name-badge span {
@@ -301,7 +307,7 @@
         position: absolute;
         width: calc(100% - 6px);
         left: 3px;
-        background-color: #2d3748;
+        background-color: #2d3d4e;
         border-radius: 4px;
         padding: 3px 6px;
         box-sizing: border-box;
@@ -318,13 +324,17 @@
         z-index: 3;
       }
       .programme:hover {
-        background-color: #4a5568;
-        z-index: 25 !important;
+        background-color: #0b571f;
+        border-left: 3px solid #00ff73;
+        /*        z-index: 25 !important; */
       }
 
       .programme.favorite {
         background-color: #5a2328 !important;
         border-left: 3px solid #e53e3e !important;
+      }
+      .programme.favorite:hover {
+        background-color: #0b571f !important;
       }
       .programme.highlight {
         background-color: #1c4532 !important;
@@ -345,8 +355,8 @@
         color: #000000;
         border: 1px solid #000000;
         font-weight: bold;
-        font-size: 10px;
-        padding: 1px 4px;
+        font-size: 12px;
+        padding: 2px 2px;
         border-radius: 3px;
         display: inline-flex;
         align-items: center;
@@ -357,7 +367,7 @@
 
       .prog-header .prog-title {
         font-weight: 700;
-        font-size: 11px;
+        font-size: 12px;
         color: #ffffff;
         white-space: nowrap;
         overflow: hidden;
@@ -367,7 +377,7 @@
       }
 
       .fav-star {
-        font-size: 12px;
+        font-size: 16px;
         color: #718096;
         cursor: pointer;
         transition:
@@ -378,7 +388,7 @@
         padding-left: 2px;
       }
       .fav-star:hover {
-        transform: scale(1.2);
+        transform: scale(1.4);
       }
       .fav-star.active {
         color: #f6e05e !important;
@@ -416,7 +426,7 @@
         left: 0;
         right: 0;
         width: 100%;
-        height: 2px;
+        height: 1px;
         background-color: rgba(229, 62, 62, 0.65);
         box-shadow: 0 0 5px rgba(229, 62, 62, 0.5);
         z-index: 2;
@@ -425,12 +435,12 @@
       .now-line::before {
         content: "";
         position: absolute;
-        left: -6px;
-        top: -5px;
+        left: 0px;
+        top: -6px;
         width: 12px;
         height: 12px;
         background-color: rgba(229, 62, 62, 0.95);
-        border: 2px solid #fff;
+        border: 1px solid #fff;
         border-radius: 50%;
         box-shadow: 0 0 6px #e53e3e;
         z-index: 15;
