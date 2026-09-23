@@ -15,6 +15,7 @@ cache/
 .crossnote
 ToDo.txt
 M3U/
+.addons/
 
 # OS által generált fájlok
 .DS_Store
