@@ -2,8 +2,8 @@ name: Automatic EPG Grabber
 
 on:
   schedule:
-    # Minden páratlan nap, nem csúcsidőben fut le (kb. 1 óra futási idővel)
-    - cron: "13 23 * * 1,3,5,0"
+    # Minden vasárnap, szerda és péntek, nem csúcsidőben fut le (kb. 1 óra futási idővel)
+    - cron: "13 23 * * 3,5,0"
   workflow_dispatch: # Kézi indítási lehetőség a GitHub felületéről
 
 jobs:
@@ -17,33 +17,52 @@ jobs:
       - name: Repository klónozása
         uses: actions/checkout@v7
 
-      - name: Node.js beállítása
+      - name: Node.js v24 beállítása
         uses: actions/setup-node@v7
         with:
           node-version: 24
 
-      - name: IPTV-org EPG eszköz letöltése
+      - name: IPTV-org EPG repo letöltése
         run: |
           git clone https://github.com/iptv-org/epg.git iptv-epg
           cd iptv-epg
           npm install
 
-      - name: EPG adatok letöltése (magenta.tv, port.hu, tvheute.at, tvmustra.hu, magenta.tv web)
+      - name: Előkészítés, EPG fixek másolása (tvmustra.hu, musor.tv, port.hu)
         run: |
-          mkdir -p ../temp_xml
           cp -f epg-fix/tvmustra.hu.config.js iptv-epg/sites/tvmustra.hu/
           cp -f epg-fix/musor.tv.config.js iptv-epg/sites/musor.tv/
+          cp -f epg-fix/port.hu.config.js iptv-epg/sites/port.hu/
+          mkdir -p ../temp_xml
           cd iptv-epg
+
+      - name: EPG adatok letöltése - magenta.tv (7 nap)
+        run: |
           npm run channels:parse --- --config=./sites/www.magenta.tv/www.magenta.tv.config.js --output=./sites/www.magenta.tv/www.magenta.tv.channels.xml
           npm run grab --- --sites=www.magenta.tv --days=7 --output=../temp_xml/magenta_de.xml
+
+      - name: EPG adatok letöltése - port.hu (13 nap)
+        run: |
           npm run channels:parse --- --config=./sites/port.hu/port.hu.config.js --output=./sites/port.hu/port.hu.channels.xml
-          npm run grab --- --sites=port.hu --delay=2000 --days=7 --output=../temp_xml/porthu.xml
+          npm run grab --- --sites=port.hu --delay=1000 --days=13 --output=../temp_xml/porthu.xml
+
+      - name: EPG adatok letöltése - tvheute.at (7 nap)
+        run: |
           npm run channels:parse --- --config=./sites/tvheute.at/tvheute.at.config.js --output=./sites/tvheute.at/tvheute.at.channels.xml
           npm run grab --- --sites=tvheute.at --days=7 --output=../temp_xml/tvheute.xml
+
+      - name: EPG adatok letöltése - tvmustra.hu (7 nap)
+        run: |
           npm run channels:parse --- --config=./sites/tvmustra.hu/tvmustra.hu.config.js --output=./sites/tvmustra.hu/tvmustra.hu.channels.xml
           npm run grab --- --sites=tvmustra.hu --days=7 --maxConnections=1 --output=../temp_xml/tvmustra.xml
+
+      - name: EPG adatok letöltése - web.magentatv.de (7 nap)
+        run: |
           npm run channels:parse --- --config=./sites/web.magentatv.de/web.magentatv.de.config.js --output=./sites/web.magentatv.de/web.magentatv.de.channels.xml
           npm run grab --- --sites=web.magentatv.de --days=7 --output=../temp_xml/magenta_web.xml
+
+      - name: EPG adatok letöltése - musor.tv (14 nap)
+        run: |
           npm run channels:parse --- --config=./sites/musor.tv/musor.tv.config.js --output=./sites/musor.tv/musor.tv.channels.xml
           npm run grab --- --sites=musor.tv --days=14 --maxConnections=1 --output=../temp_xml/musor_tv.xml
 
