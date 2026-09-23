@@ -28,27 +28,35 @@ jobs:
           cd iptv-epg
           npm install
 
-      - name: EPG adatok letöltése (Magenta, Port.hu, TVheute, TV Mustra)
+      - name: EPG adatok letöltése (magenta.tv, port.hu, tvheute.at, tvmustra.hu, magenta.tv web)
         run: |
           mkdir -p ../temp_xml
           cp -f epg-fix/tvmustra.hu.config.js iptv-epg/sites/tvmustra.hu/
+          cp -f epg-fix/musor.tv.config.js iptv-epg/sites/musor.tv/
           cd iptv-epg
           npm run channels:parse --- --config=./sites/www.magenta.tv/www.magenta.tv.config.js --output=./sites/www.magenta.tv/www.magenta.tv.channels.xml
-          npm run grab --- --sites=www.magenta.tv --days=7 --output=../temp_xml/magenta_de.xml
+          npm run grab --- --sites=www.magenta.tv --days=7 --output=../temp_xml/magenta_tv.xml
           npm run channels:parse --- --config=./sites/port.hu/port.hu.config.js --output=./sites/port.hu/port.hu.channels.xml
           npm run grab --- --sites=port.hu --delay=2000 --days=7 --output=../temp_xml/porthu.xml
           npm run channels:parse --- --config=./sites/tvheute.at/tvheute.at.config.js --output=./sites/tvheute.at/tvheute.at.channels.xml
-          npm run grab --- --sites=tvheute.at --days=5 --output=../temp_xml/tvheute.xml
+          npm run grab --- --sites=tvheute.at --days=7 --output=../temp_xml/tvheute.xml
           npm run channels:parse --- --config=./sites/tvmustra.hu/tvmustra.hu.config.js --output=./sites/tvmustra.hu/tvmustra.hu.channels.xml
-          npm run grab --- --sites=tvmustra.hu --days=5 --maxConnections=1 --delay=1000 --output=../temp_xml/tvmustra.xml
+          npm run grab --- --sites=tvmustra.hu --days=7 --maxConnections=1 --output=../temp_xml/tvmustra.xml
+          npm run channels:parse --- --config=./sites/web.magentatv.de/web.magentatv.de.config.js --output=./sites/web.magentatv.de/web.magentatv.de.channels.xml
+          npm run grab --- --sites=web.magentatv.de --days=7 --output=../temp_xml/magenta_web.xml
+          npm run channels:parse --- --config=./sites/musor.tv/musor.tv.config.js --output=./sites/musor.tv/musor.tv.channels.xml
+          npm run grab --- --sites=musor.tv --days=14 --maxConnections=1 --output=../temp_xml/musor_tv.xml
 
       - name: Fájlok tömörítése GZ formátumba
         run: |
           mkdir -p EPG
-          gzip -c temp_xml/magenta_de.xml > EPG/magenta_de.xml.gz
+          gzip -c temp_xml/magenta_tv.xml > EPG/magenta_tv.xml.gz
           gzip -c temp_xml/porthu.xml > EPG/porthu.xml.gz
           gzip -c temp_xml/tvheute.xml > EPG/tvheute.xml.gz
           gzip -c temp_xml/tvmustra.xml > EPG/tvmustra.xml.gz
+          gzip -c temp_xml/magenta_web.xml > EPG/magenta_web.xml.gz
+          gzip -c temp_xml/musor_tv.xml > EPG/musor_tv.xml.gz
+
       - name: Frissített .gz fájlok visszatöltése a repóba (Git Commit & Push)
         run: |
           git config --global user.name "github-actions[bot]"
