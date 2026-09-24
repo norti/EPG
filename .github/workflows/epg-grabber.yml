@@ -33,11 +33,11 @@ jobs:
           cp -f epg-fix/tvmustra.hu.config.js iptv-epg/sites/tvmustra.hu/
           cp -f epg-fix/musor.tv.config.js iptv-epg/sites/musor.tv/
           cp -f epg-fix/port.hu.config.js iptv-epg/sites/port.hu/
-          mkdir -p ../temp_xml
-          cd iptv-epg
 
       - name: EPG adatok letöltése - magenta.tv (7 nap)
         run: |
+          mkdir -p ../temp_xml
+          cd iptv-epg
           npm run channels:parse --- --config=./sites/www.magenta.tv/www.magenta.tv.config.js --output=./sites/www.magenta.tv/www.magenta.tv.channels.xml
           npm run grab --- --sites=www.magenta.tv --days=7 --output=../temp_xml/magenta_de.xml
 
