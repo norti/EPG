@@ -41,11 +41,11 @@ jobs:
           npm run channels:parse --- --config=./sites/www.magenta.tv/www.magenta.tv.config.js --output=./sites/www.magenta.tv/www.magenta.tv.channels.xml
           npm run grab --- --sites=www.magenta.tv --days=7 --output=../temp_xml/magenta_de.xml
 
-      - name: EPG adatok letöltése - port.hu (13 nap)
+      - name: EPG adatok letöltése - port.hu (7 nap)
         run: |
           cd iptv-epg
           npm run channels:parse --- --config=./sites/port.hu/port.hu.config.js --output=./sites/port.hu/port.hu.channels.xml
-          npm run grab --- --sites=port.hu --delay=1000 --days=13 --output=../temp_xml/porthu.xml
+          npm run grab --- --sites=port.hu --delay=2000 --days=7 --output=../temp_xml/porthu.xml
 
       - name: EPG adatok letöltése - tvheute.at (7 nap)
         run: |
