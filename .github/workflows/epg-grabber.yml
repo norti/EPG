@@ -45,7 +45,7 @@ jobs:
         run: |
           cd iptv-epg
           npm run channels:parse --- --config=./sites/port.hu/port.hu.config.js --output=./sites/port.hu/port.hu.channels.xml
-          npm run grab --- --sites=port.hu --delay=2000 --days=7 --output=../temp_xml/porthu.xml
+          npm run grab --- --sites=port.hu --maxConnections=1 --delay=2000 --days=7 --output=../temp_xml/porthu.xml
 
       - name: EPG adatok letöltése - tvheute.at (7 nap)
         run: |
