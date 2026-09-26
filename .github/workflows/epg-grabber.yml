@@ -30,7 +30,7 @@ jobs:
 
       - name: Előkészítés, EPG fixek másolása (tvmustra.hu, musor.tv, port.hu)
         run: |
-          cp -f epg-fix/tvmustra.hu.config.js iptv-epg/sites/tvmustra.hu/
+#         cp -f epg-fix/tvmustra.hu.config.js iptv-epg/sites/tvmustra.hu/
           cp -f epg-fix/musor.tv.config.js iptv-epg/sites/musor.tv/
           cp -f epg-fix/port.hu.config.js iptv-epg/sites/port.hu/
           mkdir -p ../temp_xml
@@ -47,11 +47,11 @@ jobs:
           npm run channels:parse --- --config=./sites/tvheute.at/tvheute.at.config.js --output=./sites/tvheute.at/tvheute.at.channels.xml
           npm run grab --- --sites=tvheute.at --days=7 --output=../temp_xml/tvheute.xml
 
-      - name: EPG adatok letöltése - tvmustra.hu (7 nap)
-        run: |
-          cd iptv-epg
-          npm run channels:parse --- --config=./sites/tvmustra.hu/tvmustra.hu.config.js --output=./sites/tvmustra.hu/tvmustra.hu.channels.xml
-          npm run grab --- --sites=tvmustra.hu --days=7 --maxConnections=1 --output=../temp_xml/tvmustra.xml
+#      - name: EPG adatok letöltése - tvmustra.hu (7 nap)
+#        run: |
+#          cd iptv-epg
+#          npm run channels:parse --- --config=./sites/tvmustra.hu/tvmustra.hu.config.js --output=./sites/tvmustra.hu/tvmustra.hu.channels.xml
+#          npm run grab --- --sites=tvmustra.hu --days=7 --maxConnections=1 --output=../temp_xml/tvmustra.xml
 
       - name: EPG adatok letöltése - web.magentatv.de (7 nap)
         run: |
@@ -77,7 +77,7 @@ jobs:
           gzip -c temp_xml/magenta_de.xml > EPG/magenta_de.xml.gz
           gzip -c temp_xml/porthu.xml > EPG/porthu.xml.gz
           gzip -c temp_xml/tvheute.xml > EPG/tvheute.xml.gz
-          gzip -c temp_xml/tvmustra.xml > EPG/tvmustra.xml.gz
+#          gzip -c temp_xml/tvmustra.xml > EPG/tvmustra.xml.gz
           gzip -c temp_xml/magenta_web.xml > EPG/magenta_web.xml.gz
           gzip -c temp_xml/musor_tv.xml > EPG/musor_tv.xml.gz
 
