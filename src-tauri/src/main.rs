@@ -9,10 +9,14 @@ use std::path::PathBuf;
 use flate2::read::GzDecoder;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 struct Channel {
     id: String,
     name: String,
     icon: String,
+    custom_icon: Option<String>,
+    is_favorite: bool,
+    is_hidden: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -80,6 +84,16 @@ fn init_db() -> Connection {
             PRIMARY KEY (source_id, channel_id)
         );
 
+        CREATE TABLE IF NOT EXISTS channel_user_settings (
+            source_id TEXT,
+            channel_id TEXT,
+            is_favorite INTEGER DEFAULT 0,
+            is_hidden INTEGER DEFAULT 0,
+            custom_icon TEXT,
+            PRIMARY KEY (source_id, channel_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cus_src_ch ON channel_user_settings (source_id, channel_id);
+
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
@@ -108,18 +122,30 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
     let conn = init_db();
 
     let mut stmt = conn.prepare(
-        "SELECT c.id, c.name, c.icon 
+        "SELECT c.id, c.name, c.icon, cus.custom_icon,
+                COALESCE(cus.is_favorite, 0),
+                COALESCE(cus.is_hidden, 0)
          FROM channels c 
+         LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
          LEFT JOIN channel_orders co ON co.source_id = c.source_id AND co.channel_id = c.id 
          WHERE c.source_id = ?1 
-         ORDER BY CASE WHEN co.position IS NOT NULL THEN 0 ELSE 1 END, co.position ASC, c.name ASC"
+         ORDER BY 
+            COALESCE(cus.is_favorite, 0) DESC,
+            CASE WHEN co.position IS NOT NULL THEN 0 ELSE 1 END, 
+            co.position ASC, 
+            c.name ASC"
     ).map_err(|e| e.to_string())?;
 
     let channel_iter = stmt.query_map(params![source_id], |row| {
+        let is_fav: i32 = row.get(4)?;
+        let is_hid: i32 = row.get(5)?;
         Ok(Channel {
             id: row.get(0)?,
             name: row.get(1)?,
             icon: row.get(2)?,
+            custom_icon: row.get(3)?,
+            is_favorite: is_fav == 1,
+            is_hidden: is_hid == 1,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -194,6 +220,7 @@ async fn delete_source(source_id: String) -> Result<(), String> {
     tx.execute("DELETE FROM channels WHERE source_id = ?1", params![source_id]).ok();
     tx.execute("DELETE FROM programmes WHERE source_id = ?1", params![source_id]).ok();
     tx.execute("DELETE FROM channel_orders WHERE source_id = ?1", params![source_id]).ok();
+    tx.execute("DELETE FROM channel_user_settings WHERE source_id = ?1", params![source_id]).ok();
 
     tx.commit().map_err(|e| format!("Törlési mentési hiba: {}", e))?;
     Ok(())
@@ -285,6 +312,57 @@ async fn save_channel_order(source_id: String, order: Vec<String>) -> Result<(),
         ).ok();
     }
     tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn toggle_channel_favorite(source_id: String, channel_id: String) -> Result<bool, String> {
+    let conn = init_db();
+    let current_fav: bool = conn.query_row(
+        "SELECT COALESCE(is_favorite, 0) = 1 FROM channel_user_settings WHERE source_id = ?1 AND channel_id = ?2",
+        params![source_id, channel_id],
+        |row| row.get(0),
+    ).unwrap_or(false);
+
+    let new_fav = !current_fav;
+    let val = if new_fav { 1 } else { 0 };
+    conn.execute(
+        "INSERT INTO channel_user_settings (source_id, channel_id, is_favorite) VALUES (?1, ?2, ?3)
+         ON CONFLICT(source_id, channel_id) DO UPDATE SET is_favorite = excluded.is_favorite",
+        params![source_id, channel_id, val],
+    ).map_err(|e| e.to_string())?;
+    Ok(new_fav)
+}
+
+#[tauri::command]
+async fn toggle_channel_hidden(source_id: String, channel_id: String) -> Result<bool, String> {
+    let conn = init_db();
+    let current_hidden: bool = conn.query_row(
+        "SELECT COALESCE(is_hidden, 0) = 1 FROM channel_user_settings WHERE source_id = ?1 AND channel_id = ?2",
+        params![source_id, channel_id],
+        |row| row.get(0),
+    ).unwrap_or(false);
+
+    let new_hidden = !current_hidden;
+    let val = if new_hidden { 1 } else { 0 };
+    conn.execute(
+        "INSERT INTO channel_user_settings (source_id, channel_id, is_hidden) VALUES (?1, ?2, ?3)
+         ON CONFLICT(source_id, channel_id) DO UPDATE SET is_hidden = excluded.is_hidden",
+        params![source_id, channel_id, val],
+    ).map_err(|e| e.to_string())?;
+    Ok(new_hidden)
+}
+
+#[tauri::command]
+async fn set_channel_logo(source_id: String, channel_id: String, logo_url: String) -> Result<(), String> {
+    let conn = init_db();
+    let clean_url = logo_url.trim();
+    let custom_icon = if clean_url.is_empty() { None } else { Some(clean_url.to_string()) };
+    conn.execute(
+        "INSERT INTO channel_user_settings (source_id, channel_id, custom_icon) VALUES (?1, ?2, ?3)
+         ON CONFLICT(source_id, channel_id) DO UPDATE SET custom_icon = excluded.custom_icon",
+        params![source_id, channel_id, custom_icon],
+    ).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -500,6 +578,9 @@ fn main() {
             set_favorites,
             get_channel_order,
             save_channel_order,
+            toggle_channel_favorite,
+            toggle_channel_hidden,
+            set_channel_logo,
             get_settings,
             set_setting
         ])

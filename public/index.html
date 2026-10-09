@@ -7,9 +7,9 @@
     <style>
       :root {
         --minute-height: 2px;
-        --time-col-width: 80px;
-        --channel-col-width: 250px;
-        --header-height: 56px;
+        --time-col-width: 60px;
+        --channel-col-width: 300px;
+        --header-height: 80px;
         --accent-green: #48bb78;
         --accent-green-active: #52e379;
       }
@@ -71,7 +71,7 @@
       }
 
       header {
-        height: 60px;
+        height: 80px;
         background-color: #1f1f1f;
         padding: 0 20px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
@@ -257,8 +257,9 @@
         border-bottom: 2px solid #333;
         display: flex;
         align-items: center;
-        justify-content: center;
-        padding: 4px 8px;
+        justify-content: space-between;
+        padding: 4px 6px;
+        gap: 6px;
         box-sizing: border-box;
         cursor: grab;
         user-select: none;
@@ -271,21 +272,55 @@
         background-color: #48bb78;
         color: #000000;
         font-weight: bold;
-        font-size: 16px;
+        font-size: 15px;
         border-radius: 6px;
-        padding: 4px 8px;
-        width: 100%;
+        padding: 4px 6px;
+        flex: 1;
         box-sizing: border-box;
-        min-height: 38px;
+        min-height: 60px;
         display: flex;
         align-items: center;
         justify-content: center;
+        gap: 5px;
         text-align: center;
-        box-shadow:
-          inset 0 5px 25px 0 #00ff00,
-          inset 0 10px 15px 0px #fff,
-          inset 0 5px 25px 0px #000;
         pointer-events: none;
+        overflow: hidden;
+      }
+      .channel-name-badge.favorite-channel {
+        background-color: #2a2a2a;
+        color: #ecc94b;
+      }
+      .channel-header-logo {
+        background-color: #2a2a2a;
+        max-height: 50px;
+        max-width: 60px;
+        object-fit: contain;
+        padding: 5px 5px;
+        border-radius: 4px;
+        flex-shrink: 1;
+      }
+      .channel-header-fav-btn {
+        background: transparent;
+        border-radius: 3px;
+        border: none;
+        color: #718096;
+        font-size: 24px;
+        cursor: pointer;
+        padding: 2px 4px;
+        line-height: 1;
+        transition:
+          color 0.15s,
+          transform 0.15s;
+        pointer-events: auto;
+        flex-shrink: 0;
+      }
+      .channel-header-fav-btn:hover {
+        transform: scale(1.2);
+        color: #ecc94b;
+      }
+      .channel-header-fav-btn.active {
+        color: #ecc94b;
+        text-shadow: 0 0 6px rgba(236, 201, 75, 0.7);
       }
       .channel-name-badge span {
         display: -webkit-box;
@@ -367,7 +402,7 @@
 
       .prog-header .prog-title {
         font-weight: 700;
-        font-size: 12px;
+        font-size: 14px;
         color: #ffffff;
         white-space: nowrap;
         overflow: hidden;
@@ -715,23 +750,38 @@
 
       .channel-order-item {
         display: flex;
-        align-items: center;
-        gap: 10px;
+        flex-direction: column;
+        gap: 6px;
         padding: 8px 12px;
         background: #1c1e2a;
         border: 1px solid #2b2e3f;
         border-radius: 6px;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
         user-select: none;
         transition:
           background 0.15s,
           border-color 0.15s,
           transform 0.15s;
       }
+      .channel-order-item.is-fav {
+        border-color: #d69e2e;
+        background: #24221d;
+      }
+      .channel-order-item.is-hidden {
+        opacity: 0.55;
+        border-color: #4a2528;
+        background: #19161a;
+      }
       .channel-order-item.dragging {
         opacity: 0.45;
         background: #263328;
         border-color: #52e379;
+      }
+      .channel-item-main {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
       }
       .channel-order-item .drag-handle {
         color: #64748b;
@@ -753,6 +803,23 @@
         min-width: 20px;
         text-align: center;
       }
+      .channel-order-logo-preview {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        background: #14151f;
+        border: 1px solid #282a3c;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+      .channel-order-logo-preview img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+      }
       .channel-order-item .channel-order-name {
         font-size: 13px;
         font-weight: 600;
@@ -766,7 +833,57 @@
         font-weight: bold;
         padding: 2px 8px;
         border-radius: 4px;
-        margin-right: 6px;
+      }
+      .channel-order-item .badge-hidden {
+        background-color: #e53e3e;
+        color: #fff;
+        font-size: 10px;
+        font-weight: bold;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .btn-channel-fav {
+        background: transparent;
+        border: none;
+        color: #718096;
+        font-size: 18px;
+        cursor: pointer;
+        padding: 2px 6px;
+        line-height: 1;
+        transition:
+          color 0.15s,
+          transform 0.15s;
+      }
+      .btn-channel-fav:hover {
+        transform: scale(1.2);
+        color: #ecc94b;
+      }
+      .btn-channel-fav.active {
+        color: #ecc94b;
+        text-shadow: 0 0 6px rgba(236, 201, 75, 0.7);
+      }
+      .btn-channel-hide {
+        background: #2b2e40;
+        border: 1px solid #3b3f58;
+        color: #cbd5e0;
+        font-size: 14px;
+        cursor: pointer;
+        padding: 3px 7px;
+        border-radius: 4px;
+        transition:
+          background 0.15s,
+          border-color 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .btn-channel-hide:hover {
+        background: #4a5075;
+      }
+      .btn-channel-hide.is-hidden {
+        background: #5a2328;
+        border-color: #e53e3e;
+        color: #fff;
       }
       .channel-reorder-btns {
         display: flex;
@@ -786,6 +903,62 @@
       .btn-order-arrow:hover {
         background: #4a5075;
         border-color: #52e379;
+      }
+      .channel-logo-box {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        background: #141520;
+        border-radius: 5px;
+        border: 1px solid #282a3c;
+        margin-top: 2px;
+      }
+      .channel-logo-label {
+        font-size: 12px;
+        color: #8e94a8;
+        white-space: nowrap;
+        font-weight: 500;
+      }
+      .channel-logo-input {
+        flex: 1;
+        min-width: 140px;
+        background: #1c1e2a !important;
+        border: 1px solid #3b3f58 !important;
+        border-radius: 4px !important;
+        padding: 5px 8px !important;
+        font-size: 12px !important;
+        color: #fff !important;
+      }
+      .channel-logo-input:focus {
+        border-color: #52e379 !important;
+        outline: none;
+      }
+      .btn-logo-action {
+        padding: 5px 10px !important;
+        font-size: 11px !important;
+        border-radius: 4px !important;
+      }
+      .btn-filter-channel {
+        padding: 4px 10px;
+        font-size: 12px;
+        border-radius: 5px;
+        background: #2b2e40;
+        border: 1px solid #3b3f58;
+        color: #cbd5e0;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          border-color 0.15s;
+      }
+      .btn-filter-channel.active {
+        background: #3182ce;
+        border-color: #63b3ed;
+        color: #fff;
+        font-weight: bold;
+      }
+      .btn-filter-channel:hover:not(.active) {
+        background: #3c415c;
       }
 
       .custom-dialog-card {
@@ -1047,7 +1220,9 @@
 
             <!-- 3. CSATORNÁK TAB -->
             <div class="settings-tab-pane" id="tabPaneChannels">
-              <h3 data-i18n="channels_heading">Csatornasorrend Kezelése</h3>
+              <h3 data-i18n="channels_heading">
+                Csatornák Kezelése és Sorrendje
+              </h3>
               <div
                 style="
                   display: flex;
@@ -1074,6 +1249,55 @@
                   Eredeti sorrend visszaállítása
                 </button>
               </div>
+
+              <!-- Kereső és szűrő sáv -->
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  margin-bottom: 10px;
+                  flex-wrap: wrap;
+                "
+              >
+                <input
+                  type="text"
+                  id="channelOrderSearchInput"
+                  placeholder="Keresés a csatornák között..."
+                  data-i18n-placeholder="channels_search_placeholder"
+                  style="flex: 1; min-width: 180px; padding: 6px 10px"
+                />
+                <div
+                  class="channel-filter-tabs"
+                  style="display: flex; gap: 4px"
+                >
+                  <button
+                    class="btn btn-filter-channel active"
+                    id="filterChanAll"
+                    data-filter="all"
+                    data-i18n="filter_all"
+                  >
+                    Mind
+                  </button>
+                  <button
+                    class="btn btn-filter-channel"
+                    id="filterChanFav"
+                    data-filter="fav"
+                    data-i18n="filter_favorites"
+                  >
+                    ★ Kedvencek
+                  </button>
+                  <button
+                    class="btn btn-filter-channel"
+                    id="filterChanHidden"
+                    data-filter="hidden"
+                    data-i18n="filter_hidden"
+                  >
+                    🚫 Rejtettek
+                  </button>
+                </div>
+              </div>
+
               <p
                 style="
                   font-size: 12px;
@@ -1167,10 +1391,25 @@
           alert_db_cleared: "Az adatbázis sikeresen kiürítve!",
           favorites_heading: "★ Kedvenc Műsorok",
           no_favorites: "Még nincsenek kedvenc műsorok kiválasztva.",
-          channels_heading: "Csatornasorrend Kezelése",
+          channels_heading: "Csatornák Kezelése és Sorrendje",
           select_source: "Forrás:",
           channels_drag_hint: "Húzza a csatornákat vagy használja a nyilakat.",
           btn_reset_channel_order: "Eredeti sorrend visszaállítása",
+          channels_search_placeholder: "Keresés a csatornák között...",
+          filter_all: "Mind",
+          filter_favorites: "★ Kedvencek",
+          filter_hidden: "🚫 Rejtettek",
+          channel_fav_toggle_on:
+            "Kedvenc csatorna (kattintson az eltávolításhoz)",
+          channel_fav_toggle_off: "Nem kedvenc (kattintson a hozzáadáshoz)",
+          channel_hide_toggle: "Csatorna elrejtése",
+          channel_unhide_toggle: "Csatorna megjelenítése",
+          channel_hidden_badge: "Rejtve",
+          channel_logo_label: "Logó URL:",
+          channel_logo_placeholder: "https://... csatorna logó kép URL",
+          btn_logo_save: "Mentés",
+          btn_logo_clear: "Törlés",
+          btn_logo_saved: "Mentve!",
           modal_no_desc: "Nincs leírás.",
           last_updated: "Frissítve:",
           never_updated: "Még nem frissült",
@@ -1250,11 +1489,25 @@
           alert_db_cleared: "Database cleared successfully!",
           favorites_heading: "★ Favorite Programmes",
           no_favorites: "No favorite programmes selected yet.",
-          channels_heading: "Channel Order Management",
+          channels_heading: "Channel Management and Ordering",
           select_source: "Source:",
           channels_drag_hint:
             "Drag and drop channels or use arrows to reorder.",
           btn_reset_channel_order: "Reset to default order",
+          channels_search_placeholder: "Search channels...",
+          filter_all: "All",
+          filter_favorites: "★ Favorites",
+          filter_hidden: "🚫 Hidden",
+          channel_fav_toggle_on: "Favorite channel (click to remove)",
+          channel_fav_toggle_off: "Not favorite (click to add)",
+          channel_hide_toggle: "Hide channel",
+          channel_unhide_toggle: "Show channel",
+          channel_hidden_badge: "Hidden",
+          channel_logo_label: "Logo URL:",
+          channel_logo_placeholder: "https://... channel logo image URL",
+          btn_logo_save: "Save",
+          btn_logo_clear: "Clear",
+          btn_logo_saved: "Saved!",
           modal_no_desc: "No description available.",
           last_updated: "Updated:",
           never_updated: "Never updated",
@@ -1816,6 +2069,7 @@
       ) {
         headerItem.addEventListener("pointerdown", (e) => {
           if (e.button !== 0) return;
+          if (e.target.closest(".channel-header-fav-btn")) return;
           let isDraggingCol = false;
           const startX = e.clientX;
           const startY = e.clientY;
@@ -1946,6 +2200,8 @@
         let firstMatchEl = null;
 
         epgData.channels.forEach((channel) => {
+          if (channel.isHidden) return;
+
           const channelProgs = epgData.programmes.filter(
             (p) =>
               p.channel === channel.id && p.stop > dayStart && p.start < dayEnd,
@@ -1973,11 +2229,41 @@
           headerItem.className = "channel-header-item";
           headerItem.dataset.channelId = channel.id;
 
+          const effectiveLogo = channel.customIcon || channel.icon || "";
+
           headerItem.innerHTML = `
-                    <div class="channel-name-badge" title="${channel.name}">
+                    <div class="channel-name-badge ${channel.isFavorite ? "favorite-channel" : ""}" title="${channel.name}">
+                        ${effectiveLogo ? `<img class="channel-header-logo" src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : ""}
                         <span>${channel.name}</span>
                     </div>
+                    <button class="channel-header-fav-btn ${channel.isFavorite ? "active" : ""}" title="${channel.isFavorite ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
                 `;
+
+          const favBtn = headerItem.querySelector(".channel-header-fav-btn");
+          if (favBtn) {
+            favBtn.onclick = async (e) => {
+              e.stopPropagation();
+              const newFav = await invoke("toggle_channel_favorite", {
+                sourceId: currentSourceId,
+                channelId: channel.id,
+              });
+              channel.isFavorite = newFav;
+              epgData.channels.sort((a, b) => {
+                if (a.isFavorite !== b.isFavorite) {
+                  return a.isFavorite ? -1 : 1;
+                }
+                return 0;
+              });
+              renderEPG();
+              if (
+                document
+                  .getElementById("settingsOverlay")
+                  .classList.contains("active")
+              ) {
+                renderChannelOrderList();
+              }
+            };
+          }
 
           setupMainHeaderPointerDrag(headerItem, columnWrapper, channel.id);
           columnWrapper.appendChild(headerItem);
@@ -2270,6 +2556,39 @@
         });
       }
 
+      let channelFilterMode = "all";
+      let channelSearchQuery = "";
+
+      const channelSearchInput = document.getElementById(
+        "channelOrderSearchInput",
+      );
+      if (channelSearchInput) {
+        channelSearchInput.oninput = (e) => {
+          channelSearchQuery = e.target.value.toLowerCase().trim();
+          renderChannelOrderList();
+        };
+      }
+
+      ["all", "fav", "hidden"].forEach((mode) => {
+        const btnId =
+          mode === "all"
+            ? "filterChanAll"
+            : mode === "fav"
+              ? "filterChanFav"
+              : "filterChanHidden";
+        const btn = document.getElementById(btnId);
+        if (btn) {
+          btn.onclick = () => {
+            channelFilterMode = mode;
+            document
+              .querySelectorAll(".btn-filter-channel")
+              .forEach((b) => b.classList.remove("active"));
+            btn.classList.add("active");
+            renderChannelOrderList();
+          };
+        }
+      });
+
       async function renderChannelOrderList() {
         const select = document.getElementById("channelOrderSourceSelect");
         const targetSourceId = select.value || currentSourceId;
@@ -2296,14 +2615,40 @@
           return;
         }
 
+        const filteredChannels = sourceChannels.filter((ch) => {
+          if (channelFilterMode === "fav" && !ch.isFavorite) return false;
+          if (channelFilterMode === "hidden" && !ch.isHidden) return false;
+          if (channelSearchQuery) {
+            const nameMatch = String(ch.name || "")
+              .toLowerCase()
+              .includes(channelSearchQuery);
+            const idMatch = String(ch.id || "")
+              .toLowerCase()
+              .includes(channelSearchQuery);
+            if (!nameMatch && !idMatch) return false;
+          }
+          return true;
+        });
+
+        if (filteredChannels.length === 0) {
+          container.innerHTML = `<p style="color:#8e94a8; font-size:13px; padding:10px 0;">Nincs a szűrésnek megfelelő csatorna.</p>`;
+          return;
+        }
+
         const updateAndSave = async () => {
           const reorderedItems = Array.from(
             container.querySelectorAll(".channel-order-item"),
           );
-          const newOrder = reorderedItems.map((el, i) => {
-            el.querySelector(".order-index").innerText = i + 1;
-            return el.dataset.channelId;
-          });
+          let newOrder = [];
+          if (channelFilterMode === "all" && !channelSearchQuery) {
+            newOrder = reorderedItems.map((el, i) => {
+              const idxEl = el.querySelector(".order-index");
+              if (idxEl) idxEl.innerText = i + 1;
+              return el.dataset.channelId;
+            });
+          } else {
+            newOrder = sourceChannels.map((c) => c.id);
+          }
 
           await invoke("save_channel_order", {
             sourceId: targetSourceId,
@@ -2311,29 +2656,140 @@
           });
 
           if (targetSourceId === currentSourceId) {
-            epgData.channels.sort(
-              (a, b) => newOrder.indexOf(a.id) - newOrder.indexOf(b.id),
-            );
+            epgData.channels.sort((a, b) => {
+              if (a.isFavorite !== b.isFavorite) {
+                return a.isFavorite ? -1 : 1;
+              }
+              return newOrder.indexOf(a.id) - newOrder.indexOf(b.id);
+            });
             renderEPG();
           }
         };
 
-        sourceChannels.forEach((ch, idx) => {
+        filteredChannels.forEach((ch, idx) => {
           const item = document.createElement("div");
-          item.className = "channel-order-item";
+          const isFav = !!ch.isFavorite;
+          const isHidden = !!ch.isHidden;
+          item.className = `channel-order-item ${isFav ? "is-fav" : ""} ${isHidden ? "is-hidden" : ""}`;
           item.dataset.channelId = ch.id;
 
-          item.innerHTML = `
-                    <span class="drag-handle" title="Megfogás és húzás átrendezéshez">☰</span>
-                    <span class="order-index">${idx + 1}</span>
-                    <span class="channel-order-name">${ch.name}</span>
-                    <span class="channel-tag">ID: ${ch.id}</span>
-                    <div class="channel-reorder-btns">
-                        <button class="btn-order-arrow btn-up" title="Feljebb">▲</button>
-                        <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
-                    </div>
-                `;
+          const effectiveLogo = ch.customIcon || ch.icon || "";
 
+          item.innerHTML = `
+            <div class="channel-item-main">
+              <span class="drag-handle" title="${t("channels_drag_hint")}">☰</span>
+              <span class="order-index">${idx + 1}</span>
+              <div class="channel-order-logo-preview">
+                ${effectiveLogo ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : '<span style="font-size:10px; color:#555;">TV</span>'}
+              </div>
+              <span class="channel-order-name" title="${ch.name}">${ch.name}</span>
+              <span class="channel-tag">ID: ${ch.id}</span>
+              ${isHidden ? `<span class="badge-hidden">${t("channel_hidden_badge")}</span>` : ""}
+              <button class="btn-channel-fav ${isFav ? "active" : ""}" title="${isFav ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+              <button class="btn-channel-hide ${isHidden ? "is-hidden" : ""}" title="${isHidden ? t("channel_unhide_toggle") : t("channel_hide_toggle")}">
+                ${isHidden ? "🚫" : "👁"}
+              </button>
+              <div class="channel-reorder-btns">
+                <button class="btn-order-arrow btn-up" title="Feljebb">▲</button>
+                <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
+              </div>
+            </div>
+            <div class="channel-logo-box">
+              <span class="channel-logo-label">${t("channel_logo_label")}</span>
+              <input type="text" class="channel-logo-input" placeholder="${t("channel_logo_placeholder")}" value="${ch.customIcon || ""}" />
+              <button class="btn-logo-action btn-logo-save btn btn-green">${t("btn_logo_save")}</button>
+              ${ch.customIcon ? `<button class="btn-logo-action btn-logo-clear btn btn-red" title="${t("btn_logo_clear")}">✕</button>` : ""}
+            </div>
+          `;
+
+          // Kedvenc kapcsoló
+          item.querySelector(".btn-channel-fav").onclick = async (e) => {
+            e.stopPropagation();
+            const newFav = await invoke("toggle_channel_favorite", {
+              sourceId: targetSourceId,
+              channelId: ch.id,
+            });
+            ch.isFavorite = newFav;
+            if (targetSourceId === currentSourceId) {
+              const liveCh = epgData.channels.find((c) => c.id === ch.id);
+              if (liveCh) liveCh.isFavorite = newFav;
+              epgData.channels.sort((a, b) => {
+                if (a.isFavorite !== b.isFavorite) {
+                  return a.isFavorite ? -1 : 1;
+                }
+                return 0;
+              });
+              renderEPG();
+            }
+            renderChannelOrderList();
+          };
+
+          // Rejtés kapcsoló
+          item.querySelector(".btn-channel-hide").onclick = async (e) => {
+            e.stopPropagation();
+            const newHidden = await invoke("toggle_channel_hidden", {
+              sourceId: targetSourceId,
+              channelId: ch.id,
+            });
+            ch.isHidden = newHidden;
+            if (targetSourceId === currentSourceId) {
+              const liveCh = epgData.channels.find((c) => c.id === ch.id);
+              if (liveCh) liveCh.isHidden = newHidden;
+              renderEPG();
+            }
+            renderChannelOrderList();
+          };
+
+          // Logó mentése
+          const logoInput = item.querySelector(".channel-logo-input");
+          const saveLogo = async () => {
+            const url = logoInput.value.trim();
+            await invoke("set_channel_logo", {
+              sourceId: targetSourceId,
+              channelId: ch.id,
+              logoUrl: url,
+            });
+            ch.customIcon = url || null;
+            if (targetSourceId === currentSourceId) {
+              const liveCh = epgData.channels.find((c) => c.id === ch.id);
+              if (liveCh) liveCh.customIcon = ch.customIcon;
+              renderEPG();
+            }
+            renderChannelOrderList();
+          };
+
+          item.querySelector(".btn-logo-save").onclick = (e) => {
+            e.stopPropagation();
+            saveLogo();
+          };
+
+          logoInput.onkeydown = (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              saveLogo();
+            }
+          };
+
+          const clearBtn = item.querySelector(".btn-logo-clear");
+          if (clearBtn) {
+            clearBtn.onclick = async (e) => {
+              e.stopPropagation();
+              await invoke("set_channel_logo", {
+                sourceId: targetSourceId,
+                channelId: ch.id,
+                logoUrl: "",
+              });
+              ch.customIcon = null;
+              if (targetSourceId === currentSourceId) {
+                const liveCh = epgData.channels.find((c) => c.id === ch.id);
+                if (liveCh) liveCh.customIcon = null;
+                renderEPG();
+              }
+              renderChannelOrderList();
+            };
+          }
+
+          // Nyilakkal mozgatás
           item.querySelector(".btn-up").onclick = (e) => {
             e.stopPropagation();
             const prev = item.previousElementSibling;
