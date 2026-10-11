@@ -13,8 +13,11 @@ use flate2::read::GzDecoder;
 struct Channel {
     id: String,
     name: String,
+    original_name: Option<String>,
+    custom_name: Option<String>,
     icon: String,
     custom_icon: Option<String>,
+    cached_icon: Option<String>,
     is_favorite: bool,
     is_hidden: bool,
 }
@@ -90,6 +93,7 @@ fn init_db() -> Connection {
             is_favorite INTEGER DEFAULT 0,
             is_hidden INTEGER DEFAULT 0,
             custom_icon TEXT,
+            custom_name TEXT,
             PRIMARY KEY (source_id, channel_id)
         );
         CREATE INDEX IF NOT EXISTS idx_cus_src_ch ON channel_user_settings (source_id, channel_id);
@@ -97,12 +101,20 @@ fn init_db() -> Connection {
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
-        );",
+        );
+
+        CREATE TABLE IF NOT EXISTS logo_cache (
+            url TEXT PRIMARY KEY,
+            data TEXT,
+            created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_logo_url ON logo_cache (url);",
     ).unwrap();
 
     // Meglévő adatbázis sémakorrekció, ha hiányoznának az új oszlopok
     let _ = conn.execute("ALTER TABLE sources ADD COLUMN country_code TEXT", []);
     let _ = conn.execute("ALTER TABLE sources ADD COLUMN time_offset INTEGER", []);
+    let _ = conn.execute("ALTER TABLE channel_user_settings ADD COLUMN custom_name TEXT", []);
 
     // Korábbi alapértelmezett források törlése a tiszta induláshoz
     conn.execute("DELETE FROM sources WHERE id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
@@ -122,28 +134,38 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
     let conn = init_db();
 
     let mut stmt = conn.prepare(
-        "SELECT c.id, c.name, c.icon, cus.custom_icon,
+        "SELECT c.id, 
+                COALESCE(NULLIF(cus.custom_name, ''), c.name) AS display_name,
+                c.name AS original_name,
+                cus.custom_name,
+                c.icon,
+                cus.custom_icon,
+                lc.data AS cached_icon,
                 COALESCE(cus.is_favorite, 0),
                 COALESCE(cus.is_hidden, 0)
          FROM channels c 
          LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
          LEFT JOIN channel_orders co ON co.source_id = c.source_id AND co.channel_id = c.id 
+         LEFT JOIN logo_cache lc ON lc.url = COALESCE(NULLIF(cus.custom_icon, ''), c.icon)
          WHERE c.source_id = ?1 
          ORDER BY 
             COALESCE(cus.is_favorite, 0) DESC,
             CASE WHEN co.position IS NOT NULL THEN 0 ELSE 1 END, 
             co.position ASC, 
-            c.name ASC"
+            display_name ASC"
     ).map_err(|e| e.to_string())?;
 
     let channel_iter = stmt.query_map(params![source_id], |row| {
-        let is_fav: i32 = row.get(4)?;
-        let is_hid: i32 = row.get(5)?;
+        let is_fav: i32 = row.get(7)?;
+        let is_hid: i32 = row.get(8)?;
         Ok(Channel {
             id: row.get(0)?,
             name: row.get(1)?,
-            icon: row.get(2)?,
-            custom_icon: row.get(3)?,
+            original_name: row.get(2)?,
+            custom_name: row.get(3)?,
+            icon: row.get(4)?,
+            custom_icon: row.get(5)?,
+            cached_icon: row.get(6)?,
             is_favorite: is_fav == 1,
             is_hidden: is_hid == 1,
         })
@@ -367,6 +389,308 @@ async fn set_channel_logo(source_id: String, channel_id: String, logo_url: Strin
 }
 
 #[tauri::command]
+async fn rename_channel(source_id: String, channel_id: String, name: String) -> Result<(), String> {
+    let conn = init_db();
+    let clean_name = name.trim();
+    let custom_name = if clean_name.is_empty() { None } else { Some(clean_name.to_string()) };
+    conn.execute(
+        "INSERT INTO channel_user_settings (source_id, channel_id, custom_name) VALUES (?1, ?2, ?3)
+         ON CONFLICT(source_id, channel_id) DO UPDATE SET custom_name = excluded.custom_name",
+        params![source_id, channel_id, custom_name],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_cached_logo(url: String) -> Result<Option<String>, String> {
+    let clean_url = url.trim();
+    if clean_url.is_empty() {
+        return Ok(None);
+    }
+    let conn = init_db();
+    let res: Option<String> = conn.query_row(
+        "SELECT data FROM logo_cache WHERE url = ?1",
+        params![clean_url],
+        |row| row.get(0),
+    ).ok();
+    Ok(res)
+}
+
+#[tauri::command]
+async fn cache_logo(url: String) -> Result<String, String> {
+    let clean_url = url.trim().to_string();
+    if clean_url.is_empty() {
+        return Err("Üres URL".to_string());
+    }
+    if clean_url.starts_with("data:") {
+        return Ok(clean_url);
+    }
+
+    let conn = init_db();
+    let cached: Option<String> = conn.query_row(
+        "SELECT data FROM logo_cache WHERE url = ?1",
+        params![clean_url],
+        |row| row.get(0),
+    ).ok();
+
+    if let Some(data) = cached {
+        if !data.is_empty() {
+            return Ok(data);
+        }
+    }
+
+    if !clean_url.starts_with("http://") && !clean_url.starts_with("https://") {
+        return Err("Nem támogatott URL protokoll".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get(&clean_url).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP hiba: {}", resp.status()));
+    }
+
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    if bytes.is_empty() {
+        return Err("Üres válasz az ikonkérésre".to_string());
+    }
+
+    let mime = if let Some(ct) = content_type {
+        let ct_lower = ct.to_lowercase();
+        if ct_lower.contains("svg") {
+            "image/svg+xml".to_string()
+        } else if ct_lower.contains("png") {
+            "image/png".to_string()
+        } else if ct_lower.contains("jpeg") || ct_lower.contains("jpg") {
+            "image/jpeg".to_string()
+        } else if ct_lower.contains("webp") {
+            "image/webp".to_string()
+        } else if ct_lower.contains("gif") {
+            "image/gif".to_string()
+        } else {
+            ct.split(';').next().unwrap_or("image/png").trim().to_string()
+        }
+    } else if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        "image/png".to_string()
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg".to_string()
+    } else if bytes.starts_with(&[0x47, 0x49, 0x46]) {
+        "image/gif".to_string()
+    } else if bytes.starts_with(b"<svg") || clean_url.ends_with(".svg") {
+        "image/svg+xml".to_string()
+    } else {
+        "image/png".to_string()
+    };
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let data_uri = format!("data:{};base64,{}", mime, b64);
+
+    conn.execute(
+        "INSERT INTO logo_cache (url, data, created_at) VALUES (?1, ?2, datetime('now'))
+         ON CONFLICT(url) DO UPDATE SET data = excluded.data, created_at = excluded.created_at",
+        params![clean_url, data_uri],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(data_uri)
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ChannelUserSettingExport {
+    source_id: String,
+    channel_id: String,
+    is_favorite: bool,
+    is_hidden: bool,
+    custom_icon: Option<String>,
+    custom_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ChannelOrderExport {
+    source_id: String,
+    channel_id: String,
+    position: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BackupData {
+    version: u32,
+    exported_at: String,
+    sources: Vec<Source>,
+    favorites: Vec<String>,
+    channel_user_settings: Vec<ChannelUserSettingExport>,
+    channel_orders: Vec<ChannelOrderExport>,
+    settings: HashMap<String, String>,
+}
+
+#[tauri::command]
+async fn export_settings() -> Result<BackupData, String> {
+    let conn = init_db();
+
+    // Sources
+    let mut stmt = conn.prepare("SELECT id, name, url, last_downloaded, country_code, time_offset FROM sources ORDER BY rowid ASC").map_err(|e| e.to_string())?;
+    let sources_iter = stmt.query_map([], |row| {
+        Ok(Source {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            url: row.get(2)?,
+            last_downloaded: row.get(3)?,
+            country_code: row.get(4)?,
+            time_offset: row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    let mut sources = Vec::new();
+    for s in sources_iter {
+        if let Ok(src) = s { sources.push(src); }
+    }
+
+    // Favorites
+    let mut stmt = conn.prepare("SELECT title FROM favorites ORDER BY rowid ASC").map_err(|e| e.to_string())?;
+    let fav_iter = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    let mut favorites = Vec::new();
+    for f in fav_iter {
+        if let Ok(title) = f { favorites.push(title); }
+    }
+
+    // Channel user settings
+    let mut stmt = conn.prepare("SELECT source_id, channel_id, is_favorite, is_hidden, custom_icon, custom_name FROM channel_user_settings").map_err(|e| e.to_string())?;
+    let cus_iter = stmt.query_map([], |row| {
+        let is_fav: i32 = row.get(2)?;
+        let is_hid: i32 = row.get(3)?;
+        Ok(ChannelUserSettingExport {
+            source_id: row.get(0)?,
+            channel_id: row.get(1)?,
+            is_favorite: is_fav == 1,
+            is_hidden: is_hid == 1,
+            custom_icon: row.get(4)?,
+            custom_name: row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    let mut channel_user_settings = Vec::new();
+    for cus in cus_iter {
+        if let Ok(c) = cus { channel_user_settings.push(c); }
+    }
+
+    // Channel orders
+    let mut stmt = conn.prepare("SELECT source_id, channel_id, position FROM channel_orders").map_err(|e| e.to_string())?;
+    let co_iter = stmt.query_map([], |row| {
+        Ok(ChannelOrderExport {
+            source_id: row.get(0)?,
+            channel_id: row.get(1)?,
+            position: row.get(2)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    let mut channel_orders = Vec::new();
+    for co in co_iter {
+        if let Ok(c) = co { channel_orders.push(c); }
+    }
+
+    // Settings
+    let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
+    let s_iter = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(|e| e.to_string())?;
+    let mut settings = HashMap::new();
+    for item in s_iter {
+        if let Ok((k, v)) = item { settings.insert(k, v); }
+    }
+
+    let exported_at: String = conn.query_row("SELECT datetime('now', 'localtime')", [], |r| r.get(0)).unwrap_or_default();
+
+    Ok(BackupData {
+        version: 1,
+        exported_at,
+        sources,
+        favorites,
+        channel_user_settings,
+        channel_orders,
+        settings,
+    })
+}
+
+#[tauri::command]
+async fn import_settings(backup: BackupData) -> Result<(), String> {
+    let mut conn = init_db();
+    let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
+
+    // Sources
+    for s in backup.sources {
+        tx.execute(
+            "INSERT INTO sources (id, name, url, last_downloaded, country_code, time_offset) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET 
+                name = excluded.name, 
+                url = excluded.url, 
+                last_downloaded = COALESCE(excluded.last_downloaded, sources.last_downloaded),
+                country_code = excluded.country_code,
+                time_offset = excluded.time_offset",
+            params![s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    // Favorites
+    tx.execute("DELETE FROM favorites", []).ok();
+    for fav in backup.favorites {
+        tx.execute(
+            "INSERT OR REPLACE INTO favorites (title) VALUES (?1)",
+            params![fav],
+        ).ok();
+    }
+
+    // Channel user settings
+    for cus in backup.channel_user_settings {
+        let is_fav = if cus.is_favorite { 1 } else { 0 };
+        let is_hid = if cus.is_hidden { 1 } else { 0 };
+        tx.execute(
+            "INSERT INTO channel_user_settings (source_id, channel_id, is_favorite, is_hidden, custom_icon, custom_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(source_id, channel_id) DO UPDATE SET
+                is_favorite = excluded.is_favorite,
+                is_hidden = excluded.is_hidden,
+                custom_icon = excluded.custom_icon,
+                custom_name = excluded.custom_name",
+            params![cus.source_id, cus.channel_id, is_fav, is_hid, cus.custom_icon, cus.custom_name],
+        ).ok();
+    }
+
+    // Channel orders
+    for co in backup.channel_orders {
+        tx.execute(
+            "INSERT INTO channel_orders (source_id, channel_id, position)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(source_id, channel_id) DO UPDATE SET
+                position = excluded.position",
+            params![co.source_id, co.channel_id, co.position],
+        ).ok();
+    }
+
+    // Settings
+    for (k, v) in backup.settings {
+        tx.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![k, v],
+        ).ok();
+    }
+
+    tx.commit().map_err(|e| format!("Import mentési hiba: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_settings() -> Result<HashMap<String, String>, String> {
     let conn = init_db();
     let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
@@ -581,6 +905,11 @@ fn main() {
             toggle_channel_favorite,
             toggle_channel_hidden,
             set_channel_logo,
+            rename_channel,
+            cache_logo,
+            get_cached_logo,
+            export_settings,
+            import_settings,
             get_settings,
             set_setting
         ])
