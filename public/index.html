@@ -135,8 +135,13 @@
       }
       #clearSearchBtn {
         background-color: #be1400;
-        padding: 3px 7px;
+        padding: 3px 5px;
         border-radius: 6px;
+        font-size: 14px;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
       #nowBtn {
         background-color: #e53e3e;
@@ -147,6 +152,7 @@
       }
       #settingsBtn {
         background-color: #4a5568;
+        margin-left: auto;
       }
       .btn-green {
         background-color: #38a169;
@@ -156,6 +162,43 @@
       }
       .btn-red {
         background-color: #e53e3e;
+      }
+
+      .date-nav-group {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .btn-date-arrow {
+        background-color: #2a2a2a;
+        color: #fff;
+        padding: 8px 10px;
+        font-size: 11px;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #1f1f1f;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 2px 2px 4px 1px #1f1f1f;
+        transition:
+          opacity 0.2s,
+          background-color 0.2s,
+          transform 0.2s;
+      }
+      .btn-date-arrow:hover:not(:disabled) {
+        background-color: #3b4252;
+        color: #ffffff;
+        border-color: #4a5568;
+      }
+      .btn-date-arrow:active:not(:disabled) {
+        transform: scale(0.94);
+      }
+      .btn-date-arrow:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+        box-shadow: none;
       }
 
       #status {
@@ -320,6 +363,29 @@
         color: #ecc94b;
         text-shadow: 0 0 6px rgba(236, 201, 75, 0.7);
       }
+      .channel-header-rename-btn {
+        background: transparent;
+        border: none;
+        color: #718096;
+        font-size: 13px;
+        cursor: pointer;
+        padding: 2px 4px;
+        line-height: 1;
+        transition:
+          color 0.15s,
+          transform 0.15s;
+        pointer-events: auto;
+        flex-shrink: 0;
+      }
+      .channel-header-rename-btn:hover {
+        transform: scale(1.2);
+        color: #63b3ed;
+      }
+      .channel-header-btns {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
       .channel-name-badge span {
         display: -webkit-box;
         -webkit-line-clamp: 2;
@@ -371,10 +437,23 @@
         background-color: #0b571f !important;
       }
       .programme.highlight {
-        background-color: #1c4532 !important;
-        border-left: 4px solid #48bb78 !important;
-        box-shadow: 0 0 8px rgba(72, 187, 120, 0.4);
+        background-color: #6c7c33 !important;
+        border-left: 4px solid #d9ff00 !important;
         z-index: 20;
+      }
+      .programme.actual {
+        background-color: #ecc94b !important;
+      }
+      .programme.actual:hover {
+        background-color: #ff5050 !important;
+      }
+      .programme.actual .start-badge {
+        background-color: #e53e3e !important;
+        color: #ffffff !important;
+        border: 1px solid #1f1f1f !important;
+      }
+      .programme.actual .prog-desc {
+        color: #1f1f1f !important;
       }
 
       .prog-header {
@@ -945,6 +1024,46 @@
         font-size: 11px !important;
         border-radius: 4px !important;
       }
+      .channel-rename-box {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        background: #141520;
+        border-radius: 5px;
+        border: 1px solid #282a3c;
+        margin-top: 4px;
+      }
+      .channel-rename-label {
+        font-size: 12px;
+        color: #8e94a8;
+        white-space: nowrap;
+        font-weight: 500;
+      }
+      .channel-rename-input {
+        flex: 1;
+        min-width: 140px;
+        background: #1c1e2a !important;
+        border: 1px solid #3b3f58 !important;
+        border-radius: 4px !important;
+        padding: 5px 8px !important;
+        font-size: 12px !important;
+        color: #fff !important;
+      }
+      .channel-rename-input:focus {
+        border-color: #52e379 !important;
+        outline: none;
+      }
+      .channel-custom-badge {
+        background-color: #d69e2e;
+        color: #000;
+        font-size: 9px;
+        font-weight: bold;
+        padding: 1px 5px;
+        border-radius: 3px;
+        text-transform: uppercase;
+        margin-left: 4px;
+      }
       .btn-filter-channel {
         padding: 4px 10px;
         font-size: 12px;
@@ -1054,27 +1173,45 @@
           title="Keresés törlése"
           data-i18n-title="clear_search"
         >
-          &times;
+          X
         </button>
       </div>
 
       <select id="sourceSelect"></select>
-      <select id="dateSelect"></select>
+      <div class="date-nav-group">
+        <button
+          class="btn btn-date-arrow"
+          id="prevDayBtn"
+          title="Előző nap"
+          data-i18n-title="btn_prev_day"
+        >
+          ◀
+        </button>
+        <select id="dateSelect"></select>
+        <button
+          class="btn btn-date-arrow"
+          id="nextDayBtn"
+          title="Következő nap"
+          data-i18n-title="btn_next_day"
+        >
+          ▶
+        </button>
+      </div>
       <button class="btn" id="nowBtn" data-i18n="now_btn">MOST</button>
       <button class="btn" id="favListBtn" data-i18n="favorites_btn">
-        ★ KEDVENCEK
+        ★ Kedvencek
       </button>
 
       <select id="viewSelect">
-        <option value="60" data-i18n="view_1h">1 ÓRA</option>
-        <option value="30" data-i18n="view_30m">30 PERC</option>
-        <option value="20" data-i18n="view_20m" selected>20 PERC</option>
-        <option value="10" data-i18n="view_10m">10 PERC</option>
-        <option value="5" data-i18n="view_5m">5 PERC</option>
+        <option value="60" data-i18n="view_1h">1 óra</option>
+        <option value="30" data-i18n="view_30m">30 perc</option>
+        <option value="20" data-i18n="view_20m" selected>20 perc</option>
+        <option value="10" data-i18n="view_10m">10 perc</option>
+        <option value="5" data-i18n="view_5m">5 perc</option>
       </select>
 
       <button class="btn" id="settingsBtn" data-i18n="settings_btn">
-        ⚙ BEÁLLÍTÁSOK
+        ⚙ Beállítások
       </button>
       <span id="status" data-i18n="status_starting">Indítás...</span>
     </header>
@@ -1201,13 +1338,37 @@
                   border-top: 1px solid #282a3c;
                   padding-top: 12px;
                   display: flex;
-                  justify-content: flex-end;
+                  align-items: center;
+                  gap: 8px;
+                  flex-wrap: wrap;
                 "
               >
+                <button
+                  class="btn btn-blue"
+                  id="exportSettingsBtn"
+                  data-i18n="btn_export_settings"
+                >
+                  BEÁLLÍTÁSOK EXPORTÁLÁSA
+                </button>
+                <label
+                  class="btn btn-blue"
+                  id="importSettingsLabel"
+                  style="cursor: pointer"
+                  data-i18n="btn_import_settings"
+                >
+                  BEÁLLÍTÁSOK IMPORTÁLÁSA
+                  <input
+                    type="file"
+                    id="importSettingsInput"
+                    accept=".json"
+                    style="display: none"
+                  />
+                </label>
                 <button
                   class="btn btn-red"
                   id="clearDbBtn"
                   data-i18n="btn_clear_db"
+                  style="margin-left: auto"
                 >
                   EPG ADATBÁZIS TÖRLÉSE
                 </button>
@@ -1416,6 +1577,19 @@
           btn_logo_save: "Mentés",
           btn_logo_clear: "Törlés",
           btn_logo_saved: "Mentve!",
+          channel_name_label: "Név:",
+          channel_name_placeholder: "Csatorna egyéni neve...",
+          btn_rename_save: "Mentés",
+          btn_rename_reset: "Eredeti név visszaállítása",
+          prompt_rename_channel:
+            "Adja meg a csatorna új nevét (üresen hagyva visszaáll):",
+          btn_export_settings: "BEÁLLÍTÁSOK EXPORTÁLÁSA",
+          btn_import_settings: "BEÁLLÍTÁSOK IMPORTÁLÁSA",
+          alert_import_success: "A beállítások sikeresen importálva lettek!",
+          alert_import_error: "Hiba történt a beállítások importálásakor!",
+          alert_export_error: "Hiba történt a beállítások exportálásakor!",
+          btn_prev_day: "Előző nap",
+          btn_next_day: "Következő nap",
           modal_no_desc: "Nincs leírás.",
           last_updated: "Frissítve:",
           never_updated: "Még nem frissült",
@@ -1514,6 +1688,19 @@
           btn_logo_save: "Save",
           btn_logo_clear: "Clear",
           btn_logo_saved: "Saved!",
+          channel_name_label: "Name:",
+          channel_name_placeholder: "Custom channel name...",
+          btn_rename_save: "Save",
+          btn_rename_reset: "Reset to default name",
+          prompt_rename_channel:
+            "Enter new channel name (leave empty to reset):",
+          btn_export_settings: "EXPORT SETTINGS",
+          btn_import_settings: "IMPORT SETTINGS",
+          alert_import_success: "Settings imported successfully!",
+          alert_import_error: "Error importing settings file!",
+          alert_export_error: "Error exporting settings!",
+          btn_prev_day: "Previous day",
+          btn_next_day: "Next day",
           modal_no_desc: "No description available.",
           last_updated: "Updated:",
           never_updated: "Never updated",
@@ -1870,6 +2057,18 @@
           setupDateSelector();
           renderEPG();
           scrollToNow();
+
+          // Cache logos in the background for channels that have a URL but no cached data
+          epgData.channels.forEach((channel) => {
+            const logoUrl = channel.customIcon || channel.icon;
+            if (logoUrl && !channel.cachedIcon) {
+              invoke("cache_logo", { url: logoUrl })
+                .then((dataUri) => {
+                  channel.cachedIcon = dataUri;
+                })
+                .catch(() => {});
+            }
+          });
           if (
             document
               .getElementById("settingsOverlay")
@@ -2032,6 +2231,8 @@
 
       function setupDateSelector() {
         const dateSelect = document.getElementById("dateSelect");
+        const prevBtn = document.getElementById("prevDayBtn");
+        const nextBtn = document.getElementById("nextDayBtn");
         const dates = new Set();
 
         epgData.programmes.forEach((p) => {
@@ -2062,10 +2263,44 @@
         }
         dateSelect.value = selectedDateStr;
 
+        function updateNavBtns() {
+          const idx = sortedDates.indexOf(selectedDateStr);
+          if (prevBtn) prevBtn.disabled = idx <= 0;
+          if (nextBtn)
+            nextBtn.disabled = idx < 0 || idx >= sortedDates.length - 1;
+        }
+
+        updateNavBtns();
+
         dateSelect.onchange = (e) => {
           selectedDateStr = e.target.value;
+          updateNavBtns();
           renderEPG();
         };
+
+        if (prevBtn) {
+          prevBtn.onclick = () => {
+            const idx = sortedDates.indexOf(selectedDateStr);
+            if (idx > 0) {
+              selectedDateStr = sortedDates[idx - 1];
+              dateSelect.value = selectedDateStr;
+              updateNavBtns();
+              renderEPG();
+            }
+          };
+        }
+
+        if (nextBtn) {
+          nextBtn.onclick = () => {
+            const idx = sortedDates.indexOf(selectedDateStr);
+            if (idx >= 0 && idx < sortedDates.length - 1) {
+              selectedDateStr = sortedDates[idx + 1];
+              dateSelect.value = selectedDateStr;
+              updateNavBtns();
+              renderEPG();
+            }
+          };
+        }
       }
 
       function setupMainHeaderPointerDrag(
@@ -2075,7 +2310,11 @@
       ) {
         headerItem.addEventListener("pointerdown", (e) => {
           if (e.button !== 0) return;
-          if (e.target.closest(".channel-header-fav-btn")) return;
+          if (
+            e.target.closest(".channel-header-fav-btn") ||
+            e.target.closest(".channel-header-rename-btn")
+          )
+            return;
           let isDraggingCol = false;
           const startX = e.clientX;
           const startY = e.clientY;
@@ -2202,6 +2441,7 @@
 
         const dayStart = new Date(`${selectedDateStr}T00:00:00`);
         const dayEnd = new Date(dayStart.getTime() + totalMinutes * 60000);
+        const now = new Date();
 
         let firstMatchEl = null;
 
@@ -2235,15 +2475,52 @@
           headerItem.className = "channel-header-item";
           headerItem.dataset.channelId = channel.id;
 
-          const effectiveLogo = channel.customIcon || channel.icon || "";
+          // Use cached base64 icon if available, else fall back to URL
+          const effectiveLogo =
+            channel.cachedIcon || channel.customIcon || channel.icon || "";
 
           headerItem.innerHTML = `
-                    <div class="channel-name-badge ${channel.isFavorite ? "favorite-channel" : ""}" title="${channel.name}">
+                    <div class="channel-name-badge ${channel.isFavorite ? "favorite-channel" : ""}" title="${(channel.originalName || channel.name).replace(/"/g, "&quot;")}">
                         ${effectiveLogo ? `<img class="channel-header-logo" src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : ""}
                         <span>${channel.name}</span>
                     </div>
-                    <button class="channel-header-fav-btn ${channel.isFavorite ? "active" : ""}" title="${channel.isFavorite ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+                    <div class="channel-header-btns">
+                        <button class="channel-header-rename-btn" title="✏">...</button>
+                        <button class="channel-header-fav-btn ${channel.isFavorite ? "active" : ""}" title="${channel.isFavorite ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+                    </div>
                 `;
+
+          const renameBtn = headerItem.querySelector(
+            ".channel-header-rename-btn",
+          );
+          if (renameBtn) {
+            renameBtn.onclick = async (e) => {
+              e.stopPropagation();
+              const currentCustomName = channel.customName || "";
+              const originalName = channel.originalName || channel.name;
+              const newName = prompt(
+                `${t("prompt_rename_channel")}\n(${originalName})`,
+                currentCustomName,
+              );
+              if (newName === null) return; // cancelled
+              await invoke("rename_channel", {
+                sourceId: currentSourceId,
+                channelId: channel.id,
+                name: newName,
+              });
+              const trimmed = newName.trim();
+              channel.customName = trimmed || null;
+              channel.name = trimmed || channel.originalName || channel.name;
+              renderEPG();
+              if (
+                document
+                  .getElementById("settingsOverlay")
+                  .classList.contains("active")
+              ) {
+                renderChannelOrderList();
+              }
+            };
+          }
 
           const favBtn = headerItem.querySelector(".channel-header-fav-btn");
           if (favBtn) {
@@ -2293,9 +2570,10 @@
             const isFav = favorites.includes(prog.title);
             const isHighlight =
               filterText && prog.title.toLowerCase().includes(filterText);
+            const isActual = prog.start <= now && prog.stop > now;
 
             const progEl = document.createElement("div");
-            progEl.className = `programme ${isFav ? "favorite" : ""} ${isHighlight ? "highlight" : ""}`;
+            progEl.className = `programme ${isFav ? "favorite" : ""} ${isHighlight ? "highlight" : ""} ${isActual ? "actual" : ""}`;
             progEl.style.top = `${startDiffMin * currentMinuteHeight}px`;
             progEl.style.height = `${Math.max(16, durationMin * currentMinuteHeight - 1)}px`;
 
@@ -2706,6 +2984,12 @@
               <button class="btn-logo-action btn-logo-save btn btn-green">${t("btn_logo_save")}</button>
               ${ch.customIcon ? `<button class="btn-logo-action btn-logo-clear btn btn-red" title="${t("btn_logo_clear")}">✕</button>` : ""}
             </div>
+            <div class="channel-rename-box">
+              <span class="channel-rename-label">${t("channel_name_label")}</span>
+              <input type="text" class="channel-rename-input" placeholder="${t("channel_name_placeholder")}" value="${ch.customName || ""}" />
+              <button class="btn-logo-action btn-rename-save btn btn-green">${t("btn_rename_save")}</button>
+              ${ch.customName ? `<button class="btn-logo-action btn-rename-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
+            </div>
           `;
 
           // Kedvenc kapcsoló
@@ -2795,6 +3079,62 @@
             };
           }
 
+          // Csatorna átnevezés mentése / visszaállítása
+          const renameInput = item.querySelector(".channel-rename-input");
+          const saveRename = async () => {
+            const newName = renameInput.value.trim();
+            await invoke("rename_channel", {
+              sourceId: targetSourceId,
+              channelId: ch.id,
+              name: newName,
+            });
+            ch.customName = newName || null;
+            if (targetSourceId === currentSourceId) {
+              const liveCh = epgData.channels.find((c) => c.id === ch.id);
+              if (liveCh) {
+                liveCh.customName = ch.customName;
+                liveCh.name =
+                  ch.customName || liveCh.originalName || liveCh.name;
+              }
+              renderEPG();
+            }
+            renderChannelOrderList();
+          };
+
+          item.querySelector(".btn-rename-save").onclick = (e) => {
+            e.stopPropagation();
+            saveRename();
+          };
+
+          renameInput.onkeydown = (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              saveRename();
+            }
+          };
+
+          const resetRenameBtn = item.querySelector(".btn-rename-reset");
+          if (resetRenameBtn) {
+            resetRenameBtn.onclick = async (e) => {
+              e.stopPropagation();
+              await invoke("rename_channel", {
+                sourceId: targetSourceId,
+                channelId: ch.id,
+                name: "",
+              });
+              ch.customName = null;
+              if (targetSourceId === currentSourceId) {
+                const liveCh = epgData.channels.find((c) => c.id === ch.id);
+                if (liveCh) {
+                  liveCh.customName = null;
+                  liveCh.name = liveCh.originalName || liveCh.name;
+                }
+                renderEPG();
+              }
+              renderChannelOrderList();
+            };
+          }
+
           // Nyilakkal mozgatás
           item.querySelector(".btn-up").onclick = (e) => {
             e.stopPropagation();
@@ -2834,6 +3174,49 @@
           await fetchEPG();
         }
         await renderChannelOrderList();
+      };
+
+      document.getElementById("exportSettingsBtn").onclick = async () => {
+        try {
+          const backup = await invoke("export_settings");
+          const json = JSON.stringify(backup, null, 2);
+          const blob = new Blob([json], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `epg-viewer-settings-${new Date().toISOString().slice(0, 10)}.json`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          await showAlert(
+            t("alert_error_title"),
+            t("alert_export_error") + ": " + err,
+          );
+        }
+      };
+
+      document.getElementById("importSettingsInput").onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const backup = JSON.parse(text);
+          await invoke("import_settings", { backup });
+          await showAlert(t("alert_success_title"), t("alert_import_success"));
+          await refreshSourcesFromDb();
+          favorites = await invoke("get_favorites");
+          await fetchEPG();
+          renderFavoritesList();
+          await renderChannelOrderList();
+        } catch (err) {
+          await showAlert(
+            t("alert_error_title"),
+            t("alert_import_error") + ": " + err,
+          );
+        }
+        e.target.value = "";
       };
 
       document.getElementById("favListBtn").onclick = () => {
