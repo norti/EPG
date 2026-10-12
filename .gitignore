@@ -14,8 +14,9 @@ cache/
 .vs/
 .crossnote
 ToDo.txt
-To-Do MD/
+TODO/
 .addons/
+implementation_plan.md
 
 # OS által generált fájlok
 .DS_Store
