@@ -108,13 +108,34 @@ fn init_db() -> Connection {
             data TEXT,
             created_at TEXT
         );
-        CREATE INDEX IF NOT EXISTS idx_logo_url ON logo_cache (url);",
+        CREATE INDEX IF NOT EXISTS idx_logo_url ON logo_cache (url);
+
+        CREATE TABLE IF NOT EXISTS tmdb_cache (
+            query_title TEXT NOT NULL,
+            lang TEXT NOT NULL,
+            tmdb_id INTEGER,
+            media_type TEXT,
+            title TEXT,
+            hu_title TEXT,
+            en_title TEXT,
+            original_title TEXT,
+            poster_path TEXT,
+            backdrop_path TEXT,
+            overview TEXT,
+            vote_average REAL,
+            release_date TEXT,
+            updated_at TEXT,
+            PRIMARY KEY (query_title, lang)
+        );
+        CREATE INDEX IF NOT EXISTS idx_tmdb_cache ON tmdb_cache (query_title, lang);",
     ).unwrap();
 
     // Meglévő adatbázis sémakorrekció, ha hiányoznának az új oszlopok
     let _ = conn.execute("ALTER TABLE sources ADD COLUMN country_code TEXT", []);
     let _ = conn.execute("ALTER TABLE sources ADD COLUMN time_offset INTEGER", []);
     let _ = conn.execute("ALTER TABLE channel_user_settings ADD COLUMN custom_name TEXT", []);
+    let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN hu_title TEXT", []);
+    let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN en_title TEXT", []);
 
     // Korábbi alapértelmezett források törlése a tiszta induláshoz
     conn.execute("DELETE FROM sources WHERE id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
@@ -260,6 +281,7 @@ async fn clear_entire_database() -> Result<(), String> {
 
     tx.execute("DELETE FROM channels", []).ok();
     tx.execute("DELETE FROM programmes", []).ok();
+    tx.execute("DELETE FROM tmdb_cache", []).ok();
     tx.execute("UPDATE sources SET last_downloaded = NULL", []).ok();
 
     tx.commit().map_err(|e| format!("Törlési mentési hiba: {}", e))?;
@@ -715,6 +737,415 @@ async fn set_setting(key: String, value: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TmdbDetails {
+    pub tmdb_id: i64,
+    pub title: String,
+    pub hu_title: Option<String>,
+    pub en_title: Option<String>,
+    pub original_title: Option<String>,
+    pub media_type: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub overview: Option<String>,
+    pub vote_average: Option<f64>,
+    pub release_date: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct TmdbSearchResponse {
+    results: Option<Vec<TmdbRawItem>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct TmdbRawItem {
+    id: i64,
+    media_type: Option<String>,
+    title: Option<String>,
+    name: Option<String>,
+    original_title: Option<String>,
+    original_name: Option<String>,
+    overview: Option<String>,
+    poster_path: Option<String>,
+    backdrop_path: Option<String>,
+    vote_average: Option<f64>,
+    release_date: Option<String>,
+    first_air_date: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct TmdbTranslationsResponse {
+    translations: Option<Vec<TmdbTranslationItem>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct TmdbTranslationItem {
+    iso_639_1: String,
+    data: Option<TmdbTranslationData>,
+}
+
+#[derive(Deserialize, Debug)]
+struct TmdbTranslationData {
+    title: Option<String>,
+    name: Option<String>,
+    overview: Option<String>,
+}
+
+fn clean_title(title: &str) -> String {
+    let mut s = title.replace('\u{a0}', " ").trim().to_string();
+
+    // 1. Remove year in parentheses / brackets e.g. (1999), [2021]
+    if let Ok(re_year) = regex::Regex::new(r"(?i)\s*[\(\[\{]\s*(?:19|20)\d{2}\s*[\)\]\}]") {
+        s = re_year.replace_all(&s, "").to_string();
+    }
+
+    // 2. Remove rating and tech tags e.g. (12), (16), (18), (HD), (élő), (ism.), etc.
+    if let Ok(re_tags) = regex::Regex::new(r"(?i)\s*[\(\[\{]\s*(?:12|16|18|BA|KN|HD|UHD|FHD|4K|3D|élő|live|ism\.?|premier|új|uj|feliratos|szinkronizált|magyarul beszélő[^)]*)\s*[\)\]\}]") {
+        s = re_tags.replace_all(&s, "").to_string();
+    }
+
+    // 3. Remove episode / season patterns with delimiter or explicit keyword:
+    // e.g. " - 1. rész", " 2. évad", " - S01E02", " - Ep. 5", " - I/2. rész", " 1. epizód"
+    if let Ok(re_ep1) = regex::Regex::new(r"(?i)\s*[-–—:]\s*(?:s\d+e\d+|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$") {
+        let trimmed_cand = re_ep1.replace(&s, "").to_string();
+        if trimmed_cand.trim().len() >= 2 {
+            s = trimmed_cand;
+        }
+    }
+
+    if let Ok(re_ep2) = regex::Regex::new(r"(?i)\s+(?:s\d+e\d+|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$") {
+        let trimmed_cand = re_ep2.replace(&s, "").to_string();
+        if trimmed_cand.trim().len() >= 2 {
+            s = trimmed_cand;
+        }
+    }
+
+    if let Ok(re_roman) = regex::Regex::new(r"\s*[-–—/]\s*(?:[IVXLCDM]+|[ivxlcdm]+)[\.:]?(?:\s*(?:rész|évad|epizód))?.*$") {
+        let trimmed_cand = re_roman.replace(&s, "").to_string();
+        if trimmed_cand.trim().len() >= 2 {
+            s = trimmed_cand;
+        }
+    }
+
+    // 4. Remove trailing generic parenthesis/bracket tag if it still exists at the end
+    if let Ok(re_tail_paren) = regex::Regex::new(r"\s*[\(\[\{][^\(\)\[\]\{\}]*[\)\]\}]\s*$") {
+        let trimmed_cand = re_tail_paren.replace(&s, "").to_string();
+        if trimmed_cand.trim().len() >= 2 {
+            s = trimmed_cand;
+        }
+    }
+
+    // 5. Remove trailing punctuation: dashes, colons, dots, slashes, commas
+    if let Ok(re_punct) = regex::Regex::new(r"[\s\-\–\—\:\,\.\/\\]+$") {
+        s = re_punct.replace(&s, "").to_string();
+    }
+
+    // 6. Collapse multiple spaces
+    if let Ok(re_spaces) = regex::Regex::new(r"\s+") {
+        s = re_spaces.replace_all(&s, " ").to_string();
+    }
+
+    s = s.trim().to_string();
+    if s.len() < 2 {
+        title.trim().to_string()
+    } else {
+        s
+    }
+}
+
+#[tauri::command]
+async fn get_tmdb_api_key() -> Result<Option<String>, String> {
+    let conn = init_db();
+    let res: Option<String> = conn.query_row(
+        "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
+        [],
+        |row| row.get(0),
+    ).ok();
+    Ok(res)
+}
+
+#[tauri::command]
+async fn set_tmdb_api_key(api_key: String) -> Result<(), String> {
+    let conn = init_db();
+    let clean_key = api_key.trim();
+    if clean_key.is_empty() {
+        conn.execute("DELETE FROM settings WHERE key = 'tmdb_api_key'", []).map_err(|e| e.to_string())?;
+    } else {
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('tmdb_api_key', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![clean_key],
+        ).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn clear_tmdb_cache() -> Result<(), String> {
+    let conn = init_db();
+    conn.execute("DELETE FROM tmdb_cache", []).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn test_tmdb_api_key(api_key: String) -> Result<bool, String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Ok(false);
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let is_v4 = key.starts_with("eyJ") || key.len() > 40;
+    let req = if is_v4 {
+        client.get("https://api.themoviedb.org/3/authentication")
+            .header("Authorization", format!("Bearer {}", key))
+            .header("Accept", "application/json")
+    } else {
+        client.get("https://api.themoviedb.org/3/authentication")
+            .query(&[("api_key", key)])
+            .header("Accept", "application/json")
+    };
+
+    match req.send().await {
+        Ok(resp) => Ok(resp.status().is_success()),
+        Err(e) => Err(format!("Hálózati hiba: {}", e)),
+    }
+}
+
+#[tauri::command]
+async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<TmdbDetails>, String> {
+    let clean = clean_title(&title);
+    if clean.is_empty() {
+        return Ok(None);
+    }
+
+    let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
+    let conn = init_db();
+
+    // 1. Check local cache
+    let cached = conn.query_row(
+        "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date
+         FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
+        params![clean, target_lang],
+        |row| {
+            let tmdb_id: Option<i64> = row.get(0)?;
+            let media_type: Option<String> = row.get(1)?;
+            let title: Option<String> = row.get(2)?;
+            let hu_title: Option<String> = row.get(3)?;
+            let en_title: Option<String> = row.get(4)?;
+            let original_title: Option<String> = row.get(5)?;
+            let poster_path: Option<String> = row.get(6)?;
+            let backdrop_path: Option<String> = row.get(7)?;
+            let overview: Option<String> = row.get(8)?;
+            let vote_average: Option<f64> = row.get(9)?;
+            let release_date: Option<String> = row.get(10)?;
+            Ok((tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date))
+        }
+    ).ok();
+
+    if let Some((tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
+        if media_type.as_deref() == Some("none") || tmdb_id.is_none() {
+            return Ok(None);
+        }
+        return Ok(Some(TmdbDetails {
+            tmdb_id: tmdb_id.unwrap_or(0),
+            title: title.unwrap_or_else(|| clean.clone()),
+            hu_title,
+            en_title,
+            original_title,
+            media_type,
+            poster_path,
+            backdrop_path,
+            overview,
+            vote_average,
+            release_date,
+        }));
+    }
+
+    // 2. Retrieve TMDB API key from settings
+    let api_key: Option<String> = conn.query_row(
+        "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
+        [],
+        |row| row.get(0),
+    ).ok();
+
+    let api_key = match api_key {
+        Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+        _ => return Ok(None),
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
+
+    let execute_search = |q: &str, l: &str| {
+        let mut req = client.get("https://api.themoviedb.org/3/search/multi")
+            .header("Accept", "application/json")
+            .query(&[("query", q), ("language", l), ("include_adult", "false")]);
+        if is_v4 {
+            req = req.header("Authorization", format!("Bearer {}", api_key));
+        } else {
+            req = req.query(&[("api_key", api_key.as_str())]);
+        }
+        req
+    };
+
+    let resp = execute_search(&clean, &target_lang).send().await;
+    let resp = match resp {
+        Ok(r) => {
+            if r.status() == reqwest::StatusCode::UNAUTHORIZED {
+                return Err("Érvénytelen TMDB API kulcs / Invalid TMDB API key".to_string());
+            }
+            r
+        }
+        Err(e) => return Err(format!("TMDB keresési hiba: {}", e)),
+    };
+
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let search_json: Result<TmdbSearchResponse, _> = serde_json::from_str(&text);
+    let search_res = search_json.ok().and_then(|r| r.results).unwrap_or_default();
+
+    let mut matched_item = search_res.into_iter().find(|i| {
+        matches!(i.media_type.as_deref(), Some("movie") | Some("tv"))
+    });
+
+    if matched_item.is_none() && target_lang != "en-US" {
+        if let Ok(fallback_resp) = execute_search(&clean, "en-US").send().await {
+            if let Ok(fallback_text) = fallback_resp.text().await {
+                if let Ok(fallback_json) = serde_json::from_str::<TmdbSearchResponse>(&fallback_text) {
+                    matched_item = fallback_json.results.unwrap_or_default().into_iter().find(|i| {
+                        matches!(i.media_type.as_deref(), Some("movie") | Some("tv"))
+                    });
+                }
+            }
+        }
+    }
+
+    let item = match matched_item {
+        Some(it) => it,
+        None => {
+            conn.execute(
+                "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
+                params![clean, target_lang],
+            ).ok();
+            return Ok(None);
+        }
+    };
+
+    let tmdb_id = item.id;
+    let media_type = item.media_type.unwrap_or_else(|| "movie".to_string());
+    let display_title = item.title.clone().or_else(|| item.name.clone()).unwrap_or_else(|| clean.clone());
+    let orig_title = item.original_title.clone().or_else(|| item.original_name.clone());
+    let rel_date = item.release_date.clone().or_else(|| item.first_air_date.clone());
+
+    // Translations request to find hu_title and en_title
+    let mut hu_title: Option<String> = None;
+    let mut en_title: Option<String> = None;
+    let mut hu_overview: Option<String> = None;
+
+    let trans_url = format!("https://api.themoviedb.org/3/{}/{}/translations", media_type, tmdb_id);
+    let mut trans_req = client.get(&trans_url).header("Accept", "application/json");
+    if is_v4 {
+        trans_req = trans_req.header("Authorization", format!("Bearer {}", api_key));
+    } else {
+        trans_req = trans_req.query(&[("api_key", api_key.as_str())]);
+    }
+
+    if let Ok(trans_resp) = trans_req.send().await {
+        if let Ok(trans_text) = trans_resp.text().await {
+            if let Ok(trans_data) = serde_json::from_str::<TmdbTranslationsResponse>(&trans_text) {
+                if let Some(translations) = trans_data.translations {
+                    for t in translations {
+                        if t.iso_639_1 == "hu" {
+                            if let Some(d) = t.data {
+                                let t_title = d.title.or(d.name).filter(|s| !s.trim().is_empty());
+                                if t_title.is_some() {
+                                    hu_title = t_title;
+                                }
+                                let t_over = d.overview.filter(|s| !s.trim().is_empty());
+                                if t_over.is_some() {
+                                    hu_overview = t_over;
+                                }
+                            }
+                        } else if t.iso_639_1 == "en" {
+                            if let Some(d) = t.data {
+                                let t_title = d.title.or(d.name).filter(|s| !s.trim().is_empty());
+                                if t_title.is_some() {
+                                    en_title = t_title;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if hu_title.is_none() && target_lang.starts_with("hu") {
+        hu_title = Some(display_title.clone());
+    }
+    if en_title.is_none() {
+        if target_lang.starts_with("en") {
+            en_title = Some(display_title.clone());
+        } else {
+            en_title = orig_title.clone();
+        }
+    }
+
+    let final_overview = if target_lang.starts_with("hu") && hu_overview.is_some() {
+        hu_overview
+    } else {
+        item.overview.or(hu_overview)
+    };
+
+    let details = TmdbDetails {
+        tmdb_id,
+        title: display_title,
+        hu_title,
+        en_title,
+        original_title: orig_title,
+        media_type: Some(media_type),
+        poster_path: item.poster_path,
+        backdrop_path: item.backdrop_path,
+        overview: final_overview,
+        vote_average: item.vote_average,
+        release_date: rel_date,
+    };
+
+    // Save to cache
+    conn.execute(
+        "INSERT OR REPLACE INTO tmdb_cache (
+            query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
+            poster_path, backdrop_path, overview, vote_average, release_date, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now', 'localtime'))",
+        params![
+            clean,
+            target_lang,
+            details.tmdb_id,
+            details.media_type,
+            details.title,
+            details.hu_title,
+            details.en_title,
+            details.original_title,
+            details.poster_path,
+            details.backdrop_path,
+            details.overview,
+            details.vote_average,
+            details.release_date,
+        ],
+    ).ok();
+
+    Ok(Some(details))
+}
+
 #[tauri::command]
 async fn update_source_epg(source_id: String, url: String) -> Result<(), String> {
     if url.trim().is_empty() {
@@ -911,8 +1342,75 @@ fn main() {
             export_settings,
             import_settings,
             get_settings,
-            set_setting
+            set_setting,
+            get_tmdb_details,
+            get_tmdb_api_key,
+            set_tmdb_api_key,
+            clear_tmdb_cache,
+            test_tmdb_api_key
         ])
         .run(tauri::generate_context!())
         .expect("Hiba a Tauri indításakor");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_title_variations() {
+        assert_eq!(clean_title("Mátrix (1999)"), "Mátrix");
+        assert_eq!(clean_title("Mátrix - 1. rész"), "Mátrix");
+        assert_eq!(clean_title("Híradó (élő)"), "Híradó");
+        assert_eq!(clean_title("Filmklub: A keresztapa (HD)"), "Filmklub: A keresztapa");
+        assert_eq!(clean_title("A mi kis falunk 5. évad 2. rész"), "A mi kis falunk");
+        assert_eq!(clean_title("Breaking Bad - S01E02"), "Breaking Bad");
+        assert_eq!(clean_title("Jóbarátok - 1. évad"), "Jóbarátok");
+        assert_eq!(clean_title("S.O.S. (HD)"), "S.O.S.");
+        assert_eq!(clean_title("The Lord of the Rings: The Fellowship of the Ring (2001) [HD]"), "The Lord of the Rings: The Fellowship of the Ring");
+        assert_eq!(clean_title("Terminátor 2: Az ítélet napja"), "Terminátor 2: Az ítélet napja");
+        assert_eq!(clean_title("Agymenők 12. évad"), "Agymenők");
+        assert_eq!(clean_title("Csernobil (1. rész)"), "Csernobil");
+    }
+
+    #[test]
+    fn test_tmdb_cache_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS tmdb_cache (
+                query_title TEXT NOT NULL,
+                lang TEXT NOT NULL,
+                tmdb_id INTEGER,
+                media_type TEXT,
+                title TEXT,
+                hu_title TEXT,
+                en_title TEXT,
+                original_title TEXT,
+                poster_path TEXT,
+                backdrop_path TEXT,
+                overview TEXT,
+                vote_average REAL,
+                release_date TEXT,
+                updated_at TEXT,
+                PRIMARY KEY (query_title, lang)
+            );"
+        ).unwrap();
+
+        conn.execute(
+            "INSERT INTO tmdb_cache (query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title, vote_average, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))",
+            params!["Matrix", "hu-HU", 603, "movie", "Mátrix", "Mátrix", "The Matrix", "The Matrix", 8.2],
+        ).unwrap();
+
+        let row: (i64, String, Option<String>, Option<String>) = conn.query_row(
+            "SELECT tmdb_id, title, hu_title, en_title FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
+            params!["Matrix", "hu-HU"],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).unwrap();
+
+        assert_eq!(row.0, 603);
+        assert_eq!(row.1, "Mátrix");
+        assert_eq!(row.2.as_deref(), Some("Mátrix"));
+        assert_eq!(row.3.as_deref(), Some("The Matrix"));
+    }
 }

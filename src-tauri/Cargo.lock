@@ -821,6 +821,7 @@ dependencies = [
  "dirs 5.0.1",
  "flate2",
  "quick-xml 0.31.0",
+ "regex",
  "reqwest 0.11.27",
  "rusqlite",
  "serde",
