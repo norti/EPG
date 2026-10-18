@@ -806,7 +806,7 @@ fn clean_title(title: &str) -> String {
     }
 
     // 3. Remove episode / season patterns with delimiter or explicit keyword:
-    // e.g. " - 1. rész", " 2. évad", " - S01E02", " - Ep. 5", " - I/2. rész", " 1. epizód"
+    // e.g. " - 1. rész", " 2. évad", " - S01E02", " - Ep. 5", " 1. epizód"
     if let Ok(re_ep1) = regex::Regex::new(r"(?i)\s*[-–—:]\s*(?:s\d+e\d+|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$") {
         let trimmed_cand = re_ep1.replace(&s, "").to_string();
         if trimmed_cand.trim().len() >= 2 {
@@ -821,7 +821,24 @@ fn clean_title(title: &str) -> String {
         }
     }
 
-    if let Ok(re_roman) = regex::Regex::new(r"\s*[-–—/]\s*(?:[IVXLCDM]+|[ivxlcdm]+)[\.:]?(?:\s*(?:rész|évad|epizód))?.*$") {
+    // Season / episode slash numbering e.g. " I./3.", " I/3.", " - I./3.", " 1./3.", " 1/3", " II/4. rész"
+    if let Ok(re_slash) = regex::Regex::new(r"(?i)\s*(?:[-–—:]\s*)?(?:[IVXLCDM]+|\d+)\.?\s*/\s*\d+[\.:]?(?:\s*(?:rész|évad|epizód))?.*$") {
+        let trimmed_cand = re_slash.replace(&s, "").to_string();
+        if trimmed_cand.trim().len() >= 2 {
+            s = trimmed_cand;
+        }
+    }
+
+    // Roman numeral part with keyword e.g. " I. rész", " II. évad"
+    if let Ok(re_roman_part) = regex::Regex::new(r"(?i)\s+(?:[IVXLCDM]+|[ivxlcdm]+)\.?\s*(?:rész|évad|epizód).*$") {
+        let trimmed_cand = re_roman_part.replace(&s, "").to_string();
+        if trimmed_cand.trim().len() >= 2 {
+            s = trimmed_cand;
+        }
+    }
+
+    // Roman numeral after dash e.g. " - I.", " - II"
+    if let Ok(re_roman) = regex::Regex::new(r"\s*[-–—:]\s*(?:[IVXLCDM]+|[ivxlcdm]+)[\.:]?(?:\s*(?:rész|évad|epizód))?.*$") {
         let trimmed_cand = re_roman.replace(&s, "").to_string();
         if trimmed_cand.trim().len() >= 2 {
             s = trimmed_cand;
@@ -1371,6 +1388,10 @@ mod tests {
         assert_eq!(clean_title("Terminátor 2: Az ítélet napja"), "Terminátor 2: Az ítélet napja");
         assert_eq!(clean_title("Agymenők 12. évad"), "Agymenők");
         assert_eq!(clean_title("Csernobil (1. rész)"), "Csernobil");
+        assert_eq!(clean_title("Az elveszett ereklyék fosztogatói I./3."), "Az elveszett ereklyék fosztogatói");
+        assert_eq!(clean_title("Az elveszett ereklyék fosztogatói I/3."), "Az elveszett ereklyék fosztogatói");
+        assert_eq!(clean_title("Az elveszett ereklyék fosztogatói - I./3."), "Az elveszett ereklyék fosztogatói");
+        assert_eq!(clean_title("A rejtély 1./3."), "A rejtély");
     }
 
     #[test]
