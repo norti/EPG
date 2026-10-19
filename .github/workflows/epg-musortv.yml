@@ -1,0 +1,51 @@
+name: Automatic EPG Grabber - musor.tv
+
+on:
+  schedule:
+    # Minden szombat, hétfő és csütörtök hajnalban fut le
+    - cron: "21 23 * * 3,5,0"
+  workflow_dispatch: # Kézi indítási lehetőség a GitHub felületéről
+
+jobs:
+  grab-epg:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Repository klónozása
+        uses: actions/checkout@v7
+
+      - name: Node.js v24 beállítása
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: IPTV-org EPG repo letöltése
+        run: |
+          git clone https://github.com/iptv-org/epg.git iptv-epg
+          cd iptv-epg
+          npm install
+
+      - name: EPG adatok letöltése - musor.tv (14 nap)
+        run: |
+          mkdir -p ../temp_xml
+          cp -f epg-fix/musor.tv.config.js iptv-epg/sites/musor.tv/
+          cd iptv-epg
+          npm run channels:parse --- --config=./sites/musor.tv/musor.tv.config.js --output=./sites/musor.tv/musor.tv.channels.xml
+          npm run grab --- --sites=musor.tv --days=14 --maxConnections=1 --output=../temp_xml/musor_tv.xml
+
+      - name: Fájl tömörítése GZ formátumba
+        run: |
+          mkdir -p EPG
+          gzip -c temp_xml/musor_tv.xml > EPG/musor_tv.xml.gz
+
+      - name: Frissített .gz fájl visszatöltése a repóba (Git Commit & Push)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull
+          git add EPG/*.gz
+          git commit -m "Auto-update musor.tv EPG file [skip ci]" || exit 0
+          git push

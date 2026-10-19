@@ -1,0 +1,51 @@
+name: Automatic EPG Grabber - port.hu
+
+on:
+  schedule:
+    # Minden szombat, hétfő és csütörtök hajnalban fut le (kb. 40 perc futási idővel)
+    - cron: "31 23 * * 3,5,0"
+  workflow_dispatch: # Kézi indítási lehetőség a GitHub felületéről
+
+jobs:
+  grab-epg:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Repository klónozása
+        uses: actions/checkout@v7
+
+      - name: Node.js v24 beállítása
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: IPTV-org EPG repo letöltése
+        run: |
+          git clone https://github.com/iptv-org/epg.git iptv-epg
+          cd iptv-epg
+          npm install
+
+      - name: EPG adatok letöltése - port.hu (7 nap)
+        run: |
+          cp -f epg-fix/port.hu.config.js iptv-epg/sites/port.hu/
+          mkdir -p ../temp_xml
+          cd iptv-epg
+          npm run channels:parse --- --config=./sites/port.hu/port.hu.config.js --output=./sites/port.hu/port.hu.channels.xml
+          npm run grab --- --sites=port.hu --maxConnections=1 --delay=2000 --days=7 --output=../temp_xml/porthu.xml
+
+      - name: Fájl tömörítése GZ formátumba
+        run: |
+          mkdir -p EPG
+          gzip -c temp_xml/porthu.xml > EPG/porthu.xml.gz
+
+      - name: Frissített .gz fájl visszatöltése a repóba (Git Commit & Push)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull
+          git add EPG/*.gz
+          git commit -m "Auto-update port.hu EPG file [skip ci]" || exit 0
+          git push
