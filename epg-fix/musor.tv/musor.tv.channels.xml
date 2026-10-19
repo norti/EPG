@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channels>
+  <channel site="musor.tv" site_id="7TV" lang="hu" xmltv_id="">7.TV</channel>
+  <channel site="musor.tv" site_id="360TUNEBOX" lang="hu" xmltv_id="">360 TuneBox</channel>
+  <channel site="musor.tv" site_id="AMC" lang="hu" xmltv_id="">AMC (HD)</channel>
+  <channel site="musor.tv" site_id="ANIMAL" lang="hu" xmltv_id="">Animal Planet (HD)</channel>
+  <channel site="musor.tv" site_id="APOSTOL_TV" lang="hu" xmltv_id="">Apostol TV</channel>
+  <channel site="musor.tv" site_id="ARENA4" lang="hu" xmltv_id="">Arena4 (HD)</channel>
+  <channel site="musor.tv" site_id="ATV" lang="hu" xmltv_id="">ATV (HD)</channel>
+  <channel site="musor.tv" site_id="ATV_EXTRA" lang="hu" xmltv_id="">ATV Extra (HD)</channel>
+  <channel site="musor.tv" site_id="AUTO_MOTOR_SPORT" lang="hu" xmltv_id="">Auto Motor Sport (HD)</channel>
+  <channel site="musor.tv" site_id="AXN" lang="hu" xmltv_id="">AXN (HD)</channel>
+  <channel site="musor.tv" site_id="AXN_CRIME" lang="hu" xmltv_id="">AXN Crime (HD)</channel>
+  <channel site="musor.tv" site_id="BABYTV" lang="hu" xmltv_id="">Baby TV</channel>
+  <channel site="musor.tv" site_id="BALATON_TV" lang="hu" xmltv_id="">Balaton TV</channel>
+  <channel site="musor.tv" site_id="BBC_EARTH" lang="hu" xmltv_id="">BBC Earth (HD)</channel>
+  <channel site="musor.tv" site_id="BBCWORLD" lang="hu" xmltv_id="">BBC World News</channel>
+  <channel site="musor.tv" site_id="BONUM" lang="hu" xmltv_id="">EWTN / Bonum TV (HD)</channel>
+  <channel site="musor.tv" site_id="BUDAPEST_TV" lang="hu" xmltv_id="">Budapest TV HD</channel>
+  <channel site="musor.tv" site_id="CANAL_PLUS_ACTION" lang="hu" xmltv_id="">Canal+ Action</channel>
+  <channel site="musor.tv" site_id="CARTOON" lang="hu" xmltv_id="">Cartoon Network (HD)</channel>
+  <channel site="musor.tv" site_id="CARTOONITO" lang="hu" xmltv_id="">Cartoonito (HD)</channel>
+  <channel site="musor.tv" site_id="CINEMAX" lang="hu" xmltv_id="">Cinemax (HD)</channel>
+  <channel site="musor.tv" site_id="CINEMAX2" lang="hu" xmltv_id="">Cinemax 2 (HD)</channel>
+  <channel site="musor.tv" site_id="CLASSICA" lang="hu" xmltv_id="">Stingray Classica HD</channel>
+  <channel site="musor.tv" site_id="CMUSIC" lang="hu" xmltv_id="">Stingray C Music</channel>
+  <channel site="musor.tv" site_id="CNBC" lang="hu" xmltv_id="">CNBC</channel>
+  <channel site="musor.tv" site_id="CNN" lang="hu" xmltv_id="">CNN</channel>
+  <channel site="musor.tv" site_id="COOL" lang="hu" xmltv_id="">Cool (HD)</channel>
+  <channel site="musor.tv" site_id="CSUKAS_RADIO" lang="hu" xmltv_id="">Csukás Meserádió</channel>
+  <channel site="musor.tv" site_id="D1TV" lang="hu" xmltv_id="">D1 Televízió</channel>
+  <channel site="musor.tv" site_id="DANKO_RADIO" lang="hu" xmltv_id="">Dankó Rádió</channel>
+  <channel site="musor.tv" site_id="DAVINCI" lang="hu" xmltv_id="">Da Vinci (HD)</channel>
+  <channel site="musor.tv" site_id="DEBRECEN_TV" lang="hu" xmltv_id="">Debrecen TV</channel>
+  <channel site="musor.tv" site_id="DIKH_TV" lang="hu" xmltv_id="">Dikh TV (HD)</channel>
+  <channel site="musor.tv" site_id="DISCOVERY" lang="hu" xmltv_id="">Discovery Channel (HD)</channel>
+  <channel site="musor.tv" site_id="DISNEY" lang="hu" xmltv_id="">Disney Channel</channel>
+  <channel site="musor.tv" site_id="DOCUBOX_EN" lang="hu" xmltv_id="">Docubox (HD)</channel>
+  <channel site="musor.tv" site_id="DUCKHD" lang="hu" xmltv_id="">Duck TV HD</channel>
+  <channel site="musor.tv" site_id="DUCKTV" lang="hu" xmltv_id="">Duck TV</channel>
+  <channel site="musor.tv" site_id="DUNA" lang="hu" xmltv_id="">Duna TV (HD)</channel>
+  <channel site="musor.tv" site_id="DUNAWORLD" lang="hu" xmltv_id="">Duna World (HD)</channel>
+  <channel site="musor.tv" site_id="E_ENTERTAINMENT" lang="hu" xmltv_id="">E! Entertainment (HD)</channel>
+  <channel site="musor.tv" site_id="ELSO_KERULET_TV" lang="hu" xmltv_id="">Első Kerület TV HD</channel>
+  <channel site="musor.tv" site_id="ENGLISH_CLUB_TV" lang="hu" xmltv_id="">English Club TV</channel>
+  <channel site="musor.tv" site_id="EPIC_DRAMA" lang="hu" xmltv_id="">Viasat Epic Drama (HD)</channel>
+  <channel site="musor.tv" site_id="ERDELY_TV" lang="hu" xmltv_id="">Erdély TV</channel>
+  <channel site="musor.tv" site_id="EURONEWS" lang="hu" xmltv_id="">Euronews (HD)</channel>
+  <channel site="musor.tv" site_id="EUROSPORT" lang="hu" xmltv_id="">Eurosport 1 (HD)</channel>
+  <channel site="musor.tv" site_id="EUROSPORT2" lang="hu" xmltv_id="">Eurosport 2 (HD)</channel>
+  <channel site="musor.tv" site_id="EUROSPORT4K" lang="hu" xmltv_id="">Eurosport 4K</channel>
+  <channel site="musor.tv" site_id="EXTREMESP" lang="hu" xmltv_id="">Extreme Sports Channel</channel>
+  <channel site="musor.tv" site_id="FASHIONTV" lang="hu" xmltv_id="">Fashion TV</channel>
+  <channel site="musor.tv" site_id="FEHERVAR_TV" lang="hu" xmltv_id="">Fehérvár TV</channel>
+  <channel site="musor.tv" site_id="FEM3" lang="hu" xmltv_id="">FEM3</channel>
+  <channel site="musor.tv" site_id="FIGHTBOX_EN" lang="hu" xmltv_id="">Fightbox HD</channel>
+  <channel site="musor.tv" site_id="FILM4" lang="hu" xmltv_id="">Film 4 (HD)</channel>
+  <channel site="musor.tv" site_id="FILMBOX_PLUS_COMEDY" lang="hu" xmltv_id="">Filmbox+ Comedy</channel>
+  <channel site="musor.tv" site_id="FILMBOX_PLUS_EMOTION" lang="hu" xmltv_id="">Filmbox+ Emotion (HD)</channel>
+  <channel site="musor.tv" site_id="FILMBOX_PLUS_FESTIVAL" lang="hu" xmltv_id="">Filmbox+ Festival</channel>
+  <channel site="musor.tv" site_id="FILMBOX_PLUS_HITS" lang="hu" xmltv_id="">Filmbox+ Hits</channel>
+  <channel site="musor.tv" site_id="FILMBOX_PLUS_LOVE_CRIME" lang="hu" xmltv_id="">Filmbox+ Love &amp; Crime</channel>
+  <channel site="musor.tv" site_id="FILMBOX_PLUS_ONE" lang="hu" xmltv_id="">Filmbox+ One (HD)</channel>
+  <channel site="musor.tv" site_id="FILMCAFE" lang="hu" xmltv_id="">Film Café (HD)</channel>
+  <channel site="musor.tv" site_id="FILMMANIA" lang="hu" xmltv_id="">Film Mánia (HD)</channel>
+  <channel site="musor.tv" site_id="FILMPLUS" lang="hu" xmltv_id="">film+ (HD)</channel>
+  <channel site="musor.tv" site_id="FISHING_HUNTING" lang="hu" xmltv_id="">Fishing &amp; Hunting Channel (HD)</channel>
+  <channel site="musor.tv" site_id="FIT_HD" lang="hu" xmltv_id="">Fit HD</channel>
+  <channel site="musor.tv" site_id="FOODNETWORK" lang="hu" xmltv_id="">Food Network (HD)</channel>
+  <channel site="musor.tv" site_id="FTVHD" lang="hu" xmltv_id="">Fashion TV HD</channel>
+  <channel site="musor.tv" site_id="FUNBOX_UHD" lang="hu" xmltv_id="">Funbox UltraHD 4K</channel>
+  <channel site="musor.tv" site_id="GALAXY" lang="hu" xmltv_id="">Galaxy 4 (HD)</channel>
+  <channel site="musor.tv" site_id="GAMETOON" lang="hu" xmltv_id="">Gametoon (HD)</channel>
+  <channel site="musor.tv" site_id="GYONGYOS_TV" lang="hu" xmltv_id="">Gyöngyös TV HD</channel>
+  <channel site="musor.tv" site_id="HBO2" lang="hu" xmltv_id="">HBO 2 (HD)</channel>
+  <channel site="musor.tv" site_id="HBO3" lang="hu" xmltv_id="">HBO 3 (HD)</channel>
+  <channel site="musor.tv" site_id="HBOHD" lang="hu" xmltv_id="">HBO (HD)</channel>
+  <channel site="musor.tv" site_id="HEGYVIDEK_TV" lang="hu" xmltv_id="">Hegyvidék TV</channel>
+  <channel site="musor.tv" site_id="HETI_TV" lang="hu" xmltv_id="">Heti TV</channel>
+  <channel site="musor.tv" site_id="HGTV" lang="hu" xmltv_id="">HGTV (HD)</channel>
+  <channel site="musor.tv" site_id="HIRTV" lang="hu" xmltv_id="">Hír TV (HD)</channel>
+  <channel site="musor.tv" site_id="HISTORYHD" lang="hu" xmltv_id="">History (HD)</channel>
+  <channel site="musor.tv" site_id="ICONCERTS" lang="hu" xmltv_id="">Stingray iConcerts HD</channel>
+  <channel site="musor.tv" site_id="ID" lang="hu" xmltv_id="">ID (HD)</channel>
+  <channel site="musor.tv" site_id="IZAURA_TV" lang="hu" xmltv_id="">Izaura TV (HD)</channel>
+  <channel site="musor.tv" site_id="JAZZ_TV" lang="hu" xmltv_id="">Jazz TV (HD)</channel>
+  <channel site="musor.tv" site_id="JIMJAM" lang="hu" xmltv_id="">JimJam</channel>
+  <channel site="musor.tv" site_id="JOCKYTV" lang="hu" xmltv_id="">Jocky TV</channel>
+  <channel site="musor.tv" site_id="KAPOS_TV" lang="hu" xmltv_id="">Kapos TV</channel>
+  <channel site="musor.tv" site_id="KOLYOK_KLUB" lang="hu" xmltv_id="">Kölyök Klub</channel>
+  <channel site="musor.tv" site_id="LIFE_TV" lang="hu" xmltv_id="">Life TV (HD)</channel>
+  <channel site="musor.tv" site_id="LOVE_NATURE" lang="hu" xmltv_id="">Love Nature (HD / 4K)</channel>
+  <channel site="musor.tv" site_id="M1" lang="hu" xmltv_id="">M1 (HD)</channel>
+  <channel site="musor.tv" site_id="M2" lang="hu" xmltv_id="">M2 / Petőfi (HD)</channel>
+  <channel site="musor.tv" site_id="M3" lang="hu" xmltv_id="">M3 (online)</channel>
+  <channel site="musor.tv" site_id="M4_SPORT" lang="hu" xmltv_id="">M4 Sport (HD)</channel>
+  <channel site="musor.tv" site_id="M4_SPORT_PLUSZ" lang="hu" xmltv_id="">M4 Sport+ (HD)</channel>
+  <channel site="musor.tv" site_id="M5" lang="hu" xmltv_id="">M5 (HD)</channel>
+  <channel site="musor.tv" site_id="MAGYAR_MOZI_TV" lang="hu" xmltv_id="">Magyar Mozi TV (HD)</channel>
+  <channel site="musor.tv" site_id="MATCH4" lang="hu" xmltv_id="">Match4 (HD)</channel>
+  <channel site="musor.tv" site_id="MAX4" lang="hu" xmltv_id="">Max 4</channel>
+  <channel site="musor.tv" site_id="MEZZO" lang="hu" xmltv_id="">Mezzo (HD)</channel>
+  <channel site="musor.tv" site_id="MEZZOHD" lang="hu" xmltv_id="">Mezzo Live HD</channel>
+  <channel site="musor.tv" site_id="MINIMAX" lang="hu" xmltv_id="">Minimax</channel>
+  <channel site="musor.tv" site_id="MOZI_KLUB" lang="hu" xmltv_id="">Mozi Klub</channel>
+  <channel site="musor.tv" site_id="MOZI_PLUSZ" lang="hu" xmltv_id="">Mozi+ (HD)</channel>
+  <channel site="musor.tv" site_id="MOZIVERZUM" lang="hu" xmltv_id="">Moziverzum (HD)</channel>
+  <channel site="musor.tv" site_id="MR1" lang="hu" xmltv_id="">Kossuth Rádió</channel>
+  <channel site="musor.tv" site_id="MR2" lang="hu" xmltv_id="">Petőfi Rádió</channel>
+  <channel site="musor.tv" site_id="MR3" lang="hu" xmltv_id="">Bartók Rádió</channel>
+  <channel site="musor.tv" site_id="MR4" lang="hu" xmltv_id="">Nemzetiségi Adások</channel>
+  <channel site="musor.tv" site_id="MR_SPORT_RADIO" lang="hu" xmltv_id="">Nemzeti Sport Rádió</channel>
+  <channel site="musor.tv" site_id="MTVHU" lang="hu" xmltv_id="">MTV Hungary</channel>
+  <channel site="musor.tv" site_id="MUSICMIX" lang="hu" xmltv_id="">Music Mix Hungary</channel>
+  <channel site="musor.tv" site_id="MUZSIKATV" lang="hu" xmltv_id="">Muzsika TV</channel>
+  <channel site="musor.tv" site_id="NATGEO" lang="hu" xmltv_id="">National Geographic (HD)</channel>
+  <channel site="musor.tv" site_id="NATGEOWILD" lang="hu" xmltv_id="">National Geographic Wild (HD)</channel>
+  <channel site="musor.tv" site_id="NAUTICAL_CHANNEL" lang="hu" xmltv_id="">Nautical Channel (HD)</channel>
+  <channel site="musor.tv" site_id="NESHAMA_TV" lang="hu" xmltv_id="">Neshama TV</channel>
+  <channel site="musor.tv" site_id="NICKELODEON" lang="hu" xmltv_id="">Nickelodeon (HD)</channel>
+  <channel site="musor.tv" site_id="NICKJR" lang="hu" xmltv_id="">Nick Jr</channel>
+  <channel site="musor.tv" site_id="NICKTOONS" lang="hu" xmltv_id="">Nicktoons (HD)</channel>
+  <channel site="musor.tv" site_id="OZONE_TV" lang="hu" xmltv_id="">Ozone TV (HD)</channel>
+  <channel site="musor.tv" site_id="PANNON_TV" lang="hu" xmltv_id="">Pannon TV (Vajdaság)</channel>
+  <channel site="musor.tv" site_id="PAPRIKA" lang="hu" xmltv_id="">TV Paprika (HD)</channel>
+  <channel site="musor.tv" site_id="PAX" lang="hu" xmltv_id="">PAX TV</channel>
+  <channel site="musor.tv" site_id="PRIME" lang="hu" xmltv_id="">Prime (HD)</channel>
+  <channel site="musor.tv" site_id="RTL" lang="hu" xmltv_id="">RTL (HD)</channel>
+  <channel site="musor.tv" site_id="RTL2" lang="hu" xmltv_id="">RTL KETTŐ (HD)</channel>
+  <channel site="musor.tv" site_id="RTL3" lang="hu" xmltv_id="">RTL HÁROM (HD)</channel>
+  <channel site="musor.tv" site_id="RTL_GOLD" lang="hu" xmltv_id="">RTL Gold</channel>
+  <channel site="musor.tv" site_id="RTL_OTTHON" lang="hu" xmltv_id="">RTL Otthon</channel>
+  <channel site="musor.tv" site_id="RUSSKOE_KINO" lang="hu" xmltv_id="">TV1000 Russian Kino</channel>
+  <channel site="musor.tv" site_id="SKYNEWS" lang="hu" xmltv_id="">Sky News</channel>
+  <channel site="musor.tv" site_id="SLAGERTV" lang="hu" xmltv_id="">Sláger TV (HD)</channel>
+  <channel site="musor.tv" site_id="SOROZAT" lang="hu" xmltv_id="">Sorozat+</channel>
+  <channel site="musor.tv" site_id="SOROZAT_KLUB" lang="hu" xmltv_id="">Sorozat Klub</channel>
+  <channel site="musor.tv" site_id="SPEKTRUM" lang="hu" xmltv_id="">Spektrum (HD)</channel>
+  <channel site="musor.tv" site_id="SPEKTRUMHOME" lang="hu" xmltv_id="">Spektrum Home (HD)</channel>
+  <channel site="musor.tv" site_id="SPEKTRUMHOME_PLUSZ" lang="hu" xmltv_id="">Spektrum Home+ (MinDig TV)</channel>
+  <channel site="musor.tv" site_id="SPILER2_TV" lang="hu" xmltv_id="">Spíler2 TV (HD)</channel>
+  <channel site="musor.tv" site_id="SPILER_TV" lang="hu" xmltv_id="">Spíler1 TV (HD)</channel>
+  <channel site="musor.tv" site_id="SPORT1" lang="hu" xmltv_id="">Sport 1 (HD)</channel>
+  <channel site="musor.tv" site_id="SPORT2" lang="hu" xmltv_id="">Sport 2 (HD)</channel>
+  <channel site="musor.tv" site_id="STORY4" lang="hu" xmltv_id="">Story 4 (HD)</channel>
+  <channel site="musor.tv" site_id="SUPERTV2" lang="hu" xmltv_id="">Super TV2 (HD)</channel>
+  <channel site="musor.tv" site_id="SZAKCSI_RADIO" lang="hu" xmltv_id="">Szakcsi Rádió</channel>
+  <channel site="musor.tv" site_id="SZEGED_TV" lang="hu" xmltv_id="">Szeged TV</channel>
+  <channel site="musor.tv" site_id="TLC" lang="hu" xmltv_id="">TLC (HD)</channel>
+  <channel site="musor.tv" site_id="TOTALDANCE_TV" lang="hu" xmltv_id="">Total Dance TV (HD)</channel>
+  <channel site="musor.tv" site_id="TRACESPORTS" lang="hu" xmltv_id="">Trace Sport Stars HD</channel>
+  <channel site="musor.tv" site_id="TRACEURBAN" lang="hu" xmltv_id="">Trace Urban (HD)</channel>
+  <channel site="musor.tv" site_id="TRAVEL" lang="hu" xmltv_id="">Travel Channel (HD)</channel>
+  <channel site="musor.tv" site_id="TRAVELXP" lang="hu" xmltv_id="">Travel XP (HD)</channel>
+  <channel site="musor.tv" site_id="TRAVELXP_4K" lang="hu" xmltv_id="">Travel XP 4K</channel>
+  <channel site="musor.tv" site_id="TV2" lang="hu" xmltv_id="">TV2 (HD)</channel>
+  <channel site="musor.tv" site_id="TV2_COMEDY" lang="hu" xmltv_id="">TV2 Comedy</channel>
+  <channel site="musor.tv" site_id="TV2_KIDS" lang="hu" xmltv_id="">TV2 Kids</channel>
+  <channel site="musor.tv" site_id="TV2_SEF" lang="hu" xmltv_id="">TV2 Séf</channel>
+  <channel site="musor.tv" site_id="TV4" lang="hu" xmltv_id="">TV 4 (HD)</channel>
+  <channel site="musor.tv" site_id="TV_EGER" lang="hu" xmltv_id="">TV Eger</channel>
+  <channel site="musor.tv" site_id="UJBUDA_TV" lang="hu" xmltv_id="">Újbuda TV</channel>
+  <channel site="musor.tv" site_id="VASARHELYI_TV" lang="hu" xmltv_id="">Vásárhelyi Televízió</channel>
+  <channel site="musor.tv" site_id="VESZPREM_TV" lang="hu" xmltv_id="">Veszprém TV HD</channel>
+  <channel site="musor.tv" site_id="VIASAT2" lang="hu" xmltv_id="">Viasat 2</channel>
+  <channel site="musor.tv" site_id="VIASAT3" lang="hu" xmltv_id="">Viasat 3 (HD)</channel>
+  <channel site="musor.tv" site_id="VIASAT6" lang="hu" xmltv_id="">Viasat 6 (HD)</channel>
+  <channel site="musor.tv" site_id="VIASATEXP" lang="hu" xmltv_id="">Viasat Explore (HD)</channel>
+  <channel site="musor.tv" site_id="VIASATHIST" lang="hu" xmltv_id="">Viasat History (HD)</channel>
+  <channel site="musor.tv" site_id="VIASATNAT" lang="hu" xmltv_id="">Viasat Nature (HD)</channel>
+  <channel site="musor.tv" site_id="ZEG_TV" lang="hu" xmltv_id="">Zalaegerszegi TV</channel>
+  <channel site="musor.tv" site_id="ZENEBUTIK" lang="hu" xmltv_id="">Zenebutik TV</channel>
+</channels>
