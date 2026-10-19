@@ -32,8 +32,8 @@ jobs:
         run: |
           mkdir -p ../temp_xml
           cp -f epg-fix/musor.tv.config.js iptv-epg/sites/musor.tv/
+          cp -f epg-fix/musor.tv/musor.tv.channels.xml iptv-epg/sites/musor.tv/
           cd iptv-epg
-          npm run channels:parse --- --config=./sites/musor.tv/musor.tv.config.js --output=./sites/musor.tv/musor.tv.channels.xml
           npm run grab --- --sites=musor.tv --days=14 --maxConnections=1 --output=../temp_xml/musor_tv.xml
 
       - name: Fájl tömörítése GZ formátumba
