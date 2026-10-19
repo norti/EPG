@@ -117,7 +117,7 @@
   "tmdb_status_invalid": "Invalid key or connection error",
   "tmdb_btn_save": "Save",
   "tmdb_btn_clear": "Clear Key",
-  "tmdb_btn_test": "Test Connection",
+  "tmdb_btn_test": "Test",
   "tmdb_btn_clear_cache": "Clear TMDB Cache",
   "tmdb_cache_cleared": "TMDB cache cleared successfully!",
   "tmdb_saved_success": "TMDB API key saved successfully!",

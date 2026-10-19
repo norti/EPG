@@ -117,7 +117,7 @@
   "tmdb_status_invalid": "Érvénytelen kulcs vagy kapcsolati hiba",
   "tmdb_btn_save": "Mentés",
   "tmdb_btn_clear": "Kulcs törlése",
-  "tmdb_btn_test": "Kapcsolat tesztelése",
+  "tmdb_btn_test": "Teszt",
   "tmdb_btn_clear_cache": "TMDB gyorsítótár kiürítése",
   "tmdb_cache_cleared": "A TMDB gyorsítótár sikeresen kiürítve!",
   "tmdb_saved_success": "TMDB API kulcs sikeresen mentve!",

@@ -1,0 +1,53 @@
+name: Automatic EPG Grabber - web.magentatv.de
+
+on:
+  schedule:
+    # Minden szombat, hétfő és csütörtök hajnalban fut le (kb. 1 óra futási idővel)
+    - cron: "11 23 * * 3,5,0"
+  workflow_dispatch: # Kézi indítási lehetőség a GitHub felületéről
+
+jobs:
+  grab-epg:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Repository klónozása
+        uses: actions/checkout@v7
+
+      - name: Node.js v24 beállítása
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: IPTV-org EPG repo letöltése
+        run: |
+          git clone https://github.com/iptv-org/epg.git iptv-epg
+          cd iptv-epg
+          npm install
+
+      - name: Előkészítés
+        run: |
+          mkdir -p ../temp_xml
+
+      - name: EPG adatok letöltése - web.magentatv.de (14 nap)
+        run: |
+          cd iptv-epg
+          npm run channels:parse --- --config=./sites/web.magentatv.de/web.magentatv.de.config.js --output=./sites/web.magentatv.de/web.magentatv.de.channels.xml
+          npm run grab --- --sites=web.magentatv.de --days=14 --output=../temp_xml/magenta_web.xml
+
+      - name: Fájl tömörítése GZ formátumba
+        run: |
+          mkdir -p EPG
+          gzip -c temp_xml/magenta_web.xml > EPG/magenta_web.xml.gz
+
+      - name: Frissített .gz fájl visszatöltése a repóba (Git Commit & Push)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull
+          git add EPG/*.gz
+          git commit -m "Auto-update web.magentatv.de EPG file [skip ci]" || exit 0
+          git push
