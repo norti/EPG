@@ -1,6 +1,5 @@
 # EPG
 
-EPG XML updated regularly
 [![Automatic EPG Grabber - web.magentatv.de](https://github.com/norti/EPG/actions/workflows/epg-magenta.yml/badge.svg)](https://github.com/norti/EPG/actions/workflows/epg-magenta.yml)
 [![Automatic EPG Grabber - tvheute.at](https://github.com/norti/EPG/actions/workflows/epg-tvheute.yml/badge.svg)](https://github.com/norti/EPG/actions/workflows/epg-tvheute.yml)
 [![Automatic EPG Grabber - port.hu](https://github.com/norti/EPG/actions/workflows/epg-porthu.yml/badge.svg)](https://github.com/norti/EPG/actions/workflows/epg-porthu.yml)
