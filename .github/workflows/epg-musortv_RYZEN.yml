@@ -1,4 +1,4 @@
-name: Automatic EPG Grabber - musor.tv
+name: Automatic EPG Grabber - musor.tv RYZEN
 
 on:
   schedule:
