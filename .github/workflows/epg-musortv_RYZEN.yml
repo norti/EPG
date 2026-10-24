@@ -43,7 +43,7 @@ jobs:
       - name: Fájl tömörítése GZ formátumba (7z)
         run: |
           New-Item -ItemType Directory -Force -Path EPG
-          7z a -tgzip EPG/musor_tv.xml.gz .\temp_xml\musor_tv.xml
+          & "C:\Program Files\7-Zip\7z.exe" a -tgzip EPG/musor_tv.xml.gz .\temp_xml\musor_tv.xml
 
       - name: Frissített .gz fájl visszatöltése a repóba (Git Commit & Push)
         run: |
