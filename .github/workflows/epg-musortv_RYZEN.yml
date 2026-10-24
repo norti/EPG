@@ -3,7 +3,7 @@ name: Automatic EPG Grabber - musor.tv RYZEN
 on:
   schedule:
     # Minden szombat, hétfő és csütörtök hajnalban fut le
-    - cron: "1 4 * * 3,5,0"
+    - cron: "1 4 * * 4,6,1"
   workflow_dispatch: # Kézi indítási lehetőség a GitHub felületéről
 
 jobs:
