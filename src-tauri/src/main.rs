@@ -559,6 +559,133 @@ struct BackupData {
     settings: HashMap<String, String>,
 }
 
+// ── Channel-data export/import ───────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ChannelExportRow {
+    source_id: String,
+    source_name: String,
+    source_url: String,
+    channel_id: String,
+    channel_name: String,
+    is_favorite: i32,
+    is_hidden: i32,
+    position: Option<i64>,
+    custom_icon: Option<String>,
+    custom_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ChannelDataExport {
+    version: u32,
+    exported_at: String,
+    channels: Vec<ChannelExportRow>,
+}
+
+#[tauri::command]
+async fn export_channel_data() -> Result<ChannelDataExport, String> {
+    let conn = init_db();
+
+    let mut stmt = conn.prepare(
+        "SELECT
+            c.source_id,
+            COALESCE(s.name, '') AS source_name,
+            COALESCE(s.url, '')  AS source_url,
+            c.id                 AS channel_id,
+            c.name               AS channel_name,
+            COALESCE(cu.is_favorite, 0) AS is_favorite,
+            COALESCE(cu.is_hidden,   0) AS is_hidden,
+            co.position,
+            cu.custom_icon,
+            cu.custom_name
+         FROM channels c
+         LEFT JOIN sources s ON c.source_id = s.id
+         LEFT JOIN channel_user_settings cu
+               ON  cu.source_id  = c.source_id
+               AND cu.channel_id = c.id
+         LEFT JOIN channel_orders co
+               ON  co.source_id  = c.source_id
+               AND co.channel_id = c.id
+         ORDER BY s.name, co.position, c.id",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(ChannelExportRow {
+            source_id:    row.get(0)?,
+            source_name:  row.get(1)?,
+            source_url:   row.get(2)?,
+            channel_id:   row.get(3)?,
+            channel_name: row.get(4)?,
+            is_favorite:  row.get(5)?,
+            is_hidden:    row.get(6)?,
+            position:     row.get(7)?,
+            custom_icon:  row.get(8)?,
+            custom_name:  row.get(9)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut channels: Vec<ChannelExportRow> = Vec::new();
+    for r in rows {
+        if let Ok(row) = r { channels.push(row); }
+    }
+
+    let exported_at: String = conn
+        .query_row("SELECT datetime('now', 'localtime')", [], |r| r.get(0))
+        .unwrap_or_default();
+
+    Ok(ChannelDataExport {
+        version: 1,
+        exported_at,
+        channels,
+    })
+}
+
+#[tauri::command]
+async fn import_channel_data(data: ChannelDataExport) -> Result<(), String> {
+    let mut conn = init_db();
+    let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
+
+    for row in data.channels {
+        // Upsert channel_user_settings
+        tx.execute(
+            "INSERT INTO channel_user_settings
+                (source_id, channel_id, is_favorite, is_hidden, custom_icon, custom_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(source_id, channel_id) DO UPDATE SET
+                is_favorite = excluded.is_favorite,
+                is_hidden   = excluded.is_hidden,
+                custom_icon = excluded.custom_icon,
+                custom_name = excluded.custom_name",
+            params![
+                row.source_id,
+                row.channel_id,
+                row.is_favorite,
+                row.is_hidden,
+                row.custom_icon,
+                row.custom_name,
+            ],
+        ).ok();
+
+        // Upsert channel_orders (only if position is specified)
+        if let Some(pos) = row.position {
+            tx.execute(
+                "INSERT INTO channel_orders (source_id, channel_id, position)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(source_id, channel_id) DO UPDATE SET
+                    position = excluded.position",
+                params![row.source_id, row.channel_id, pos],
+            ).ok();
+        }
+    }
+
+    tx.commit().map_err(|e| format!("Import mentési hiba: {}", e))?;
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[tauri::command]
 async fn export_settings() -> Result<BackupData, String> {
     let conn = init_db();
@@ -1358,6 +1485,8 @@ fn main() {
             get_cached_logo,
             export_settings,
             import_settings,
+            export_channel_data,
+            import_channel_data,
             get_settings,
             set_setting,
             get_tmdb_details,

@@ -12,6 +12,7 @@
   <channel site="tvmustra.hu" site_id="ATV" lang="hu" xmltv_id="">ATV</channel>
   <channel site="tvmustra.hu" site_id="ATVEXTRA" lang="hu" xmltv_id="">ATV Extra</channel>
   <channel site="tvmustra.hu" site_id="AXN" lang="hu" xmltv_id="">AXN</channel>
+  <channel site="tvmustra.hu" site_id="AXN_CRIME" lang="hu" xmltv_id="">AXN Crime</channel>
   <channel site="tvmustra.hu" site_id="BABYFIRST" lang="hu" xmltv_id="">Babyfirst</channel>
   <channel site="tvmustra.hu" site_id="BABYTV" lang="hu" xmltv_id="">Baby TV</channel>
   <channel site="tvmustra.hu" site_id="BALATONTV" lang="hu" xmltv_id="">Balaton TV</channel>
@@ -49,6 +50,7 @@
   <channel site="tvmustra.hu" site_id="EWTN" lang="hu" xmltv_id="">EWTN Katolikus TV</channel>
   <channel site="tvmustra.hu" site_id="EXTREMESPORTS" lang="hu" xmltv_id="">Extreme Sports</channel>
   <channel site="tvmustra.hu" site_id="FASHIONBOX" lang="hu" xmltv_id="">Fashionbox</channel>
+  <channel site="tvmustra.hu" site_id="FEM3" lang="hu" xmltv_id="">Fem3</channel>
   <channel site="tvmustra.hu" site_id="FH" lang="hu" xmltv_id="">Fishing and Hunting Channel</channel>
   <channel site="tvmustra.hu" site_id="FIGHTBOX" lang="hu" xmltv_id="">FightBox</channel>
   <channel site="tvmustra.hu" site_id="FILM4" lang="hu" xmltv_id="">Film4</channel>
@@ -163,7 +165,6 @@
   <channel site="tvmustra.hu" site_id="TV2" lang="hu" xmltv_id="">TV2</channel>
   <channel site="tvmustra.hu" site_id="TV2_KIDS" lang="hu" xmltv_id="">TV2 Kids</channel>
   <channel site="tvmustra.hu" site_id="TV2COMEDY" lang="hu" xmltv_id="">TV2 Comedy</channel>
-  <channel site="tvmustra.hu" site_id="TV2KLUB" lang="hu" xmltv_id="">TV2 Klub</channel>
   <channel site="tvmustra.hu" site_id="TV2SEF" lang="hu" xmltv_id="">TV2 Séf</channel>
   <channel site="tvmustra.hu" site_id="TV4" lang="hu" xmltv_id="">TV4</channel>
   <channel site="tvmustra.hu" site_id="TV5MONDE" lang="hu" xmltv_id="">TV5</channel>
@@ -172,7 +173,6 @@
   <channel site="tvmustra.hu" site_id="VIASAT2" lang="hu" xmltv_id="">Viasat 2</channel>
   <channel site="tvmustra.hu" site_id="VIASAT3" lang="hu" xmltv_id="">Viasat 3</channel>
   <channel site="tvmustra.hu" site_id="VIASAT6" lang="hu" xmltv_id="">Viasat 6</channel>
-  <channel site="tvmustra.hu" site_id="VIASAT_FILM" lang="hu" xmltv_id="">Viasat Film</channel>
   <channel site="tvmustra.hu" site_id="VIASATEXPLORE" lang="hu" xmltv_id="">Viasat Explore</channel>
   <channel site="tvmustra.hu" site_id="VIASATHISTORY" lang="hu" xmltv_id="">Viasat History</channel>
   <channel site="tvmustra.hu" site_id="VIASATNATURE" lang="hu" xmltv_id="">Viasat Nature</channel>
