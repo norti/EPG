@@ -21,3 +21,4 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5.0"
 base64 = "0.22"
 regex = "1.10"
+open = "5"
