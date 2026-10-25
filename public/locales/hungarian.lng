@@ -136,5 +136,15 @@
   "all_favorites_source": "★ Összes kedvenc csatorna",
   "all_favorites_btn": "★ Kedvenc csatornák",
   "no_favorite_channels_title": "Még nincsenek kedvenc csatornák",
-  "no_favorite_channels_desc": "Kattintson a ★ csillag ikonra bármelyik csatorna fejlécében a kedvencekhez adáshoz."
+  "no_favorite_channels_desc": "Kattintson a ★ csillag ikonra bármelyik csatorna fejlécében a kedvencekhez adáshoz.",
+  "btn_tmdb_fix": "Fix",
+  "tmdb_fix_title": "TMDB egyezés javítása",
+  "tmdb_fix_search_placeholder": "Keresés a TMDB-ben...",
+  "tmdb_fix_search_btn": "Keresés",
+  "tmdb_fix_no_results": "Nincs találat a megadott címre.",
+  "tmdb_fix_searching": "Keresés folyamatban...",
+  "tmdb_fix_api_key_missing": "A TMDB API kulcs nincs beállítva a Beállításokban.",
+  "tmdb_fix_remove_match": "Egyezés törlése",
+  "tmdb_fix_match_saved": "TMDB egyezés elmentve!",
+  "tmdb_fix_match_removed": "TMDB egyezés eltávolítva!"
 }

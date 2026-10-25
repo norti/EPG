@@ -155,7 +155,10 @@
         color: #ecc94b;
         border: 1px solid #d69e2e;
         white-space: nowrap;
-        transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+        transition:
+          background-color 0.2s,
+          color 0.2s,
+          box-shadow 0.2s;
       }
       #allFavChannelsBtn:hover {
         background-color: #353020;
@@ -348,17 +351,14 @@
         color: #ecc94b;
       }
       .channel-source-badge {
-        font-size: 10px;
+        font-size: 6px;
         background: #1a2f20;
         color: #48bb78;
         padding: 1px 5px;
-        border-radius: 3px;
+        border-radius: 0px;
         margin-left: 5px;
-        font-weight: bold;
         white-space: nowrap;
-        display: inline-block;
         border: 1px solid #276749;
-        vertical-align: middle;
       }
       .channel-header-logo {
         background-color: #2a2a2a;
@@ -653,8 +653,16 @@
         pointer-events: none;
         border-radius: 10px 10px 0 0;
         z-index: 0;
-        mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 30%, rgba(0, 0, 0, 0) 100%);
-        -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 30%, rgba(0, 0, 0, 0) 100%);
+        mask-image: linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 1) 30%,
+          rgba(0, 0, 0, 0) 100%
+        );
+        -webkit-mask-image: linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 1) 30%,
+          rgba(0, 0, 0, 0) 100%
+        );
       }
       .modal-inner {
         position: relative;
@@ -746,7 +754,9 @@
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        transition: opacity 0.2s, transform 0.1s;
+        transition:
+          opacity 0.2s,
+          transform 0.1s;
       }
       .title-badge:hover {
         opacity: 0.85;
@@ -822,20 +832,275 @@
         display: inline-block;
       }
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .modal-top-actions {
+        position: absolute;
+        top: 6px;
+        right: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        z-index: 15;
       }
       .modal-close {
-        position: absolute;
-        top: 0px;
-        right: 5px;
         font-size: 22px;
+        line-height: 1;
         background: none;
         border: none;
         color: #aaa;
         cursor: pointer;
+        padding: 0 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
       .modal-close:hover {
         color: #e53e3e;
+      }
+      .modal-fix-pill {
+        background: rgba(1, 180, 228, 0.16);
+        border: 1px solid rgba(1, 180, 228, 0.45);
+        color: #63b3ed;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 10px;
+        border-radius: 9999px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: all 0.15s ease;
+      }
+      .modal-fix-pill:hover {
+        background: #01b4e4;
+        color: #0d253f;
+        border-color: #01b4e4;
+        box-shadow: 0 0 10px rgba(1, 180, 228, 0.4);
+      }
+      .modal-fix-pill .fix-icon {
+        font-size: 11px;
+      }
+      .modal-fix-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(20, 22, 30, 0.98);
+        border-radius: 10px;
+        z-index: 25;
+        display: flex;
+        flex-direction: column;
+        padding: 16px 20px;
+        box-sizing: border-box;
+      }
+      .fix-overlay-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .fix-overlay-title-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .fix-overlay-title {
+        font-size: 13px;
+        font-weight: bold;
+        color: #edf2f7;
+      }
+      .fix-overlay-close {
+        background: none;
+        border: none;
+        color: #a0aec0;
+        font-size: 20px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 2px 6px;
+      }
+      .fix-overlay-close:hover {
+        color: #e53e3e;
+      }
+      .fix-overlay-search-bar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+      .fix-search-input-wrap {
+        position: relative;
+        flex: 1;
+        min-width: 220px;
+      }
+      .fix-search-input {
+        width: 100%;
+        background: #101118;
+        border: 1px solid #3d4259;
+        border-radius: 6px;
+        color: #ffffff;
+        padding: 7px 28px 7px 10px;
+        font-size: 13px;
+        box-sizing: border-box;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .fix-search-input:focus {
+        border-color: #01b4e4;
+        box-shadow: 0 0 0 1px #01b4e4;
+      }
+      .fix-search-clear-btn {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: #718096;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        padding: 0;
+      }
+      .fix-search-clear-btn:hover {
+        color: #e2e8f0;
+      }
+      .fix-search-btn {
+        background: #01b4e4;
+        color: #0d253f;
+        border: none;
+        border-radius: 6px;
+        padding: 7px 14px;
+        font-size: 12px;
+        font-weight: bold;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: opacity 0.2s;
+      }
+      .fix-search-btn:hover {
+        opacity: 0.9;
+      }
+      .fix-remove-btn {
+        background: rgba(229, 62, 62, 0.15);
+        color: #fc8181;
+        border: 1px solid rgba(229, 62, 62, 0.4);
+        border-radius: 6px;
+        padding: 7px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        margin-left: auto;
+      }
+      .fix-remove-btn:hover {
+        background: #e53e3e;
+        color: #ffffff;
+      }
+      .fix-overlay-status {
+        font-size: 12px;
+        color: #a0aec0;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 6px;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .fix-results-list {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-right: 4px;
+      }
+      .fix-result-card {
+        background: #171923;
+        border: 1px solid #2d3748;
+        border-radius: 6px;
+        padding: 8px 12px;
+        display: flex;
+        gap: 12px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        align-items: flex-start;
+      }
+      .fix-result-card:hover {
+        background: #202434;
+        border-color: #01b4e4;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      }
+      .fix-result-card.selecting {
+        opacity: 0.7;
+        pointer-events: none;
+      }
+      .fix-result-poster {
+        width: 48px;
+        height: 72px;
+        border-radius: 4px;
+        object-fit: cover;
+        background: #0d0e15;
+        flex-shrink: 0;
+      }
+      .fix-result-poster-placeholder {
+        width: 48px;
+        height: 72px;
+        border-radius: 4px;
+        background: #1a202c;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        color: #718096;
+        flex-shrink: 0;
+      }
+      .fix-result-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .fix-result-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .fix-result-title {
+        font-size: 13px;
+        font-weight: bold;
+        color: #edf2f7;
+      }
+      .fix-result-orig-title {
+        font-size: 11px;
+        color: #718096;
+        font-style: italic;
+      }
+      .fix-result-badges {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        margin-left: auto;
+      }
+      .fix-result-overview {
+        font-size: 11px;
+        color: #a0aec0;
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
       }
       .modal-fav-star {
         font-size: 18px;
@@ -1485,11 +1750,104 @@
     <!-- MŰSOR RÉSZLETEI MODAL -->
     <div class="modal-overlay" id="modalOverlay">
       <div class="modal-content" id="modalContent">
-        <div class="modal-backdrop-img" id="modalBackdrop" style="display: none;"></div>
-        <button class="modal-close" id="modalClose">&times;</button>
+        <div
+          class="modal-backdrop-img"
+          id="modalBackdrop"
+          style="display: none"
+        ></div>
+        <div class="modal-top-actions">
+          <button
+            class="modal-fix-pill"
+            id="modalFixBtn"
+            title="TMDB egyezés javítása"
+            data-i18n-title="tmdb_fix_title"
+          >
+            <span class="fix-icon">⚡</span>
+            <span data-i18n="btn_tmdb_fix">Fix</span>
+          </button>
+          <button class="modal-close" id="modalClose">&times;</button>
+        </div>
+
+        <!-- TMDB FIX OVERLAY -->
+        <div
+          class="modal-fix-overlay"
+          id="modalFixOverlay"
+          style="display: none"
+        >
+          <div class="fix-overlay-header">
+            <div class="fix-overlay-title-group">
+              <span class="tmdb-logo-tag">TMDB</span>
+              <span class="fix-overlay-title" data-i18n="tmdb_fix_title"
+                >TMDB egyezés javítása</span
+              >
+            </div>
+            <button
+              class="fix-overlay-close"
+              id="modalFixClose"
+              title="Bezárás"
+            >
+              &times;
+            </button>
+          </div>
+
+          <div class="fix-overlay-search-bar">
+            <div class="fix-search-input-wrap">
+              <input
+                type="text"
+                id="modalFixSearchInput"
+                class="fix-search-input"
+                placeholder="Keresés a TMDB-ben..."
+                data-i18n-placeholder="tmdb_fix_search_placeholder"
+                autocomplete="off"
+              />
+              <button
+                class="fix-search-clear-btn"
+                id="modalFixClearBtn"
+                title="Törlés"
+                style="display: none"
+              >
+                &times;
+              </button>
+            </div>
+            <button class="fix-search-btn" id="modalFixSearchBtn">
+              <span
+                class="spinner-small"
+                id="modalFixSpinner"
+                style="display: none"
+              ></span>
+              <span data-i18n="tmdb_fix_search_btn">Keresés</span>
+            </button>
+            <button
+              class="fix-remove-btn"
+              id="modalFixRemoveBtn"
+              title="TMDB egyezés eltávolítása a műsorhoz"
+              data-i18n="tmdb_fix_remove_match"
+            >
+              Egyezés törlése
+            </button>
+          </div>
+
+          <div
+            class="fix-overlay-status"
+            id="modalFixStatus"
+            style="display: none"
+          ></div>
+
+          <div class="fix-results-list" id="modalFixResultsList"></div>
+        </div>
+
         <div class="modal-inner">
-          <div class="modal-poster-col" id="modalPosterCol" style="display: none;">
-            <img class="modal-poster-img" id="modalPoster" src="" alt="Poster" />
+          <div
+            class="modal-poster-col"
+            id="modalPosterCol"
+            style="display: none"
+          >
+            <img
+              class="modal-poster-img"
+              id="modalPoster"
+              src=""
+              alt="Poster"
+            />
           </div>
           <div class="modal-details-col">
             <div class="modal-header-row">
@@ -1498,23 +1856,67 @@
             </div>
             <div class="modal-badges-row">
               <div class="modal-time" id="modalTime"></div>
-              <span class="tmdb-badge tmdb-badge-media" id="modalMediaBadge" style="display: none;"></span>
-              <span class="tmdb-badge tmdb-badge-rating" id="modalRatingBadge" style="display: none;"></span>
-              <span class="tmdb-badge tmdb-badge-year" id="modalYearBadge" style="display: none;"></span>
+              <span
+                class="tmdb-badge tmdb-badge-media"
+                id="modalMediaBadge"
+                style="display: none"
+              ></span>
+              <span
+                class="tmdb-badge tmdb-badge-rating"
+                id="modalRatingBadge"
+                style="display: none"
+              ></span>
+              <span
+                class="tmdb-badge tmdb-badge-year"
+                id="modalYearBadge"
+                style="display: none"
+              ></span>
             </div>
-            <div class="modal-title-variants" id="modalTitleVariants" style="display: none;">
-              <span class="title-badge title-badge-hu" id="modalHuTitleBadge" style="display: none;" title="Kattintson a másoláshoz"></span>
-              <span class="title-badge title-badge-en" id="modalEnTitleBadge" style="display: none;" title="Kattintson a másoláshoz"></span>
-              <span class="title-badge title-badge-orig" id="modalOrigTitleBadge" style="display: none;" title="Kattintson a másoláshoz"></span>
+            <div
+              class="modal-title-variants"
+              id="modalTitleVariants"
+              style="display: none"
+            >
+              <span
+                class="title-badge title-badge-hu"
+                id="modalHuTitleBadge"
+                style="display: none"
+                title="Kattintson a másoláshoz"
+              ></span>
+              <span
+                class="title-badge title-badge-en"
+                id="modalEnTitleBadge"
+                style="display: none"
+                title="Kattintson a másoláshoz"
+              ></span>
+              <span
+                class="title-badge title-badge-orig"
+                id="modalOrigTitleBadge"
+                style="display: none"
+                title="Kattintson a másoláshoz"
+              ></span>
             </div>
-            <div class="modal-tmdb-loading" id="modalTmdbLoading" style="display: none;">
-              <span class="spinner-small"></span> <span data-i18n="tmdb_loading">TMDB adatok betöltése...</span>
+            <div
+              class="modal-tmdb-loading"
+              id="modalTmdbLoading"
+              style="display: none"
+            >
+              <span class="spinner-small"></span>
+              <span data-i18n="tmdb_loading">TMDB adatok betöltése...</span>
             </div>
             <div class="modal-desc" id="modalDesc"></div>
-            <div class="modal-tmdb-overview" id="modalTmdbOverview" style="display: none;">
+            <div
+              class="modal-tmdb-overview"
+              id="modalTmdbOverview"
+              style="display: none"
+            >
               <div class="tmdb-overview-header">
                 <span class="tmdb-logo-tag">TMDB</span>
-                <span class="tmdb-overview-title" data-i18n="tmdb_overview_heading">Részletes leírás</span>
+                <span
+                  class="tmdb-overview-title"
+                  data-i18n="tmdb_overview_heading"
+                  >Részletes leírás</span
+                >
               </div>
               <div class="tmdb-overview-text" id="modalTmdbOverviewText"></div>
             </div>
@@ -1780,7 +2182,9 @@
 
             <!-- 4. TMDB TAB -->
             <div class="settings-tab-pane" id="tabPaneTmdb">
-              <h3 data-i18n="tmdb_heading">TMDB (The Movie Database) Integráció</h3>
+              <h3 data-i18n="tmdb_heading">
+                TMDB (The Movie Database) Integráció
+              </h3>
               <p
                 style="
                   font-size: 13px;
@@ -1791,7 +2195,9 @@
                 "
                 data-i18n="tmdb_desc"
               >
-                Adja meg a TMDB API kulcsát vagy Read Access Tokenjét a műsorok borítóképeinek, posztereinek, értékeléseinek és leírásainak megjelenítéséhez.
+                Adja meg a TMDB API kulcsát vagy Read Access Tokenjét a műsorok
+                borítóképeinek, posztereinek, értékeléseinek és leírásainak
+                megjelenítéséhez.
               </p>
 
               <div
@@ -1806,14 +2212,14 @@
                   gap: 14px;
                 "
               >
-                <div style="display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; flex-direction: column; gap: 6px">
                   <label
                     for="tmdbApiKeyInput"
-                    style="font-size: 13px; font-weight: bold; color: #e2e8f0;"
+                    style="font-size: 13px; font-weight: bold; color: #e2e8f0"
                     data-i18n="tmdb_api_key_label"
                     >TMDB API kulcs / Bearer Token:</label
                   >
-                  <div style="display: flex; gap: 8px; align-items: center;">
+                  <div style="display: flex; gap: 8px; align-items: center">
                     <input
                       type="password"
                       id="tmdbApiKeyInput"
@@ -1825,7 +2231,7 @@
                       class="btn btn-blue"
                       id="toggleTmdbKeyBtn"
                       type="button"
-                      style="padding: 6px 12px; font-size: 14px;"
+                      style="padding: 6px 12px; font-size: 14px"
                       title="Megjelenítés / Elrejtés"
                     >
                       👁
@@ -1833,8 +2239,17 @@
                   </div>
                 </div>
 
-                <div style="display: flex; align-items: center; gap: 10px; font-size: 13px;">
-                  <span style="color: #a0aec0;" data-i18n="tmdb_status_label">Állapot:</span>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    font-size: 13px;
+                  "
+                >
+                  <span style="color: #a0aec0" data-i18n="tmdb_status_label"
+                    >Állapot:</span
+                  >
                   <span
                     id="tmdbKeyStatusBadge"
                     style="
@@ -1849,14 +2264,33 @@
                   >
                 </div>
 
-                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px;">
-                  <button class="btn btn-green" id="saveTmdbKeyBtn" data-i18n="tmdb_btn_save">
+                <div
+                  style="
+                    display: flex;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                    margin-top: 4px;
+                  "
+                >
+                  <button
+                    class="btn btn-green"
+                    id="saveTmdbKeyBtn"
+                    data-i18n="tmdb_btn_save"
+                  >
                     MENTÉS
                   </button>
-                  <button class="btn btn-blue" id="testTmdbKeyBtn" data-i18n="tmdb_btn_test">
+                  <button
+                    class="btn btn-blue"
+                    id="testTmdbKeyBtn"
+                    data-i18n="tmdb_btn_test"
+                  >
                     KAPCSOLAT TESZTELÉSE
                   </button>
-                  <button class="btn btn-red" id="clearTmdbKeyBtn" data-i18n="tmdb_btn_clear">
+                  <button
+                    class="btn btn-red"
+                    id="clearTmdbKeyBtn"
+                    data-i18n="tmdb_btn_clear"
+                  >
                     KULCS TÖRLÉSE
                   </button>
                 </div>
@@ -1875,13 +2309,14 @@
               >
                 <div>
                   <div
-                    style="font-weight: bold; font-size: 13px; color: #e2e8f0;"
+                    style="font-weight: bold; font-size: 13px; color: #e2e8f0"
                     data-i18n="tmdb_btn_clear_cache"
                   >
                     TMDB gyorsítótár kiürítése
                   </div>
-                  <div style="font-size: 12px; color: #718096; margin-top: 2px;">
-                    Törli az összes korábban mentett TMDB találatot az SQLite adatbázisból.
+                  <div style="font-size: 12px; color: #718096; margin-top: 2px">
+                    Törli az összes korábban mentett TMDB találatot az SQLite
+                    adatbázisból.
                   </div>
                 </div>
                 <button
@@ -2031,9 +2466,11 @@
           ],
           tab_tmdb: "TMDB",
           tmdb_heading: "TMDB (The Movie Database) Integráció",
-          tmdb_desc: "Adja meg a TMDB API kulcsát vagy Read Access Tokenjét a műsorok borítóképeinek, posztereinek, értékeléseinek és leírásainak megjelenítéséhez.",
+          tmdb_desc:
+            "Adja meg a TMDB API kulcsát vagy Read Access Tokenjét a műsorok borítóképeinek, posztereinek, értékeléseinek és leírásainak megjelenítéséhez.",
           tmdb_api_key_label: "TMDB API kulcs / Bearer Token:",
-          tmdb_api_key_placeholder: "Adja meg a TMDB API kulcsát (pl. v3 key vagy v4 Bearer token)...",
+          tmdb_api_key_placeholder:
+            "Adja meg a TMDB API kulcsát (pl. v3 key vagy v4 Bearer token)...",
           tmdb_status_label: "Állapot:",
           tmdb_status_configured: "Beállítva",
           tmdb_status_not_configured: "Nincs beállítva",
@@ -2046,7 +2483,8 @@
           tmdb_cache_cleared: "A TMDB gyorsítótár sikeresen kiürítve!",
           tmdb_saved_success: "TMDB API kulcs sikeresen mentve!",
           tmdb_test_success: "Sikeres kapcsolat a TMDB szervereivel!",
-          tmdb_test_fail: "Sikertelen kapcsolat! Kérjük ellenőrizze a megadott kulcsot.",
+          tmdb_test_fail:
+            "Sikertelen kapcsolat! Kérjük ellenőrizze a megadott kulcsot.",
           tmdb_copied_to_clipboard: "Cím másolva a vágólapra!",
           tmdb_overview_heading: "Részletes leírás",
           badge_hu: "Magyar:",
@@ -2060,7 +2498,18 @@
           all_favorites_source: "★ Összes kedvenc csatorna",
           all_favorites_btn: "★ Kedvenc csatornák",
           no_favorite_channels_title: "Még nincsenek kedvenc csatornák",
-          no_favorite_channels_desc: "Kattintson a ★ csillag ikonra bármelyik csatorna fejlécében a kedvencekhez adáshoz.",
+          no_favorite_channels_desc:
+            "Kattintson a ★ csillag ikonra bármelyik csatorna fejlécében a kedvencekhez adáshoz.",
+          btn_tmdb_fix: "Fix",
+          tmdb_fix_title: "TMDB egyezés javítása",
+          tmdb_fix_search_placeholder: "Keresés a TMDB-ben...",
+          tmdb_fix_search_btn: "Keresés",
+          tmdb_fix_no_results: "Nincs találat a megadott címre.",
+          tmdb_fix_searching: "Keresés folyamatban...",
+          tmdb_fix_api_key_missing: "A TMDB API kulcs nincs beállítva a Beállításokban.",
+          tmdb_fix_remove_match: "Egyezés törlése",
+          tmdb_fix_match_saved: "TMDB egyezés elmentve!",
+          tmdb_fix_match_removed: "TMDB egyezés eltávolítva!",
         },
         english: {
           app_title: "EPG Viewer",
@@ -2174,9 +2623,11 @@
           ],
           tab_tmdb: "TMDB",
           tmdb_heading: "TMDB (The Movie Database) Integration",
-          tmdb_desc: "Configure your TMDB API Key or Read Access Token to display posters, ratings, and detailed descriptions for programmes.",
+          tmdb_desc:
+            "Configure your TMDB API Key or Read Access Token to display posters, ratings, and detailed descriptions for programmes.",
           tmdb_api_key_label: "TMDB API Key / Bearer Token:",
-          tmdb_api_key_placeholder: "Enter your TMDB API key (e.g. v3 key or v4 Bearer token)...",
+          tmdb_api_key_placeholder:
+            "Enter your TMDB API key (e.g. v3 key or v4 Bearer token)...",
           tmdb_status_label: "Status:",
           tmdb_status_configured: "Configured",
           tmdb_status_not_configured: "Not configured",
@@ -2203,7 +2654,18 @@
           all_favorites_source: "★ All Favorite Channels",
           all_favorites_btn: "★ Favorite Channels",
           no_favorite_channels_title: "No Favorite Channels Yet",
-          no_favorite_channels_desc: "Click the ★ star icon on any channel header to add it to your favorites.",
+          no_favorite_channels_desc:
+            "Click the ★ star icon on any channel header to add it to your favorites.",
+          btn_tmdb_fix: "Fix",
+          tmdb_fix_title: "Fix TMDB Match",
+          tmdb_fix_search_placeholder: "Search TMDB...",
+          tmdb_fix_search_btn: "Search",
+          tmdb_fix_no_results: "No results found for this title.",
+          tmdb_fix_searching: "Searching...",
+          tmdb_fix_api_key_missing: "TMDB API key is not configured in Settings.",
+          tmdb_fix_remove_match: "Remove match",
+          tmdb_fix_match_saved: "TMDB match saved!",
+          tmdb_fix_match_removed: "TMDB match removed!",
         },
       };
 
@@ -2581,7 +3043,9 @@
           }
 
           const currentSrcObj = sources.find((s) => s.id === currentSourceId);
-          const defaultOffset = currentSrcObj ? currentSrcObj.timeOffset || 0 : 0;
+          const defaultOffset = currentSrcObj
+            ? currentSrcObj.timeOffset || 0
+            : 0;
 
           epgData.programmes.forEach((p) => {
             const offset =
@@ -2642,7 +3106,10 @@
           document.getElementById("status").innerText = t(
             "status_download_success",
           );
-          if (id === currentSourceId || currentSourceId === "__ALL_FAVORITES__") {
+          if (
+            id === currentSourceId ||
+            currentSourceId === "__ALL_FAVORITES__"
+          ) {
             await fetchEPG();
           }
         } catch (err) {
@@ -3107,9 +3574,10 @@
 
           const showSourceBadge =
             currentSourceId === "__ALL_FAVORITES__" || !!channel.sourceName;
-          const sourceBadgeHtml = showSourceBadge && (channel.sourceName || channel.countryCode)
-            ? `<span class="channel-source-badge" title="${channel.sourceName || ''}">${channel.sourceName || channel.countryCode}</span>`
-            : "";
+          const sourceBadgeHtml =
+            showSourceBadge && (channel.sourceName || channel.countryCode)
+              ? `<span class="channel-source-badge" title="${channel.sourceName || ""}">${channel.sourceName || channel.countryCode}</span>`
+              : "";
 
           headerItem.innerHTML = `
                     <div class="channel-name-badge ${channel.isFavorite ? "favorite-channel" : ""}" title="${(channel.originalName || channel.name).replace(/"/g, "&quot;")}">
@@ -3208,12 +3676,20 @@
           channelProgs.forEach((prog) => {
             // Use wall-clock minutes instead of elapsed time to avoid
             // DST offset issues (e.g. fall-back day adding an extra hour)
-            const startDiffMin = prog.start <= dayStart
-              ? 0
-              : Math.max(0, prog.start.getHours() * 60 + prog.start.getMinutes());
-            const endDiffMin = prog.stop >= dayEnd
-              ? totalMinutes
-              : Math.min(totalMinutes, prog.stop.getHours() * 60 + prog.stop.getMinutes());
+            const startDiffMin =
+              prog.start <= dayStart
+                ? 0
+                : Math.max(
+                    0,
+                    prog.start.getHours() * 60 + prog.start.getMinutes(),
+                  );
+            const endDiffMin =
+              prog.stop >= dayEnd
+                ? totalMinutes
+                : Math.min(
+                    totalMinutes,
+                    prog.stop.getHours() * 60 + prog.stop.getMinutes(),
+                  );
             const durationMin = endDiffMin - startDiffMin;
 
             if (durationMin <= 0) return;
@@ -3247,7 +3723,12 @@
             }
 
             progEl.onclick = () =>
-              openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc, channel);
+              openModal(
+                prog.title,
+                `${startStr} - ${stopStr}`,
+                prog.desc,
+                channel,
+              );
 
             grid.appendChild(progEl);
             if (programObserver) {
@@ -3318,20 +3799,10 @@
       }
 
       let currentModalFetchIndex = 0;
+      let currentModalChannel = null;
+      let fixSearchDebounce = null;
 
-      async function openModal(title, time, desc, channel) {
-        currentModalTitle = title;
-        currentModalFetchIndex++;
-        const fetchIndex = currentModalFetchIndex;
-
-        // Set basic EPG fields immediately
-        document.getElementById("modalTitle").innerText = title;
-        document.getElementById("modalTime").innerText = time;
-        document.getElementById("modalDesc").innerText =
-          desc || t("modal_no_desc");
-        updateModalFavStar();
-
-        // Reset TMDB UI elements
+      function resetModalTmdbUi() {
         const posterCol = document.getElementById("modalPosterCol");
         const posterImg = document.getElementById("modalPoster");
         const backdrop = document.getElementById("modalBackdrop");
@@ -3344,7 +3815,9 @@
         const origBadge = document.getElementById("modalOrigTitleBadge");
         const tmdbLoading = document.getElementById("modalTmdbLoading");
         const tmdbOverview = document.getElementById("modalTmdbOverview");
-        const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
+        const tmdbOverviewText = document.getElementById(
+          "modalTmdbOverviewText",
+        );
 
         posterCol.style.display = "none";
         posterImg.src = "";
@@ -3359,16 +3832,325 @@
         origBadge.style.display = "none";
         tmdbOverview.style.display = "none";
         tmdbOverviewText.textContent = "";
+        tmdbLoading.style.display = "none";
+      }
+
+      function renderTmdbDetailsInModal(tmdbData) {
+        resetModalTmdbUi();
+        if (!tmdbData) return;
+
+        const posterCol = document.getElementById("modalPosterCol");
+        const posterImg = document.getElementById("modalPoster");
+        const backdrop = document.getElementById("modalBackdrop");
+        const mediaBadge = document.getElementById("modalMediaBadge");
+        const ratingBadge = document.getElementById("modalRatingBadge");
+        const yearBadge = document.getElementById("modalYearBadge");
+        const variantsRow = document.getElementById("modalTitleVariants");
+        const huBadge = document.getElementById("modalHuTitleBadge");
+        const enBadge = document.getElementById("modalEnTitleBadge");
+        const origBadge = document.getElementById("modalOrigTitleBadge");
+        const tmdbOverview = document.getElementById("modalTmdbOverview");
+        const tmdbOverviewText = document.getElementById(
+          "modalTmdbOverviewText",
+        );
+
+        // Poster
+        if (tmdbData.posterPath) {
+          posterImg.src = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
+          posterCol.style.display = "block";
+        }
+
+        // Backdrop
+        if (tmdbData.backdropPath) {
+          backdrop.style.backgroundImage = `url('https://image.tmdb.org/t/p/w780${tmdbData.backdropPath}')`;
+          backdrop.style.display = "block";
+        }
+
+        // Media type badge
+        if (tmdbData.mediaType) {
+          mediaBadge.textContent =
+            tmdbData.mediaType === "tv"
+              ? t("media_type_tv")
+              : t("media_type_movie");
+          mediaBadge.style.display = "inline-flex";
+        }
+
+        // Rating badge
+        if (tmdbData.voteAverage && tmdbData.voteAverage > 0) {
+          ratingBadge.textContent = `★ ${tmdbData.voteAverage.toFixed(1)} / 10`;
+          ratingBadge.style.display = "inline-flex";
+        }
+
+        // Release year badge
+        if (tmdbData.releaseDate && tmdbData.releaseDate.length >= 4) {
+          yearBadge.textContent = tmdbData.releaseDate.substring(0, 4);
+          yearBadge.style.display = "inline-flex";
+        }
+
+        // Title variants badges
+        let hasVariant = false;
+
+        if (tmdbData.huTitle) {
+          huBadge.textContent = `🇭🇺 ${t("badge_hu")} ${tmdbData.huTitle}`;
+          huBadge.style.display = "inline-flex";
+          huBadge.onclick = () => copyText(tmdbData.huTitle, huBadge);
+          hasVariant = true;
+        }
+
+        if (tmdbData.enTitle && tmdbData.enTitle !== tmdbData.huTitle) {
+          enBadge.textContent = `🇬🇧 ${t("badge_en")} ${tmdbData.enTitle}`;
+          enBadge.style.display = "inline-flex";
+          enBadge.onclick = () => copyText(tmdbData.enTitle, enBadge);
+          hasVariant = true;
+        }
+
+        if (
+          tmdbData.originalTitle &&
+          tmdbData.originalTitle !== tmdbData.huTitle &&
+          tmdbData.originalTitle !== tmdbData.enTitle
+        ) {
+          origBadge.textContent = `🌐 ${t("badge_orig")} ${tmdbData.originalTitle}`;
+          origBadge.style.display = "inline-flex";
+          origBadge.onclick = () =>
+            copyText(tmdbData.originalTitle, origBadge);
+          hasVariant = true;
+        }
+
+        if (hasVariant) {
+          variantsRow.style.display = "flex";
+        }
+
+        // TMDB Overview
+        if (tmdbData.overview && tmdbData.overview.trim().length > 0) {
+          tmdbOverviewText.textContent = tmdbData.overview;
+          tmdbOverview.style.display = "block";
+        }
+      }
+
+      function getCurrentModalLang() {
+        const srcId = currentModalChannel?.sourceId || currentSourceId;
+        const currentSrcObj = sources.find((s) => s.id === srcId);
+        const countryCode =
+          currentModalChannel?.countryCode ||
+          (currentSrcObj ? currentSrcObj.countryCode : "HU");
+        return getTmdbLang(countryCode);
+      }
+
+      function openFixOverlay() {
+        if (!currentModalTitle) return;
+        const overlay = document.getElementById("modalFixOverlay");
+        const searchInput = document.getElementById("modalFixSearchInput");
+        const clearBtn = document.getElementById("modalFixClearBtn");
+        const statusEl = document.getElementById("modalFixStatus");
+        const resultsEl = document.getElementById("modalFixResultsList");
+
+        overlay.style.display = "flex";
+        searchInput.value = currentModalTitle;
+        clearBtn.style.display = searchInput.value ? "block" : "none";
+        statusEl.style.display = "none";
+        resultsEl.innerHTML = "";
+
+        setTimeout(() => {
+          searchInput.focus();
+          searchInput.select();
+        }, 50);
+
+        triggerFixSearch(currentModalTitle);
+      }
+
+      function closeFixOverlay() {
+        const overlay = document.getElementById("modalFixOverlay");
+        if (overlay) overlay.style.display = "none";
+        if (fixSearchDebounce) {
+          clearTimeout(fixSearchDebounce);
+          fixSearchDebounce = null;
+        }
+      }
+
+      async function triggerFixSearch(query) {
+        const statusEl = document.getElementById("modalFixStatus");
+        const resultsEl = document.getElementById("modalFixResultsList");
+        const spinner = document.getElementById("modalFixSpinner");
+
+        const q = (query || "").trim();
+        if (!q) {
+          resultsEl.innerHTML = "";
+          statusEl.textContent = t("tmdb_fix_no_results");
+          statusEl.style.display = "block";
+          return;
+        }
+
+        spinner.style.display = "inline-block";
+        statusEl.textContent = t("tmdb_fix_searching");
+        statusEl.style.display = "block";
+        resultsEl.innerHTML = "";
+
+        const lang = getCurrentModalLang();
+
+        try {
+          const results = await invoke("search_tmdb", { query: q, lang });
+          spinner.style.display = "none";
+
+          if (!results || results.length === 0) {
+            statusEl.textContent = t("tmdb_fix_no_results");
+            statusEl.style.display = "block";
+            return;
+          }
+
+          statusEl.style.display = "none";
+          renderFixResults(results);
+        } catch (e) {
+          spinner.style.display = "none";
+          const errStr = String(e);
+          if (errStr.includes("TMDB API")) {
+            statusEl.textContent = t("tmdb_fix_api_key_missing");
+          } else {
+            statusEl.textContent = errStr;
+          }
+          statusEl.style.display = "block";
+        }
+      }
+
+      function renderFixResults(items) {
+        const resultsEl = document.getElementById("modalFixResultsList");
+        resultsEl.innerHTML = "";
+
+        items.forEach((item) => {
+          const card = document.createElement("div");
+          card.className = "fix-result-card";
+
+          // Poster
+          if (item.posterPath) {
+            const img = document.createElement("img");
+            img.className = "fix-result-poster";
+            img.src = `https://image.tmdb.org/t/p/w92${item.posterPath}`;
+            img.alt = item.title || "Poster";
+            card.appendChild(img);
+          } else {
+            const placeholder = document.createElement("div");
+            placeholder.className = "fix-result-poster-placeholder";
+            placeholder.textContent = item.mediaType === "tv" ? "📺" : "🎬";
+            card.appendChild(placeholder);
+          }
+
+          // Info
+          const info = document.createElement("div");
+          info.className = "fix-result-info";
+
+          const header = document.createElement("div");
+          header.className = "fix-result-header";
+
+          const title = document.createElement("span");
+          title.className = "fix-result-title";
+          title.textContent = item.title;
+          header.appendChild(title);
+
+          if (item.originalTitle && item.originalTitle !== item.title) {
+            const orig = document.createElement("span");
+            orig.className = "fix-result-orig-title";
+            orig.textContent = `(${item.originalTitle})`;
+            header.appendChild(orig);
+          }
+
+          const badges = document.createElement("div");
+          badges.className = "fix-result-badges";
+
+          const mediaBadge = document.createElement("span");
+          mediaBadge.className = "tmdb-badge tmdb-badge-media";
+          mediaBadge.textContent =
+            item.mediaType === "tv"
+              ? t("media_type_tv")
+              : t("media_type_movie");
+          badges.appendChild(mediaBadge);
+
+          if (item.releaseDate && item.releaseDate.length >= 4) {
+            const yearBadge = document.createElement("span");
+            yearBadge.className = "tmdb-badge tmdb-badge-year";
+            yearBadge.textContent = item.releaseDate.substring(0, 4);
+            badges.appendChild(yearBadge);
+          }
+
+          if (item.voteAverage && item.voteAverage > 0) {
+            const ratingBadge = document.createElement("span");
+            ratingBadge.className = "tmdb-badge tmdb-badge-rating";
+            ratingBadge.textContent = `★ ${item.voteAverage.toFixed(1)}`;
+            badges.appendChild(ratingBadge);
+          }
+
+          header.appendChild(badges);
+          info.appendChild(header);
+
+          if (item.overview && item.overview.trim().length > 0) {
+            const overview = document.createElement("div");
+            overview.className = "fix-result-overview";
+            overview.textContent = item.overview;
+            info.appendChild(overview);
+          }
+
+          card.appendChild(info);
+
+          card.onclick = async () => {
+            if (card.classList.contains("selecting")) return;
+            card.classList.add("selecting");
+            const lang = getCurrentModalLang();
+            try {
+              const updatedDetails = await invoke("set_tmdb_match", {
+                queryTitle: currentModalTitle,
+                tmdbId: item.id,
+                mediaType: item.mediaType,
+                lang,
+              });
+              renderTmdbDetailsInModal(updatedDetails);
+              closeFixOverlay();
+            } catch (err) {
+              console.error("Hiba a TMDB egyezés mentésekor:", err);
+              card.classList.remove("selecting");
+              alert(String(err));
+            }
+          };
+
+          resultsEl.appendChild(card);
+        });
+      }
+
+      async function removeTmdbMatch() {
+        if (!currentModalTitle) return;
+        const lang = getCurrentModalLang();
+        try {
+          await invoke("clear_tmdb_match", {
+            queryTitle: currentModalTitle,
+            lang,
+          });
+          resetModalTmdbUi();
+          closeFixOverlay();
+        } catch (e) {
+          console.error("Hiba a TMDB egyezés törlésekor:", e);
+        }
+      }
+
+      async function openModal(title, time, desc, channel) {
+        currentModalTitle = title;
+        currentModalChannel = channel;
+        currentModalFetchIndex++;
+        const fetchIndex = currentModalFetchIndex;
+
+        // Set basic EPG fields immediately
+        document.getElementById("modalTitle").innerText = title;
+        document.getElementById("modalTime").innerText = time;
+        document.getElementById("modalDesc").innerText =
+          desc || t("modal_no_desc");
+        updateModalFavStar();
+
+        // Close fix overlay and reset TMDB UI
+        closeFixOverlay();
+        resetModalTmdbUi();
+
+        const tmdbLoading = document.getElementById("modalTmdbLoading");
         tmdbLoading.style.display = "flex";
 
         document.getElementById("modalOverlay").classList.add("active");
 
-        // Determine language from source country code
-        const srcId = channel?.sourceId || currentSourceId;
-        const currentSrcObj = sources.find((s) => s.id === srcId);
-        const countryCode =
-          channel?.countryCode || (currentSrcObj ? currentSrcObj.countryCode : "HU");
-        const lang = getTmdbLang(countryCode);
+        const lang = getCurrentModalLang();
 
         try {
           const tmdbData = await invoke("get_tmdb_details", {
@@ -3380,90 +4162,19 @@
           if (
             currentModalTitle !== title ||
             fetchIndex !== currentModalFetchIndex ||
-            !document.getElementById("modalOverlay").classList.contains("active")
+            !document
+              .getElementById("modalOverlay")
+              .classList.contains("active")
           ) {
             return;
           }
 
           tmdbLoading.style.display = "none";
-
-          if (tmdbData) {
-            // Poster
-            if (tmdbData.posterPath) {
-              posterImg.src = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
-              posterCol.style.display = "block";
-            }
-
-            // Backdrop
-            if (tmdbData.backdropPath) {
-              backdrop.style.backgroundImage = `url('https://image.tmdb.org/t/p/w780${tmdbData.backdropPath}')`;
-              backdrop.style.display = "block";
-            }
-
-            // Media type badge
-            if (tmdbData.mediaType) {
-              mediaBadge.textContent =
-                tmdbData.mediaType === "tv"
-                  ? t("media_type_tv")
-                  : t("media_type_movie");
-              mediaBadge.style.display = "inline-flex";
-            }
-
-            // Rating badge
-            if (tmdbData.voteAverage && tmdbData.voteAverage > 0) {
-              ratingBadge.textContent = `★ ${tmdbData.voteAverage.toFixed(1)} / 10`;
-              ratingBadge.style.display = "inline-flex";
-            }
-
-            // Release year badge
-            if (tmdbData.releaseDate && tmdbData.releaseDate.length >= 4) {
-              yearBadge.textContent = tmdbData.releaseDate.substring(0, 4);
-              yearBadge.style.display = "inline-flex";
-            }
-
-            // Title variants badges
-            let hasVariant = false;
-
-            if (tmdbData.huTitle) {
-              huBadge.textContent = `🇭🇺 ${t("badge_hu")} ${tmdbData.huTitle}`;
-              huBadge.style.display = "inline-flex";
-              huBadge.onclick = () => copyText(tmdbData.huTitle, huBadge);
-              hasVariant = true;
-            }
-
-            if (tmdbData.enTitle && tmdbData.enTitle !== tmdbData.huTitle) {
-              enBadge.textContent = `🇬🇧 ${t("badge_en")} ${tmdbData.enTitle}`;
-              enBadge.style.display = "inline-flex";
-              enBadge.onclick = () => copyText(tmdbData.enTitle, enBadge);
-              hasVariant = true;
-            }
-
-            if (
-              tmdbData.originalTitle &&
-              tmdbData.originalTitle !== tmdbData.huTitle &&
-              tmdbData.originalTitle !== tmdbData.enTitle
-            ) {
-              origBadge.textContent = `🌐 ${t("badge_orig")} ${tmdbData.originalTitle}`;
-              origBadge.style.display = "inline-flex";
-              origBadge.onclick = () =>
-                copyText(tmdbData.originalTitle, origBadge);
-              hasVariant = true;
-            }
-
-            if (hasVariant) {
-              variantsRow.style.display = "flex";
-            }
-
-            // TMDB Overview
-            if (tmdbData.overview && tmdbData.overview.trim().length > 0) {
-              tmdbOverviewText.textContent = tmdbData.overview;
-              tmdbOverview.style.display = "block";
-            }
-          }
+          renderTmdbDetailsInModal(tmdbData);
         } catch (e) {
           console.warn("TMDB betöltési hiba:", e);
           if (currentModalTitle === title) {
-            tmdbLoading.style.display = "none";
+            document.getElementById("modalTmdbLoading").style.display = "none";
           }
         }
       }
@@ -4174,12 +4885,60 @@
       };
 
       document.getElementById("modalClose").onclick = () => {
+        closeFixOverlay();
         document.getElementById("modalOverlay").classList.remove("active");
+      };
+
+      document.getElementById("modalFixBtn").onclick = () => {
+        openFixOverlay();
+      };
+
+      document.getElementById("modalFixClose").onclick = () => {
+        closeFixOverlay();
+      };
+
+      document.getElementById("modalFixSearchBtn").onclick = () => {
+        if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+        const input = document.getElementById("modalFixSearchInput");
+        triggerFixSearch(input.value.trim());
+      };
+
+      document.getElementById("modalFixSearchInput").oninput = (e) => {
+        const val = e.target.value;
+        document.getElementById("modalFixClearBtn").style.display = val
+          ? "block"
+          : "none";
+        if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+        fixSearchDebounce = setTimeout(() => {
+          triggerFixSearch(val.trim());
+        }, 350);
+      };
+
+      document.getElementById("modalFixSearchInput").onkeydown = (e) => {
+        if (e.key === "Enter") {
+          if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+          triggerFixSearch(e.target.value.trim());
+        } else if (e.key === "Escape") {
+          closeFixOverlay();
+        }
+      };
+
+      document.getElementById("modalFixClearBtn").onclick = () => {
+        const input = document.getElementById("modalFixSearchInput");
+        input.value = "";
+        document.getElementById("modalFixClearBtn").style.display = "none";
+        input.focus();
+        triggerFixSearch("");
+      };
+
+      document.getElementById("modalFixRemoveBtn").onclick = () => {
+        removeTmdbMatch();
       };
 
       document.querySelectorAll(".modal-overlay").forEach((overlay) => {
         overlay.onclick = (e) => {
           if (e.target === overlay) {
+            closeFixOverlay();
             overlay.classList.remove("active");
             if (
               overlay.id === "settingsOverlay" &&

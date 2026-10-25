@@ -136,5 +136,15 @@
   "all_favorites_source": "★ All Favorite Channels",
   "all_favorites_btn": "★ Favorite Channels",
   "no_favorite_channels_title": "No Favorite Channels Yet",
-  "no_favorite_channels_desc": "Click the ★ star icon on any channel header to add it to your favorites."
+  "no_favorite_channels_desc": "Click the ★ star icon on any channel header to add it to your favorites.",
+  "btn_tmdb_fix": "Fix",
+  "tmdb_fix_title": "Fix TMDB Match",
+  "tmdb_fix_search_placeholder": "Search TMDB...",
+  "tmdb_fix_search_btn": "Search",
+  "tmdb_fix_no_results": "No results found for this title.",
+  "tmdb_fix_searching": "Searching...",
+  "tmdb_fix_api_key_missing": "TMDB API key is not configured in Settings.",
+  "tmdb_fix_remove_match": "Remove match",
+  "tmdb_fix_match_saved": "TMDB match saved!",
+  "tmdb_fix_match_removed": "TMDB match removed!"
 }
