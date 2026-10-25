@@ -148,6 +148,10 @@ fn init_db() -> Connection {
     let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN hu_title TEXT", []);
     let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN en_title TEXT", []);
 
+    // Tisztítsuk meg a korábban hibásan felülírt franchise gyorsítótár bejegyzéseket (pl. Jurassic World -> Fallen Kingdom)
+    conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'Jurassic World' AND (title LIKE '%gefallene%' OR title LIKE '%Fallen Kingdom%')", []).ok();
+    conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'G.I. Joe' AND (title LIKE '%Megtorlás%' OR title LIKE '%Retaliation%')", []).ok();
+
     // Korábbi alapértelmezett források törlése a tiszta induláshoz
     conn.execute("DELETE FROM sources WHERE id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
     conn.execute("DELETE FROM channels WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
@@ -1061,9 +1065,17 @@ fn clean_title(title: &str) -> String {
         s = re_tags.replace_all(&s, "").to_string();
     }
 
-    // 3. Remove episode / season patterns with delimiter or explicit keyword:
+    // 3. Remove written-out Hungarian season names e.g. " - Második évad"
+    if let Ok(re_hu_season) = regex::Regex::new(r"(?i)\s*[-–—:]?\s*(?:első|második|harmadik|negyedik|ötödik|hatodik|hetedik|nyolcadik|kilencedik|tizedik)\s+évad.*$") {
+        let trimmed_cand = re_hu_season.replace(&s, "").to_string();
+        if trimmed_cand.trim().len() >= 2 {
+            s = trimmed_cand;
+        }
+    }
+
+    // 4. Remove episode / season patterns with delimiter or explicit keyword:
     // e.g. " - 1. rész", " 2. évad", " - S01E02", " - Ep. 5", " 1. epizód"
-    if let Ok(re_ep1) = regex::Regex::new(r"(?i)\s*[-–—:]\s*(?:s\d+e\d+|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$") {
+    if let Ok(re_ep1) = regex::Regex::new(r"(?i)\s*[-–—:]\s*(?:s\d+(?:e\d+)?|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$") {
         let trimmed_cand = re_ep1.replace(&s, "").to_string();
         if trimmed_cand.trim().len() >= 2 {
             s = trimmed_cand;
@@ -1077,31 +1089,24 @@ fn clean_title(title: &str) -> String {
         }
     }
 
-    // Season / episode slash numbering e.g. " I./3.", " I/3.", " - I./3.", " 1./3.", " 1/3", " II/4. rész"
-    if let Ok(re_slash) = regex::Regex::new(r"(?i)\s*(?:[-–—:]\s*)?(?:[IVXLCDM]+|\d+)\.?\s*/\s*\d+[\.:]?(?:\s*(?:rész|évad|epizód))?.*$") {
-        let trimmed_cand = re_slash.replace(&s, "").to_string();
-        if trimmed_cand.trim().len() >= 2 {
-            s = trimmed_cand;
-        }
-    }
-
-    // Roman numeral part with keyword e.g. " I. rész", " II. évad"
-    if let Ok(re_roman_part) = regex::Regex::new(r"(?i)\s+(?:[IVXLCDM]+|[ivxlcdm]+)\.?\s*(?:rész|évad|epizód).*$") {
+    // 5. Roman numeral season/part WITH explicit keyword only (e.g. " - I. évad", " II. rész")
+    // Requires word boundary \b and explicit keyword to prevent matching words starting with Roman letters (like "Das...", "Megtorlás")
+    if let Ok(re_roman_part) = regex::Regex::new(r"(?i)\s*(?:[-–—:]\s*)?\b(?:[IVXLCDM]+)\.?\s*(?:rész|évad|epizód).*$") {
         let trimmed_cand = re_roman_part.replace(&s, "").to_string();
         if trimmed_cand.trim().len() >= 2 {
             s = trimmed_cand;
         }
     }
 
-    // Roman numeral after dash e.g. " - I.", " - II"
-    if let Ok(re_roman) = regex::Regex::new(r"\s*[-–—:]\s*(?:[IVXLCDM]+|[ivxlcdm]+)[\.:]?(?:\s*(?:rész|évad|epizód))?.*$") {
-        let trimmed_cand = re_roman.replace(&s, "").to_string();
+    // 6. Season / episode slash numbering e.g. " I./3.", " I/3.", " - I./3.", " 1./3.", " 1/3", " II/4. rész"
+    if let Ok(re_slash) = regex::Regex::new(r"(?i)\s*(?:[-–—:]\s*)?\b(?:[IVXLCDM]+|\d+)\.?\s*/\s*\d+[\.:]?(?:\s*(?:rész|évad|epizód))?.*$") {
+        let trimmed_cand = re_slash.replace(&s, "").to_string();
         if trimmed_cand.trim().len() >= 2 {
             s = trimmed_cand;
         }
     }
 
-    // 4. Remove trailing generic parenthesis/bracket tag if it still exists at the end
+    // 7. Remove trailing generic parenthesis/bracket tag if it still exists at the end
     if let Ok(re_tail_paren) = regex::Regex::new(r"\s*[\(\[\{][^\(\)\[\]\{\}]*[\)\]\}]\s*$") {
         let trimmed_cand = re_tail_paren.replace(&s, "").to_string();
         if trimmed_cand.trim().len() >= 2 {
@@ -1109,12 +1114,10 @@ fn clean_title(title: &str) -> String {
         }
     }
 
-    // 5. Remove trailing punctuation: dashes, colons, dots, slashes, commas
-    if let Ok(re_punct) = regex::Regex::new(r"[\s\-\–\—\:\,\.\/\\]+$") {
-        s = re_punct.replace(&s, "").to_string();
-    }
+    // 8. Remove trailing punctuation: dashes, colons, dots, slashes, commas
+    s = s.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '–' | '—' | ':' | ',' | '.' | '/' | '\\')).to_string();
 
-    // 6. Collapse multiple spaces
+    // 9. Collapse multiple spaces
     if let Ok(re_spaces) = regex::Regex::new(r"\s+") {
         s = re_spaces.replace_all(&s, " ").to_string();
     }
@@ -1852,3 +1855,121 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("Hiba a Tauri indításakor");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_title_preserves_subtitles() {
+        assert_eq!(
+            clean_title("Jurassic World: Das gefallene Königreich"),
+            "Jurassic World: Das gefallene Königreich"
+        );
+        assert_eq!(
+            clean_title("G.I. Joe - Megtorlás"),
+            "G.I. Joe - Megtorlás"
+        );
+        assert_eq!(
+            clean_title("G.I. Joe - Geheimauftrag Cobra"),
+            "G.I. Joe - Geheimauftrag Cobra"
+        );
+        assert_eq!(
+            clean_title("CSI: Miami helyszínelők"),
+            "CSI: Miami helyszínelők"
+        );
+        assert_eq!(
+            clean_title("Mission: Impossible - Utóhatás"),
+            "Mission: Impossible - Utóhatás"
+        );
+        assert_eq!(
+            clean_title("Next Game: Calgary Wranglers @ Abbotsford Canucks on 2026-10-24 at 08:00PM EDT"),
+            "Next Game: Calgary Wranglers @ Abbotsford Canucks on 2026-10-24 at 08:00PM EDT"
+        );
+    }
+
+    #[test]
+    fn test_clean_title_preserves_movie_sequels_and_roman_numerals() {
+        assert_eq!(
+            clean_title("Jurassic Park 2. - Az elveszett világ"),
+            "Jurassic Park 2. - Az elveszett világ"
+        );
+        assert_eq!(
+            clean_title("Jurassic Park 3."),
+            "Jurassic Park 3"
+        );
+        assert_eq!(
+            clean_title("Jurassic Park III."),
+            "Jurassic Park III"
+        );
+        assert_eq!(
+            clean_title("Rocky IV"),
+            "Rocky IV"
+        );
+        assert_eq!(
+            clean_title("A szállító 2."),
+            "A szállító 2"
+        );
+    }
+
+    #[test]
+    fn test_clean_title_removes_series_season_and_episode() {
+        assert_eq!(
+            clean_title("A mi kis falunk 6. évad 1. rész"),
+            "A mi kis falunk"
+        );
+        assert_eq!(
+            clean_title("Gyurma srácok - Második évad"),
+            "Gyurma srácok"
+        );
+        assert_eq!(
+            clean_title("Baby Einstein: Új klasszikusok 1. évad"),
+            "Baby Einstein: Új klasszikusok"
+        );
+        assert_eq!(
+            clean_title("Linda - 3. évad 7."),
+            "Linda"
+        );
+        assert_eq!(
+            clean_title("Merész hétvége I./1."),
+            "Merész hétvége"
+        );
+        assert_eq!(
+            clean_title("Vissza Sherwoodba 8.rész"),
+            "Vissza Sherwoodba"
+        );
+        assert_eq!(
+            clean_title("Star Wars: A klónok háborúja 2. évad 5. rész - A hősök"),
+            "Star Wars: A klónok háborúja"
+        );
+        assert_eq!(
+            clean_title("Szökőár 1. rész"),
+            "Szökőár"
+        );
+        assert_eq!(
+            clean_title("The Big Bang Theory S03E14"),
+            "The Big Bang Theory"
+        );
+        assert_eq!(
+            clean_title("Trónok harca 8. évad"),
+            "Trónok harca"
+        );
+    }
+
+    #[test]
+    fn test_clean_title_removes_tech_tags_and_years() {
+        assert_eq!(
+            clean_title("Matrix (1999) (16) (HD)"),
+            "Matrix"
+        );
+        assert_eq!(
+            clean_title("Híradó (élő)"),
+            "Híradó"
+        );
+        assert_eq!(
+            clean_title("Dr. Csont (Bones)"),
+            "Dr. Csont"
+        );
+    }
+}
+
