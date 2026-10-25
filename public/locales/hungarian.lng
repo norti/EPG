@@ -146,5 +146,18 @@
   "tmdb_fix_api_key_missing": "A TMDB API kulcs nincs beállítva a Beállításokban.",
   "tmdb_fix_remove_match": "Egyezés törlése",
   "tmdb_fix_match_saved": "TMDB egyezés elmentve!",
-  "tmdb_fix_match_removed": "TMDB egyezés eltávolítva!"
+  "tmdb_fix_match_removed": "TMDB egyezés eltávolítva!",
+  "tab_export": "Exportálás / Importálás",
+  "export_heading": "Exportálás és Importálás",
+  "export_channels_section_title": "Csatornaadatok exportálása / importálása",
+  "export_channels_desc": "Csatornák egyéni beállításainak (sorrend, kedvenc, rejtés, egyéni név, logó) exportálása és importálása CSV fájlba források szerint.",
+  "btn_export_channel_data": "CSATORNAADATOK EXPORTÁLÁSA",
+  "btn_import_channel_data": "CSATORNAADATOK IMPORTÁLÁSA",
+  "export_settings_section_title": "Alkalmazás beállítások exportálása / importálása",
+  "export_settings_desc": "Minden alkalmazásbeállítás (források, kedvenc műsorok, csatornabeállítások és preferenciák) teljes mentése és visszaállítása.",
+  "danger_zone_title": "Veszélyes zóna",
+  "danger_zone_desc": "A teljes helyi EPG adatbázis törlése. A műsoradatok törlődnek, de a források megmaradnak.",
+  "alert_channel_export_error": "Hiba történt a csatornaadatok exportálásakor!",
+  "alert_channel_import_success": "A csatornaadatok sikeresen importálva lettek!",
+  "alert_channel_import_error": "Hiba történt a csatornaadatok importálásakor!"
 }

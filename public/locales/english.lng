@@ -146,5 +146,18 @@
   "tmdb_fix_api_key_missing": "TMDB API key is not configured in Settings.",
   "tmdb_fix_remove_match": "Remove match",
   "tmdb_fix_match_saved": "TMDB match saved!",
-  "tmdb_fix_match_removed": "TMDB match removed!"
+  "tmdb_fix_match_removed": "TMDB match removed!",
+  "tab_export": "Export / Import",
+  "export_heading": "Export & Import",
+  "export_channels_section_title": "Channel Data Export / Import",
+  "export_channels_desc": "Export and import channel configurations (order, favorites, hidden state, custom names, logos) to/from a CSV file by sources.",
+  "btn_export_channel_data": "EXPORT CHANNEL DATA",
+  "btn_import_channel_data": "IMPORT CHANNEL DATA",
+  "export_settings_section_title": "Application Settings Export / Import",
+  "export_settings_desc": "Full backup and restore of all application settings (sources, favorite programmes, channel configurations, and preferences).",
+  "danger_zone_title": "Danger Zone",
+  "danger_zone_desc": "Clear the entire local EPG database. Downloaded programmes will be deleted, but configured sources will remain.",
+  "alert_channel_export_error": "Error exporting channel data!",
+  "alert_channel_import_success": "Channel data imported successfully!",
+  "alert_channel_import_error": "Error importing channel data!"
 }
