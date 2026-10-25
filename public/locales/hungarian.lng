@@ -132,5 +132,9 @@
   "badge_year": "Év:",
   "media_type_movie": "Film",
   "media_type_tv": "Sorozat",
-  "tmdb_loading": "TMDB adatok betöltése..."
+  "tmdb_loading": "TMDB adatok betöltése...",
+  "all_favorites_source": "★ Összes kedvenc csatorna",
+  "all_favorites_btn": "★ Kedvenc csatornák",
+  "no_favorite_channels_title": "Még nincsenek kedvenc csatornák",
+  "no_favorite_channels_desc": "Kattintson a ★ csillag ikonra bármelyik csatorna fejlécében a kedvencekhez adáshoz."
 }

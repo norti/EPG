@@ -20,15 +20,26 @@ struct Channel {
     cached_icon: Option<String>,
     is_favorite: bool,
     is_hidden: bool,
+    #[serde(default)]
+    source_id: Option<String>,
+    #[serde(default)]
+    source_name: Option<String>,
+    #[serde(default)]
+    country_code: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 struct Programme {
     channel: String,
     start: String,
     stop: String,
     title: String,
     desc: String,
+    #[serde(default)]
+    source_id: Option<String>,
+    #[serde(default)]
+    time_offset: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -147,9 +158,108 @@ fn init_db() -> Connection {
 }
 
 #[tauri::command]
+async fn get_all_favorites_epg_data() -> Result<EpgResponse, String> {
+    let conn = init_db();
+
+    let mut stmt = conn.prepare(
+        "SELECT c.id, 
+                c.source_id,
+                COALESCE(s.name, '') AS source_name,
+                COALESCE(NULLIF(cus.custom_name, ''), c.name) AS display_name,
+                c.name AS original_name,
+                cus.custom_name,
+                c.icon,
+                cus.custom_icon,
+                lc.data AS cached_icon,
+                COALESCE(cus.is_favorite, 0),
+                COALESCE(cus.is_hidden, 0),
+                COALESCE(s.country_code, 'HU') AS country_code,
+                COALESCE(s.time_offset, 0) AS time_offset
+         FROM channels c 
+         JOIN sources s ON s.id = c.source_id
+         JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+         LEFT JOIN channel_orders co ON co.source_id = c.source_id AND co.channel_id = c.id 
+         LEFT JOIN channel_orders co_fav ON co_fav.source_id = '__ALL_FAVORITES__' AND co_fav.channel_id = (c.source_id || '::' || c.id)
+         LEFT JOIN logo_cache lc ON lc.url = COALESCE(NULLIF(cus.custom_icon, ''), c.icon)
+         WHERE cus.is_favorite = 1 AND COALESCE(cus.is_hidden, 0) = 0
+         ORDER BY 
+            CASE WHEN co_fav.position IS NOT NULL THEN 0 ELSE 1 END,
+            co_fav.position ASC,
+            s.rowid ASC,
+            CASE WHEN co.position IS NOT NULL THEN 0 ELSE 1 END, 
+            co.position ASC, 
+            display_name ASC"
+    ).map_err(|e| e.to_string())?;
+
+    let channel_iter = stmt.query_map([], |row| {
+        let raw_id: String = row.get(0)?;
+        let src_id: String = row.get(1)?;
+        let src_name: String = row.get(2)?;
+        let composite_id = format!("{}::{}", src_id, raw_id);
+        let is_fav: i32 = row.get(9)?;
+        let is_hid: i32 = row.get(10)?;
+        let country_code: String = row.get(11)?;
+        Ok(Channel {
+            id: composite_id,
+            name: row.get(3)?,
+            original_name: row.get(4)?,
+            custom_name: row.get(5)?,
+            icon: row.get(6)?,
+            custom_icon: row.get(7)?,
+            cached_icon: row.get(8)?,
+            is_favorite: is_fav == 1,
+            is_hidden: is_hid == 1,
+            source_id: Some(src_id),
+            source_name: Some(src_name),
+            country_code: Some(country_code),
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut channels = Vec::new();
+    for ch in channel_iter {
+        if let Ok(c) = ch { channels.push(c); }
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT p.channel_id, p.source_id, p.start, p.stop, p.title, p.desc, COALESCE(s.time_offset, 0)
+         FROM programmes p
+         JOIN sources s ON s.id = p.source_id
+         JOIN channel_user_settings cus ON cus.source_id = p.source_id AND cus.channel_id = p.channel_id
+         WHERE cus.is_favorite = 1 AND COALESCE(cus.is_hidden, 0) = 0"
+    ).map_err(|e| e.to_string())?;
+
+    let prog_iter = stmt.query_map([], |row| {
+        let raw_ch_id: String = row.get(0)?;
+        let src_id: String = row.get(1)?;
+        let composite_id = format!("{}::{}", src_id, raw_ch_id);
+        let offset: i32 = row.get(6)?;
+        Ok(Programme {
+            channel: composite_id,
+            start: row.get(2)?,
+            stop: row.get(3)?,
+            title: row.get(4)?,
+            desc: row.get(5)?,
+            source_id: Some(src_id),
+            time_offset: Some(offset),
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut programmes = Vec::new();
+    for pr in prog_iter {
+        if let Ok(p) = pr { programmes.push(p); }
+    }
+
+    Ok(EpgResponse { channels, programmes })
+}
+
+#[tauri::command]
 async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
     if source_id.trim().is_empty() {
         return Ok(EpgResponse { channels: Vec::new(), programmes: Vec::new() });
+    }
+
+    if source_id == "__ALL_FAVORITES__" {
+        return get_all_favorites_epg_data().await;
     }
 
     let conn = init_db();
@@ -189,6 +299,9 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
             cached_icon: row.get(6)?,
             is_favorite: is_fav == 1,
             is_hidden: is_hid == 1,
+            source_id: Some(source_id.clone()),
+            source_name: None,
+            country_code: None,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -205,6 +318,8 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
             stop: row.get(2)?,
             title: row.get(3)?,
             desc: row.get(4)?,
+            source_id: Some(source_id.clone()),
+            time_offset: None,
         })
     }).map_err(|e| e.to_string())?;
 
@@ -1466,6 +1581,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_epg_data,
+            get_all_favorites_epg_data,
             get_sources,
             save_source,
             delete_source,
