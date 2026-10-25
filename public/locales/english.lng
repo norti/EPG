@@ -132,5 +132,9 @@
   "badge_year": "Year:",
   "media_type_movie": "Movie",
   "media_type_tv": "TV Series",
-  "tmdb_loading": "Loading TMDB details..."
+  "tmdb_loading": "Loading TMDB details...",
+  "all_favorites_source": "★ All Favorite Channels",
+  "all_favorites_btn": "★ Favorite Channels",
+  "no_favorite_channels_title": "No Favorite Channels Yet",
+  "no_favorite_channels_desc": "Click the ★ star icon on any channel header to add it to your favorites."
 }

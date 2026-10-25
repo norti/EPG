@@ -150,6 +150,22 @@
         background-color: #d69e2e;
         color: #000;
       }
+      #allFavChannelsBtn {
+        background-color: #242424;
+        color: #ecc94b;
+        border: 1px solid #d69e2e;
+        white-space: nowrap;
+        transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+      }
+      #allFavChannelsBtn:hover {
+        background-color: #353020;
+      }
+      #allFavChannelsBtn.active {
+        background-color: #d69e2e;
+        color: #1a1a1a;
+        font-weight: bold;
+        box-shadow: 0 0 8px rgba(214, 158, 46, 0.45);
+      }
       #settingsBtn {
         background-color: #4a5568;
         margin-left: auto;
@@ -330,6 +346,19 @@
       .channel-name-badge.favorite-channel {
         background-color: #2a2a2a;
         color: #ecc94b;
+      }
+      .channel-source-badge {
+        font-size: 10px;
+        background: #1a2f20;
+        color: #48bb78;
+        padding: 1px 5px;
+        border-radius: 3px;
+        margin-left: 5px;
+        font-weight: bold;
+        white-space: nowrap;
+        display: inline-block;
+        border: 1px solid #276749;
+        vertical-align: middle;
       }
       .channel-header-logo {
         background-color: #2a2a2a;
@@ -1397,6 +1426,15 @@
         </button>
       </div>
 
+      <button
+        class="btn"
+        id="allFavChannelsBtn"
+        title="★ Összes kedvenc csatorna"
+        data-i18n-title="all_favorites_source"
+        data-i18n="all_favorites_btn"
+      >
+        ★ Kedvenc csatornák
+      </button>
       <select id="sourceSelect"></select>
       <div class="date-nav-group">
         <button
@@ -2019,6 +2057,10 @@
           media_type_movie: "Film",
           media_type_tv: "Sorozat",
           tmdb_loading: "TMDB adatok betöltése...",
+          all_favorites_source: "★ Összes kedvenc csatorna",
+          all_favorites_btn: "★ Kedvenc csatornák",
+          no_favorite_channels_title: "Még nincsenek kedvenc csatornák",
+          no_favorite_channels_desc: "Kattintson a ★ csillag ikonra bármelyik csatorna fejlécében a kedvencekhez adáshoz.",
         },
         english: {
           app_title: "EPG Viewer",
@@ -2158,6 +2200,10 @@
           media_type_movie: "Movie",
           media_type_tv: "TV Series",
           tmdb_loading: "Loading TMDB details...",
+          all_favorites_source: "★ All Favorite Channels",
+          all_favorites_btn: "★ Favorite Channels",
+          no_favorite_channels_title: "No Favorite Channels Yet",
+          no_favorite_channels_desc: "Click the ★ star icon on any channel header to add it to your favorites.",
         },
       };
 
@@ -2312,18 +2358,32 @@
         if (sources.length > 0) {
           if (
             settings.current_source_id &&
-            sources.some((s) => s.id === settings.current_source_id)
+            (settings.current_source_id === "__ALL_FAVORITES__" ||
+              sources.some((s) => s.id === settings.current_source_id))
           ) {
             currentSourceId = settings.current_source_id;
           } else {
-            currentSourceId = sources[0].id;
+            currentSourceId = "__ALL_FAVORITES__";
           }
           document.getElementById("sourceSelect").value = currentSourceId;
+          updateAllFavBtnState();
           await fetchEPG();
         } else {
           currentSourceId = "";
+          updateAllFavBtnState();
           document.getElementById("status").innerText = t("status_ready");
           renderEmptySourcesState();
+        }
+      }
+
+      function updateAllFavBtnState() {
+        const btn = document.getElementById("allFavChannelsBtn");
+        if (btn) {
+          if (currentSourceId === "__ALL_FAVORITES__") {
+            btn.classList.add("active");
+          } else {
+            btn.classList.remove("active");
+          }
         }
       }
 
@@ -2333,6 +2393,17 @@
                     <h2>Nincsenek EPG források beállítva</h2>
                     <p>Kattintson a <strong>⚙ BEÁLLÍTÁSOK</strong> gombra egy EPG forrás URL megadásához.</p>
                     <button class="btn btn-green" onclick="document.getElementById('settingsBtn').click()" style="padding: 10px 20px; font-size: 14px;">FORRÁS HOZZÁADÁSA</button>
+                </div>
+            `;
+        document.getElementById("timeColumn").innerHTML = "";
+        document.getElementById("dateSelect").innerHTML = "";
+      }
+
+      function renderEmptyFavoritesState() {
+        document.getElementById("channelsContainer").innerHTML = `
+                <div class="empty-grid-notice">
+                    <h2>${t("no_favorite_channels_title")}</h2>
+                    <p>${t("no_favorite_channels_desc")}</p>
                 </div>
             `;
         document.getElementById("timeColumn").innerHTML = "";
@@ -2350,6 +2421,13 @@
         const sourcesList = document.getElementById("sourcesList");
         sourceSelect.innerHTML = "";
         sourcesList.innerHTML = "";
+
+        if (sources.length > 0) {
+          const allFavOpt = document.createElement("option");
+          allFavOpt.value = "__ALL_FAVORITES__";
+          allFavOpt.textContent = t("all_favorites_source");
+          sourceSelect.appendChild(allFavOpt);
+        }
 
         sources.forEach((s) => {
           const opt = document.createElement("option");
@@ -2384,18 +2462,40 @@
         });
 
         if (!currentSourceId && sources.length > 0) {
-          currentSourceId = sources[0].id;
+          currentSourceId = "__ALL_FAVORITES__";
         }
         sourceSelect.value = currentSourceId;
+        updateAllFavBtnState();
 
         sourceSelect.onchange = async (e) => {
           currentSourceId = e.target.value;
+          updateAllFavBtnState();
           await invoke("set_setting", {
             key: "current_source_id",
             value: currentSourceId,
           });
           fetchEPG();
         };
+
+        const allFavBtn = document.getElementById("allFavChannelsBtn");
+        if (allFavBtn) {
+          allFavBtn.onclick = async () => {
+            if (currentSourceId === "__ALL_FAVORITES__") {
+              if (sources.length > 0) {
+                currentSourceId = sources[0].id;
+              }
+            } else {
+              currentSourceId = "__ALL_FAVORITES__";
+            }
+            sourceSelect.value = currentSourceId;
+            updateAllFavBtnState();
+            await invoke("set_setting", {
+              key: "current_source_id",
+              value: currentSourceId,
+            });
+            fetchEPG();
+          };
+        }
       }
 
       // KORRIGÁLT XMLTV IDŐPONT ÉRTELMEZŐ (Kezeli a +0200, +0000 offset-et ISO UTC konverzióval)
@@ -2462,11 +2562,18 @@
           return;
         }
 
+        updateAllFavBtnState();
         document.getElementById("status").innerText = t("status_loading");
         try {
           epgData = await invoke("get_epg_data", { sourceId: currentSourceId });
 
-          if (!epgData.channels || epgData.channels.length === 0) {
+          if (currentSourceId === "__ALL_FAVORITES__") {
+            if (!epgData.channels || epgData.channels.length === 0) {
+              document.getElementById("status").innerText = t("status_ready");
+              renderEmptyFavoritesState();
+              return;
+            }
+          } else if (!epgData.channels || epgData.channels.length === 0) {
             await downloadSource(currentSourceId);
             epgData = await invoke("get_epg_data", {
               sourceId: currentSourceId,
@@ -2474,11 +2581,17 @@
           }
 
           const currentSrcObj = sources.find((s) => s.id === currentSourceId);
-          const offsetHours = currentSrcObj ? currentSrcObj.timeOffset || 0 : 0;
+          const defaultOffset = currentSrcObj ? currentSrcObj.timeOffset || 0 : 0;
 
           epgData.programmes.forEach((p) => {
-            p.start = parseEPGDate(p.start, offsetHours);
-            p.stop = parseEPGDate(p.stop, offsetHours);
+            const offset =
+              currentSourceId === "__ALL_FAVORITES__" &&
+              p.timeOffset !== undefined &&
+              p.timeOffset !== null
+                ? p.timeOffset
+                : defaultOffset;
+            p.start = parseEPGDate(p.start, offset);
+            p.stop = parseEPGDate(p.stop, offset);
           });
 
           document.getElementById("status").innerText = t("status_ready");
@@ -2529,7 +2642,7 @@
           document.getElementById("status").innerText = t(
             "status_download_success",
           );
-          if (id === currentSourceId) {
+          if (id === currentSourceId || currentSourceId === "__ALL_FAVORITES__") {
             await fetchEPG();
           }
         } catch (err) {
@@ -2573,8 +2686,15 @@
           await invoke("delete_source", { sourceId: id });
           await refreshSourcesFromDb();
 
-          if (currentSourceId === id) {
-            currentSourceId = sources.length > 0 ? sources[0].id : "";
+          if (sources.length === 0) {
+            currentSourceId = "";
+            await invoke("set_setting", {
+              key: "current_source_id",
+              value: "",
+            });
+            updateAllFavBtnState();
+          } else if (currentSourceId === id) {
+            currentSourceId = "__ALL_FAVORITES__";
             await invoke("set_setting", {
               key: "current_source_id",
               value: currentSourceId,
@@ -2985,10 +3105,17 @@
           const effectiveLogo =
             channel.cachedIcon || channel.customIcon || channel.icon || "";
 
+          const showSourceBadge =
+            currentSourceId === "__ALL_FAVORITES__" || !!channel.sourceName;
+          const sourceBadgeHtml = showSourceBadge && (channel.sourceName || channel.countryCode)
+            ? `<span class="channel-source-badge" title="${channel.sourceName || ''}">${channel.sourceName || channel.countryCode}</span>`
+            : "";
+
           headerItem.innerHTML = `
                     <div class="channel-name-badge ${channel.isFavorite ? "favorite-channel" : ""}" title="${(channel.originalName || channel.name).replace(/"/g, "&quot;")}">
                         ${effectiveLogo ? `<img class="channel-header-logo" src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : ""}
                         <span>${channel.name}</span>
+                        ${sourceBadgeHtml}
                     </div>
                     <div class="channel-header-btns">
                         <button class="channel-header-rename-btn" title="✏">...</button>
@@ -3009,9 +3136,13 @@
                 currentCustomName,
               );
               if (newName === null) return; // cancelled
+              const targetSrc = channel.sourceId || currentSourceId;
+              const targetChId = channel.id.includes("::")
+                ? channel.id.split("::").slice(1).join("::")
+                : channel.id;
               await invoke("rename_channel", {
-                sourceId: currentSourceId,
-                channelId: channel.id,
+                sourceId: targetSrc,
+                channelId: targetChId,
                 name: newName,
               });
               const trimmed = newName.trim();
@@ -3032,17 +3163,31 @@
           if (favBtn) {
             favBtn.onclick = async (e) => {
               e.stopPropagation();
+              const targetSrc = channel.sourceId || currentSourceId;
+              const targetChId = channel.id.includes("::")
+                ? channel.id.split("::").slice(1).join("::")
+                : channel.id;
               const newFav = await invoke("toggle_channel_favorite", {
-                sourceId: currentSourceId,
-                channelId: channel.id,
+                sourceId: targetSrc,
+                channelId: targetChId,
               });
               channel.isFavorite = newFav;
-              epgData.channels.sort((a, b) => {
-                if (a.isFavorite !== b.isFavorite) {
-                  return a.isFavorite ? -1 : 1;
+              if (currentSourceId === "__ALL_FAVORITES__" && !newFav) {
+                epgData.channels = epgData.channels.filter(
+                  (c) => c.id !== channel.id,
+                );
+                if (epgData.channels.length === 0) {
+                  renderEmptyFavoritesState();
+                  return;
                 }
-                return 0;
-              });
+              } else {
+                epgData.channels.sort((a, b) => {
+                  if (a.isFavorite !== b.isFavorite) {
+                    return a.isFavorite ? -1 : 1;
+                  }
+                  return 0;
+                });
+              }
               renderEPG();
               if (
                 document
@@ -3219,8 +3364,10 @@
         document.getElementById("modalOverlay").classList.add("active");
 
         // Determine language from source country code
-        const currentSrcObj = sources.find((s) => s.id === currentSourceId);
-        const countryCode = currentSrcObj ? currentSrcObj.countryCode : "HU";
+        const srcId = channel?.sourceId || currentSourceId;
+        const currentSrcObj = sources.find((s) => s.id === srcId);
+        const countryCode =
+          channel?.countryCode || (currentSrcObj ? currentSrcObj.countryCode : "HU");
         const lang = getTmdbLang(countryCode);
 
         try {
@@ -3561,7 +3708,11 @@
           opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
           select.appendChild(opt);
         });
-        if (currentSourceId) select.value = currentSourceId;
+        if (currentSourceId && currentSourceId !== "__ALL_FAVORITES__") {
+          select.value = currentSourceId;
+        } else if (sources.length > 0) {
+          select.value = sources[0].id;
+        }
         select.onchange = () => renderChannelOrderList();
       }
 
@@ -3651,7 +3802,13 @@
 
       async function renderChannelOrderList() {
         const select = document.getElementById("channelOrderSourceSelect");
-        const targetSourceId = select.value || currentSourceId;
+        const targetSourceId =
+          select.value ||
+          (currentSourceId && currentSourceId !== "__ALL_FAVORITES__"
+            ? currentSourceId
+            : sources.length > 0
+              ? sources[0].id
+              : "");
         const container = document.getElementById("channelOrderList");
         container.innerHTML = "";
 
@@ -3661,7 +3818,11 @@
         }
 
         let sourceChannels = [];
-        if (targetSourceId === currentSourceId && epgData.channels.length > 0) {
+        if (
+          targetSourceId === currentSourceId &&
+          currentSourceId !== "__ALL_FAVORITES__" &&
+          epgData.channels.length > 0
+        ) {
           sourceChannels = [...epgData.channels];
         } else {
           const res = await invoke("get_epg_data", {
@@ -4007,6 +4168,9 @@
 
       document.getElementById("settingsClose").onclick = () => {
         document.getElementById("settingsOverlay").classList.remove("active");
+        if (currentSourceId === "__ALL_FAVORITES__") {
+          fetchEPG();
+        }
       };
 
       document.getElementById("modalClose").onclick = () => {
@@ -4017,6 +4181,12 @@
         overlay.onclick = (e) => {
           if (e.target === overlay) {
             overlay.classList.remove("active");
+            if (
+              overlay.id === "settingsOverlay" &&
+              currentSourceId === "__ALL_FAVORITES__"
+            ) {
+              fetchEPG();
+            }
           }
         };
       });
