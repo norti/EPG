@@ -130,6 +130,7 @@ fn init_db() -> Connection {
             hu_title TEXT,
             en_title TEXT,
             original_title TEXT,
+            original_language TEXT,
             poster_path TEXT,
             backdrop_path TEXT,
             overview TEXT,
@@ -147,6 +148,7 @@ fn init_db() -> Connection {
     let _ = conn.execute("ALTER TABLE channel_user_settings ADD COLUMN custom_name TEXT", []);
     let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN hu_title TEXT", []);
     let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN en_title TEXT", []);
+    let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN original_language TEXT", []);
 
     // Tisztítsuk meg a korábban hibásan felülírt franchise gyorsítótár bejegyzéseket (pl. Jurassic World -> Fallen Kingdom)
     conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'Jurassic World' AND (title LIKE '%gefallene%' OR title LIKE '%Fallen Kingdom%')", []).ok();
@@ -991,6 +993,7 @@ pub struct TmdbDetails {
     pub hu_title: Option<String>,
     pub en_title: Option<String>,
     pub original_title: Option<String>,
+    pub original_language: Option<String>,
     pub media_type: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
@@ -1026,6 +1029,7 @@ struct TmdbRawItem {
     name: Option<String>,
     original_title: Option<String>,
     original_name: Option<String>,
+    original_language: Option<String>,
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
@@ -1205,7 +1209,7 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     let cached = {
         let conn = init_db();
         conn.query_row(
-        "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date
+        "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
          FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
         params![clean, target_lang],
         |row| {
@@ -1215,17 +1219,18 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
             let hu_title: Option<String> = row.get(3)?;
             let en_title: Option<String> = row.get(4)?;
             let original_title: Option<String> = row.get(5)?;
-            let poster_path: Option<String> = row.get(6)?;
-            let backdrop_path: Option<String> = row.get(7)?;
-            let overview: Option<String> = row.get(8)?;
-            let vote_average: Option<f64> = row.get(9)?;
-            let release_date: Option<String> = row.get(10)?;
-            Ok((tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date))
+            let original_language: Option<String> = row.get(6)?;
+            let poster_path: Option<String> = row.get(7)?;
+            let backdrop_path: Option<String> = row.get(8)?;
+            let overview: Option<String> = row.get(9)?;
+            let vote_average: Option<f64> = row.get(10)?;
+            let release_date: Option<String> = row.get(11)?;
+            Ok((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date))
         }
     ).ok()
     };
 
-    if let Some((tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
+    if let Some((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
         if media_type.as_deref() == Some("none") || tmdb_id.is_none() {
             return Ok(None);
         }
@@ -1235,6 +1240,7 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
             hu_title,
             en_title,
             original_title,
+            original_language,
             media_type,
             poster_path,
             backdrop_path,
@@ -1413,6 +1419,7 @@ async fn fetch_tmdb_item_details(
         hu_title,
         en_title,
         original_title: orig_title,
+        original_language: item.original_language,
         media_type: Some(media_type),
         poster_path: item.poster_path,
         backdrop_path: item.backdrop_path,
@@ -1426,8 +1433,8 @@ async fn fetch_tmdb_item_details(
     conn.execute(
         "INSERT OR REPLACE INTO tmdb_cache (
             query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
-            poster_path, backdrop_path, overview, vote_average, release_date, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now', 'localtime'))",
+            original_language, poster_path, backdrop_path, overview, vote_average, release_date, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now', 'localtime'))",
         params![
             clean,
             target_lang,
@@ -1437,6 +1444,7 @@ async fn fetch_tmdb_item_details(
             details.hu_title,
             details.en_title,
             details.original_title,
+            details.original_language,
             details.poster_path,
             details.backdrop_path,
             details.overview,
@@ -1446,6 +1454,107 @@ async fn fetch_tmdb_item_details(
     ).map_err(|e| e.to_string())?;
 
     Ok(details)
+}
+
+#[tauri::command]
+async fn get_tmdb_details_for_lang(
+    tmdb_id: i64,
+    media_type: String,
+    lang: String,
+    query_title: String,
+) -> Result<TmdbDetails, String> {
+    let cache_key = {
+        let clean = clean_title(&query_title);
+        if clean.is_empty() { query_title.trim().to_string() } else { clean }
+    };
+
+    // Check cache first (keyed by query_title + lang)
+    let cached = {
+        let conn = init_db();
+        conn.query_row(
+            "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
+             FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
+            params![cache_key, lang],
+            |row| {
+                let cached_id: Option<i64> = row.get(0)?;
+                let media: Option<String> = row.get(1)?;
+                let title: Option<String> = row.get(2)?;
+                let hu_title: Option<String> = row.get(3)?;
+                let en_title: Option<String> = row.get(4)?;
+                let original_title: Option<String> = row.get(5)?;
+                let original_language: Option<String> = row.get(6)?;
+                let poster_path: Option<String> = row.get(7)?;
+                let backdrop_path: Option<String> = row.get(8)?;
+                let overview: Option<String> = row.get(9)?;
+                let vote_average: Option<f64> = row.get(10)?;
+                let release_date: Option<String> = row.get(11)?;
+                Ok((cached_id, media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date))
+            }
+        ).ok()
+    };
+
+    if let Some((Some(cached_id), media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
+        if media.as_deref() != Some("none") {
+            return Ok(TmdbDetails {
+                tmdb_id: cached_id,
+                title: title.unwrap_or_else(|| cache_key.clone()),
+                hu_title,
+                en_title,
+                original_title,
+                original_language,
+                media_type: media,
+                poster_path,
+                backdrop_path,
+                overview,
+                vote_average,
+                release_date,
+            });
+        }
+    }
+
+    // Not in cache — fetch from TMDB by ID
+    let api_key: Option<String> = {
+        let conn = init_db();
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
+            [],
+            |row| row.get(0),
+        ).ok()
+    };
+
+    let api_key = match api_key {
+        Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+        _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
+
+    let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
+    let mut details_req = client.get(&details_url)
+        .header("Accept", "application/json")
+        .query(&[("language", lang.as_str())]);
+    if is_v4 {
+        details_req = details_req.header("Authorization", format!("Bearer {}", api_key));
+    } else {
+        details_req = details_req.query(&[("api_key", api_key.as_str())]);
+    }
+
+    let resp = details_req.send().await.map_err(|e| format!("TMDB lekérési hiba: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("TMDB hiba ({}): {}", resp.status(), details_url));
+    }
+
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
+    raw_item.media_type = Some(media_type);
+
+    fetch_tmdb_item_details(raw_item, &cache_key, &lang, &api_key, &client).await
 }
 
 #[tauri::command]
@@ -1849,6 +1958,7 @@ fn main() {
             get_settings,
             set_setting,
             get_tmdb_details,
+            get_tmdb_details_for_lang,
             get_tmdb_api_key,
             set_tmdb_api_key,
             clear_tmdb_cache,
