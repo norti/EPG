@@ -995,6 +995,20 @@ pub struct TmdbDetails {
     pub release_date: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TmdbSearchResultItem {
+    pub id: i64,
+    pub media_type: String,
+    pub title: String,
+    pub original_title: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub overview: Option<String>,
+    pub vote_average: Option<f64>,
+    pub release_date: Option<String>,
+}
+
 #[derive(Deserialize, Debug)]
 struct TmdbSearchResponse {
     results: Option<Vec<TmdbRawItem>>,
@@ -1183,10 +1197,11 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     }
 
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
-    let conn = init_db();
 
     // 1. Check local cache
-    let cached = conn.query_row(
+    let cached = {
+        let conn = init_db();
+        conn.query_row(
         "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date
          FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
         params![clean, target_lang],
@@ -1204,7 +1219,8 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
             let release_date: Option<String> = row.get(10)?;
             Ok((tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date))
         }
-    ).ok();
+    ).ok()
+    };
 
     if let Some((tmdb_id, media_type, title, hu_title, en_title, original_title, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
         if media_type.as_deref() == Some("none") || tmdb_id.is_none() {
@@ -1226,11 +1242,14 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     }
 
     // 2. Retrieve TMDB API key from settings
-    let api_key: Option<String> = conn.query_row(
-        "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
-        [],
-        |row| row.get(0),
-    ).ok();
+    let api_key: Option<String> = {
+        let conn = init_db();
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
+            [],
+            |row| row.get(0),
+        ).ok()
+    };
 
     let api_key = match api_key {
         Some(k) if !k.trim().is_empty() => k.trim().to_string(),
@@ -1291,6 +1310,7 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     let item = match matched_item {
         Some(it) => it,
         None => {
+            let conn = init_db();
             conn.execute(
                 "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
                 params![clean, target_lang],
@@ -1299,9 +1319,28 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
         }
     };
 
+        let details = fetch_tmdb_item_details(
+        item,
+        &clean,
+        &target_lang,
+        &api_key,
+        &client,
+    ).await?;
+
+    Ok(Some(details))
+}
+
+async fn fetch_tmdb_item_details(
+    item: TmdbRawItem,
+    clean: &str,
+    target_lang: &str,
+    api_key: &str,
+    client: &reqwest::Client,
+) -> Result<TmdbDetails, String> {
+    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
     let tmdb_id = item.id;
     let media_type = item.media_type.unwrap_or_else(|| "movie".to_string());
-    let display_title = item.title.clone().or_else(|| item.name.clone()).unwrap_or_else(|| clean.clone());
+    let display_title = item.title.clone().or_else(|| item.name.clone()).unwrap_or_else(|| clean.to_string());
     let orig_title = item.original_title.clone().or_else(|| item.original_name.clone());
     let rel_date = item.release_date.clone().or_else(|| item.first_air_date.clone());
 
@@ -1315,7 +1354,7 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     if is_v4 {
         trans_req = trans_req.header("Authorization", format!("Bearer {}", api_key));
     } else {
-        trans_req = trans_req.query(&[("api_key", api_key.as_str())]);
+        trans_req = trans_req.query(&[("api_key", api_key)]);
     }
 
     if let Ok(trans_resp) = trans_req.send().await {
@@ -1380,6 +1419,7 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     };
 
     // Save to cache
+    let conn = init_db();
     conn.execute(
         "INSERT OR REPLACE INTO tmdb_cache (
             query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
@@ -1400,9 +1440,204 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
             details.vote_average,
             details.release_date,
         ],
-    ).ok();
+    ).map_err(|e| e.to_string())?;
 
-    Ok(Some(details))
+    Ok(details)
+}
+
+#[tauri::command]
+async fn search_tmdb(query: String, lang: Option<String>) -> Result<Vec<TmdbSearchResultItem>, String> {
+    let q = query.trim().to_string();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
+
+    let api_key: Option<String> = {
+        let conn = init_db();
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
+            [],
+            |row| row.get(0),
+        ).ok()
+    };
+
+    let api_key = match api_key {
+        Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+        _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
+
+    let execute_search = |term: &str, l: &str| {
+        let mut req = client.get("https://api.themoviedb.org/3/search/multi")
+            .header("Accept", "application/json")
+            .query(&[("query", term), ("language", l), ("include_adult", "false")]);
+        if is_v4 {
+            req = req.header("Authorization", format!("Bearer {}", api_key));
+        } else {
+            req = req.query(&[("api_key", api_key.as_str())]);
+        }
+        req
+    };
+
+    let mut results: Vec<TmdbRawItem> = Vec::new();
+    let resp = execute_search(&q, &target_lang).send().await.map_err(|e| format!("TMDB keresési hiba: {}", e))?;
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err("Érvénytelen TMDB API kulcs / Invalid TMDB API key".to_string());
+    }
+    if resp.status().is_success() {
+        if let Ok(text) = resp.text().await {
+            if let Ok(search_json) = serde_json::from_str::<TmdbSearchResponse>(&text) {
+                results = search_json.results.unwrap_or_default();
+            }
+        }
+    }
+
+    // If no results and clean_title(q) differs from q, try searching with clean_title
+    let cleaned = clean_title(&q);
+    if results.is_empty() && !cleaned.is_empty() && cleaned != q {
+        if let Ok(resp2) = execute_search(&cleaned, &target_lang).send().await {
+            if resp2.status().is_success() {
+                if let Ok(text2) = resp2.text().await {
+                    if let Ok(search_json2) = serde_json::from_str::<TmdbSearchResponse>(&text2) {
+                        results = search_json2.results.unwrap_or_default();
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to en-US if still empty and language was not en-US
+    if results.is_empty() && target_lang != "en-US" {
+        let query_term = if !cleaned.is_empty() { &cleaned } else { &q };
+        if let Ok(resp3) = execute_search(query_term, "en-US").send().await {
+            if resp3.status().is_success() {
+                if let Ok(text3) = resp3.text().await {
+                    if let Ok(search_json3) = serde_json::from_str::<TmdbSearchResponse>(&text3) {
+                        results = search_json3.results.unwrap_or_default();
+                    }
+                }
+            }
+        }
+    }
+
+    let mut items = Vec::new();
+    for it in results {
+        let mtype = match it.media_type.as_deref() {
+            Some("movie") => "movie".to_string(),
+            Some("tv") => "tv".to_string(),
+            _ => continue,
+        };
+
+        let title = it.title.clone().or_else(|| it.name.clone()).unwrap_or_default();
+        let orig_title = it.original_title.clone().or_else(|| it.original_name.clone());
+        let rel_date = it.release_date.clone().or_else(|| it.first_air_date.clone());
+
+        items.push(TmdbSearchResultItem {
+            id: it.id,
+            media_type: mtype,
+            title,
+            original_title: orig_title,
+            poster_path: it.poster_path,
+            backdrop_path: it.backdrop_path,
+            overview: it.overview,
+            vote_average: it.vote_average,
+            release_date: rel_date,
+        });
+    }
+
+    Ok(items)
+}
+
+#[tauri::command]
+async fn set_tmdb_match(
+    query_title: String,
+    tmdb_id: i64,
+    media_type: String,
+    lang: Option<String>,
+) -> Result<TmdbDetails, String> {
+    let clean = clean_title(&query_title);
+    let cache_key = if clean.is_empty() { query_title.trim().to_string() } else { clean };
+    if cache_key.is_empty() {
+        return Err("A megadott cím érvénytelen / Invalid title".to_string());
+    }
+
+    let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
+
+    let api_key: Option<String> = {
+        let conn = init_db();
+        conn.query_row(
+            "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
+            [],
+            |row| row.get(0),
+        ).ok()
+    };
+
+    let api_key = match api_key {
+        Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+        _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
+
+    let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
+    let mut details_req = client.get(&details_url)
+        .header("Accept", "application/json")
+        .query(&[("language", target_lang.as_str())]);
+    if is_v4 {
+        details_req = details_req.header("Authorization", format!("Bearer {}", api_key));
+    } else {
+        details_req = details_req.query(&[("api_key", api_key.as_str())]);
+    }
+
+    let resp = details_req.send().await.map_err(|e| format!("TMDB lekérési hiba: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("TMDB hiba ({}): {}", resp.status(), details_url));
+    }
+
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
+    raw_item.media_type = Some(media_type);
+
+    let details = fetch_tmdb_item_details(
+        raw_item,
+        &cache_key,
+        &target_lang,
+        &api_key,
+        &client,
+    ).await?;
+
+    Ok(details)
+}
+
+#[tauri::command]
+async fn clear_tmdb_match(query_title: String, lang: Option<String>) -> Result<(), String> {
+    let clean = clean_title(&query_title);
+    let cache_key = if clean.is_empty() { query_title.trim().to_string() } else { clean };
+    if cache_key.is_empty() {
+        return Ok(());
+    }
+    let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
+    let conn = init_db();
+    conn.execute(
+        "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
+        params![cache_key, target_lang],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1609,7 +1844,10 @@ fn main() {
             get_tmdb_api_key,
             set_tmdb_api_key,
             clear_tmdb_cache,
-            test_tmdb_api_key
+            test_tmdb_api_key,
+            search_tmdb,
+            set_tmdb_match,
+            clear_tmdb_match
         ])
         .run(tauri::generate_context!())
         .expect("Hiba a Tauri indításakor");
