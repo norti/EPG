@@ -1803,6 +1803,11 @@ fn apply_windows_dark_titlebar(hwnd: isize) {
     }
 }
 
+#[tauri::command]
+fn open_url(url: String) {
+    let _ = open::that(url);
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
@@ -1850,7 +1855,8 @@ fn main() {
             test_tmdb_api_key,
             search_tmdb,
             set_tmdb_match,
-            clear_tmdb_match
+            clear_tmdb_match,
+            open_url
         ])
         .run(tauri::generate_context!())
         .expect("Hiba a Tauri indításakor");

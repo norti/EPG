@@ -331,7 +331,7 @@
         background-color: #2a2a2a;
         color: #fff;
         font-weight: bold;
-        font-size: 15px;
+        font-size: 14px;
         border-radius: 6px;
         padding: 4px 6px;
         flex: 1;
@@ -350,12 +350,11 @@
         color: #ecc94b;
       }
       .channel-source-badge {
-        font-size: 6px;
+        font-size: 10px;
         background: #1a2f20;
         color: #48bb78;
         padding: 1px 5px;
         border-radius: 0px;
-        margin-left: 5px;
         white-space: nowrap;
         border: 1px solid #276749;
       }
@@ -410,6 +409,12 @@
         color: #63b3ed;
       }
       .channel-header-btns {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+      }
+      .channel-header-btns-row {
         display: flex;
         align-items: center;
         gap: 2px;
@@ -709,11 +714,15 @@
         display: none;
         border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.95), 0 0 0 1px #3b3f58;
+        box-shadow:
+          0 20px 60px rgba(0, 0, 0, 0.95),
+          0 0 0 1px #3b3f58;
         background: #0d0e15;
         max-width: 440px;
         width: 400px;
-        transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+        transition:
+          opacity 0.15s ease-out,
+          transform 0.15s ease-out;
         transform: scale(0.96);
         opacity: 0;
       }
@@ -848,6 +857,20 @@
         padding: 1px 6px;
         border-radius: 3px;
         letter-spacing: 0.5px;
+      }
+      .tmdb-logo-img {
+        height: 16px;
+        width: auto;
+        display: inline-block;
+        vertical-align: middle;
+        flex-shrink: 0;
+      }
+      .tmdb-logo-settings {
+        height: 22px;
+        opacity: 0.9;
+      }
+      .tmdb-logo-settings:hover {
+        opacity: 1;
       }
       .tmdb-overview-title {
         font-size: 12px;
@@ -1795,15 +1818,6 @@
           style="display: none"
         ></div>
         <div class="modal-top-actions">
-          <button
-            class="modal-fix-pill"
-            id="modalFixBtn"
-            title="TMDB egyezés javítása"
-            data-i18n-title="tmdb_fix_title"
-          >
-            <span class="fix-icon">⚡</span>
-            <span data-i18n="btn_tmdb_fix">Fix</span>
-          </button>
           <button class="modal-close" id="modalClose">&times;</button>
         </div>
 
@@ -1815,7 +1829,7 @@
         >
           <div class="fix-overlay-header">
             <div class="fix-overlay-title-group">
-              <span class="tmdb-logo-tag">TMDB</span>
+              <img class="tmdb-logo-img" src="https://www.themoviedb.org/assets/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" alt="TMDB" />
               <span class="fix-overlay-title" data-i18n="tmdb_fix_title"
                 >TMDB egyezés javítása</span
               >
@@ -1892,6 +1906,15 @@
             <div class="modal-header-row">
               <span class="modal-fav-star" id="modalFavStar">★</span>
               <div class="modal-title" id="modalTitle"></div>
+              <button
+                class="modal-fix-pill"
+                id="modalFixBtn"
+                title="TMDB egyezés javítása"
+                data-i18n-title="tmdb_fix_title"
+              >
+                <span class="fix-icon">⚡</span>
+                <span data-i18n="btn_tmdb_fix">Fix</span>
+              </button>
             </div>
             <div class="modal-badges-row">
               <div class="modal-time" id="modalTime"></div>
@@ -1950,7 +1973,7 @@
               style="display: none"
             >
               <div class="tmdb-overview-header">
-                <span class="tmdb-logo-tag">TMDB</span>
+                <img class="tmdb-logo-img" src="https://www.themoviedb.org/assets/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" alt="TMDB" />
                 <span
                   class="tmdb-overview-title"
                   data-i18n="tmdb_overview_heading"
@@ -1966,7 +1989,11 @@
 
     <!-- TMDB POSTER ZOOM POPUP -->
     <div class="poster-zoom-popup" id="posterZoomPopup">
-      <div class="poster-zoom-loader" id="posterZoomLoader" style="display: none">
+      <div
+        class="poster-zoom-loader"
+        id="posterZoomLoader"
+        style="display: none"
+      >
         <span class="spinner-small"></span>
       </div>
       <img id="posterZoomImg" src="" alt="Enlarged Poster" />
@@ -2193,9 +2220,19 @@
 
             <!-- 4. TMDB TAB -->
             <div class="settings-tab-pane" id="tabPaneTmdb">
-              <h3 data-i18n="tmdb_heading">
-                TMDB (The Movie Database) Integráció
-              </h3>
+              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px;">
+                <h3 data-i18n="tmdb_heading" style="margin: 0;">
+                  TMDB (The Movie Database) Integráció
+                </h3>
+                <img
+                  id="tmdbLogoLink"
+                  class="tmdb-logo-img tmdb-logo-settings"
+                  src="https://www.themoviedb.org/assets/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg"
+                  alt="TMDB"
+                  title="https://www.themoviedb.org"
+                  style="cursor: pointer;"
+                />
+              </div>
               <p
                 style="
                   font-size: 13px;
@@ -2374,7 +2411,9 @@
                   "
                   data-i18n="export_channels_desc"
                 >
-                  Csatornák egyéni beállításainak (sorrend, kedvenc, rejtés, egyéni név, logó) exportálása és importálása CSV fájlba források szerint.
+                  Csatornák egyéni beállításainak (sorrend, kedvenc, rejtés,
+                  egyéni név, logó) exportálása és importálása CSV fájlba
+                  források szerint.
                 </div>
                 <div
                   style="
@@ -2438,7 +2477,9 @@
                   "
                   data-i18n="export_settings_desc"
                 >
-                  Minden alkalmazásbeállítás (források, kedvenc műsorok, csatornabeállítások és preferenciák) teljes mentése és visszaállítása.
+                  Minden alkalmazásbeállítás (források, kedvenc műsorok,
+                  csatornabeállítások és preferenciák) teljes mentése és
+                  visszaállítása.
                 </div>
                 <div
                   style="
@@ -2501,7 +2542,8 @@
                   "
                   data-i18n="danger_zone_desc"
                 >
-                  A teljes helyi EPG adatbázis törlése. A műsoradatok törlődnek, de a források megmaradnak.
+                  A teljes helyi EPG adatbázis törlése. A műsoradatok törlődnek,
+                  de a források megmaradnak.
                 </div>
                 <div>
                   <button
@@ -2692,13 +2734,15 @@
           tmdb_fix_search_btn: "Keresés",
           tmdb_fix_no_results: "Nincs találat a megadott címre.",
           tmdb_fix_searching: "Keresés folyamatban...",
-          tmdb_fix_api_key_missing: "A TMDB API kulcs nincs beállítva a Beállításokban.",
+          tmdb_fix_api_key_missing:
+            "A TMDB API kulcs nincs beállítva a Beállításokban.",
           tmdb_fix_remove_match: "Egyezés törlése",
           tmdb_fix_match_saved: "TMDB egyezés elmentve!",
           tmdb_fix_match_removed: "TMDB egyezés eltávolítva!",
           tab_export: "Exportálás / Importálás",
           export_heading: "Exportálás és Importálás",
-          export_channels_section_title: "Csatornaadatok exportálása / importálása",
+          export_channels_section_title:
+            "Csatornaadatok exportálása / importálása",
           export_channels_desc:
             "Csatornák egyéni beállításainak (sorrend, kedvenc, rejtés, egyéni név, logó) exportálása és importálása CSV fájlba források szerint.",
           btn_export_channel_data: "CSATORNAADATOK EXPORTÁLÁSA",
@@ -2868,7 +2912,8 @@
           tmdb_fix_search_btn: "Search",
           tmdb_fix_no_results: "No results found for this title.",
           tmdb_fix_searching: "Searching...",
-          tmdb_fix_api_key_missing: "TMDB API key is not configured in Settings.",
+          tmdb_fix_api_key_missing:
+            "TMDB API key is not configured in Settings.",
           tmdb_fix_remove_match: "Remove match",
           tmdb_fix_match_saved: "TMDB match saved!",
           tmdb_fix_match_removed: "TMDB match removed!",
@@ -2879,8 +2924,7 @@
             "Export and import channel configurations (order, favorites, hidden state, custom names, logos) to/from a CSV file by sources.",
           btn_export_channel_data: "EXPORT CHANNEL DATA",
           btn_import_channel_data: "IMPORT CHANNEL DATA",
-          export_settings_section_title:
-            "Application Settings Export / Import",
+          export_settings_section_title: "Application Settings Export / Import",
           export_settings_desc:
             "Full backup and restore of all application settings (sources, favorite programmes, channel configurations, and preferences).",
           danger_zone_title: "Danger Zone",
@@ -3802,15 +3846,19 @@
               ? `<span class="channel-source-badge" title="${channel.sourceName || ""}">${channel.sourceName || channel.countryCode}</span>`
               : "";
 
+          const nameTextGroup = `<span>${channel.name}</span>`;
+
           headerItem.innerHTML = `
                     <div class="channel-name-badge ${channel.isFavorite ? "favorite-channel" : ""}" title="${(channel.originalName || channel.name).replace(/"/g, "&quot;")}">
                         ${effectiveLogo ? `<img class="channel-header-logo" src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : ""}
-                        <span>${channel.name}</span>
-                        ${sourceBadgeHtml}
+                        ${nameTextGroup}
                     </div>
                     <div class="channel-header-btns">
-                        <button class="channel-header-rename-btn" title="✏">...</button>
-                        <button class="channel-header-fav-btn ${channel.isFavorite ? "active" : ""}" title="${channel.isFavorite ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+                        <div class="channel-header-btns-row">
+                            <button class="channel-header-rename-btn" title="✏">...</button>
+                            <button class="channel-header-fav-btn ${channel.isFavorite ? "active" : ""}" title="${channel.isFavorite ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+                        </div>
+                        ${sourceBadgeHtml}
                     </div>
                 `;
 
@@ -4237,8 +4285,7 @@
         ) {
           origBadge.textContent = `🌐 ${t("badge_orig")} ${tmdbData.originalTitle}`;
           origBadge.style.display = "inline-flex";
-          origBadge.onclick = () =>
-            copyText(tmdbData.originalTitle, origBadge);
+          origBadge.onclick = () => copyText(tmdbData.originalTitle, origBadge);
           hasVariant = true;
         }
 
@@ -5253,10 +5300,17 @@
 
         // Detect delimiter: comma or semicolon based on first line
         const firstLine = lines[0];
-        const delimiter = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ";" : ",";
+        const delimiter =
+          (firstLine.match(/;/g) || []).length >
+          (firstLine.match(/,/g) || []).length
+            ? ";"
+            : ",";
 
         const headers = parseCsvLine(lines[0], delimiter).map((h) =>
-          h.trim().replace(/^[\uFEFF]/, "").toLowerCase()
+          h
+            .trim()
+            .replace(/^[\uFEFF]/, "")
+            .toLowerCase(),
         );
 
         const rows = [];
@@ -5274,7 +5328,13 @@
       function escapeCsvField(val) {
         if (val === null || val === undefined) return "";
         const str = String(val);
-        if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r") || str.includes(";")) {
+        if (
+          str.includes(",") ||
+          str.includes('"') ||
+          str.includes("\n") ||
+          str.includes("\r") ||
+          str.includes(";")
+        ) {
           return `"${str.replace(/"/g, '""')}"`;
         }
         return str;
@@ -5308,7 +5368,11 @@
               escapeCsvField(ch.channelName || ""),
               escapeCsvField(ch.isFavorite ? 1 : 0),
               escapeCsvField(ch.isHidden ? 1 : 0),
-              escapeCsvField(ch.position !== null && ch.position !== undefined ? ch.position : ""),
+              escapeCsvField(
+                ch.position !== null && ch.position !== undefined
+                  ? ch.position
+                  : "",
+              ),
               escapeCsvField(ch.customIcon || ""),
               escapeCsvField(ch.customName || ""),
             ];
@@ -5316,7 +5380,9 @@
           }
 
           const csvString = "\uFEFF" + csvRows.join("\r\n");
-          const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+          const blob = new Blob([csvString], {
+            type: "text/csv;charset=utf-8;",
+          });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
@@ -5333,7 +5399,9 @@
         }
       };
 
-      document.getElementById("importChannelDataInput").onchange = async (e) => {
+      document.getElementById("importChannelDataInput").onchange = async (
+        e,
+      ) => {
         const file = e.target.files[0];
         if (!file) return;
         try {
@@ -5341,20 +5409,41 @@
           let channels = [];
 
           // Support both CSV and legacy JSON fallback
-          if (file.name.toLowerCase().endsWith(".json") || text.trim().startsWith("{")) {
+          if (
+            file.name.toLowerCase().endsWith(".json") ||
+            text.trim().startsWith("{")
+          ) {
             const parsed = JSON.parse(text);
             channels = parsed.channels || [];
           } else {
             const rows = parseCsvRows(text);
             channels = rows.map((r) => {
-              const favVal = (r["favorite"] || r["is_favorite"] || r["isfavorite"] || "0").trim();
-              const hidVal = (r["hidden"] || r["is_hidden"] || r["ishidden"] || "0").trim();
-              const posVal = (r["channel_position"] || r["position"] || "").trim();
+              const favVal = (
+                r["favorite"] ||
+                r["is_favorite"] ||
+                r["isfavorite"] ||
+                "0"
+              ).trim();
+              const hidVal = (
+                r["hidden"] ||
+                r["is_hidden"] ||
+                r["ishidden"] ||
+                "0"
+              ).trim();
+              const posVal = (
+                r["channel_position"] ||
+                r["position"] ||
+                ""
+              ).trim();
 
               const sourceId = r["source_id"] || r["sourceid"] || "";
               const channelId = r["channel_id"] || r["channelid"] || "";
 
-              const customIcon = r["custom_icon_url"] || r["custom_icon"] || r["customicon"] || "";
+              const customIcon =
+                r["custom_icon_url"] ||
+                r["custom_icon"] ||
+                r["customicon"] ||
+                "";
               const customName = r["custom_name"] || r["customname"] || "";
 
               return {
@@ -5365,7 +5454,10 @@
                 channelName: r["channel_name"] || r["channelname"] || "",
                 isFavorite: favVal === "1" || favVal.toLowerCase() === "true",
                 isHidden: hidVal === "1" || hidVal.toLowerCase() === "true",
-                position: posVal !== "" && !isNaN(parseInt(posVal, 10)) ? parseInt(posVal, 10) : null,
+                position:
+                  posVal !== "" && !isNaN(parseInt(posVal, 10))
+                    ? parseInt(posVal, 10)
+                    : null,
                 customIcon: customIcon || null,
                 customName: customName || null,
               };
@@ -5416,6 +5508,10 @@
         hidePosterZoom();
         closeFixOverlay();
         document.getElementById("modalOverlay").classList.remove("active");
+      };
+
+      document.getElementById("tmdbLogoLink").onclick = () => {
+        invoke("open_url", { url: "https://www.themoviedb.org" });
       };
 
       // Modal poster hover enlarge listeners
