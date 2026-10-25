@@ -2943,7 +2943,10 @@
         }
 
         const dayStart = new Date(`${selectedDateStr}T00:00:00`);
-        const dayEnd = new Date(dayStart.getTime() + totalMinutes * 60000);
+        // Use next day's midnight in wall-clock time (DST-safe)
+        const dayEndDate = new Date(dayStart);
+        dayEndDate.setDate(dayEndDate.getDate() + 1);
+        const dayEnd = dayEndDate;
         const now = new Date();
 
         let firstMatchEl = null;
@@ -3058,14 +3061,14 @@
           grid.className = "programme-grid";
 
           channelProgs.forEach((prog) => {
-            const startDiffMin = Math.max(
-              0,
-              (prog.start - dayStart) / 1000 / 60,
-            );
-            const endDiffMin = Math.min(
-              totalMinutes,
-              (prog.stop - dayStart) / 1000 / 60,
-            );
+            // Use wall-clock minutes instead of elapsed time to avoid
+            // DST offset issues (e.g. fall-back day adding an extra hour)
+            const startDiffMin = prog.start <= dayStart
+              ? 0
+              : Math.max(0, prog.start.getHours() * 60 + prog.start.getMinutes());
+            const endDiffMin = prog.stop >= dayEnd
+              ? totalMinutes
+              : Math.min(totalMinutes, prog.stop.getHours() * 60 + prog.stop.getMinutes());
             const durationMin = endDiffMin - startDiffMin;
 
             if (durationMin <= 0) return;
