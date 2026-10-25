@@ -171,7 +171,6 @@
       }
       #settingsBtn {
         background-color: #4a5568;
-        margin-left: auto;
       }
       .btn-green {
         background-color: #38a169;
@@ -688,12 +687,52 @@
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
         background: #12131a;
         border: 1px solid #282a3c;
+        position: relative;
+        cursor: zoom-in;
       }
       .modal-poster-img {
         width: 100%;
         height: auto;
         display: block;
         border-radius: 8px;
+        transition: opacity 0.2s;
+      }
+      .modal-poster-col:hover .modal-poster-img {
+        opacity: 0.9;
+      }
+
+      /* TMDB Poster Hover Enlarge Popup */
+      .poster-zoom-popup {
+        position: fixed;
+        z-index: 99999;
+        pointer-events: none;
+        display: none;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.95), 0 0 0 1px #3b3f58;
+        background: #0d0e15;
+        max-width: 440px;
+        width: 400px;
+        transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+        transform: scale(0.96);
+        opacity: 0;
+      }
+      .poster-zoom-popup.visible {
+        opacity: 1;
+        transform: scale(1);
+      }
+      .poster-zoom-popup img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+      .poster-zoom-loader {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(13, 14, 21, 0.7);
       }
       .modal-details-col {
         flex: 1;
@@ -1671,26 +1710,6 @@
   </head>
   <body>
     <header>
-      <div class="search-box">
-        <input
-          type="text"
-          id="searchInput"
-          placeholder="Keresés..."
-          data-i18n-placeholder="search_placeholder"
-        />
-        <button class="btn" id="searchBtn" data-i18n="search_btn">
-          KERESÉS
-        </button>
-        <button
-          class="btn"
-          id="clearSearchBtn"
-          title="Keresés törlése"
-          data-i18n-title="clear_search"
-        >
-          X
-        </button>
-      </div>
-
       <button
         class="btn"
         id="allFavChannelsBtn"
@@ -1733,10 +1752,30 @@
         <option value="5" data-i18n="view_5m">5 perc</option>
       </select>
 
+      <div class="search-box">
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="Keresés..."
+          data-i18n-placeholder="search_placeholder"
+        />
+        <button class="btn" id="searchBtn" data-i18n="search_btn">
+          KERESÉS
+        </button>
+        <button
+          class="btn"
+          id="clearSearchBtn"
+          title="Keresés törlése"
+          data-i18n-title="clear_search"
+        >
+          X
+        </button>
+      </div>
+
+      <span id="status" data-i18n="status_starting">Indítás...</span>
       <button class="btn" id="settingsBtn" data-i18n="settings_btn">
         ⚙ Beállítások
       </button>
-      <span id="status" data-i18n="status_starting">Indítás...</span>
     </header>
 
     <div class="epg-viewport" id="epgViewport">
@@ -1925,6 +1964,14 @@
       </div>
     </div>
 
+    <!-- TMDB POSTER ZOOM POPUP -->
+    <div class="poster-zoom-popup" id="posterZoomPopup">
+      <div class="poster-zoom-loader" id="posterZoomLoader" style="display: none">
+        <span class="spinner-small"></span>
+      </div>
+      <img id="posterZoomImg" src="" alt="Enlarged Poster" />
+    </div>
+
     <!-- BEÁLLÍTÁSOK MODAL -->
     <div class="modal-overlay" id="settingsOverlay">
       <div class="settings-modal-dialog">
@@ -1963,6 +2010,10 @@
             <div class="settings-nav-item" data-tab="tmdb">
               <span>🎬</span>
               <span data-i18n="tab_tmdb">TMDB</span>
+            </div>
+            <div class="settings-nav-item" data-tab="export">
+              <span>⇄</span>
+              <span data-i18n="tab_export">Exportálás / Importálás</span>
             </div>
           </div>
 
@@ -2027,48 +2078,8 @@
               <div
                 id="sourcesList"
                 class="custom-scroll"
-                style="flex: 1; overflow-y: auto; margin-bottom: 15px"
+                style="flex: 1; overflow-y: auto"
               ></div>
-              <div
-                style="
-                  border-top: 1px solid #282a3c;
-                  padding-top: 12px;
-                  display: flex;
-                  align-items: center;
-                  gap: 8px;
-                  flex-wrap: wrap;
-                "
-              >
-                <button
-                  class="btn btn-blue"
-                  id="exportSettingsBtn"
-                  data-i18n="btn_export_settings"
-                >
-                  BEÁLLÍTÁSOK EXPORTÁLÁSA
-                </button>
-                <label
-                  class="btn btn-blue"
-                  id="importSettingsLabel"
-                  style="cursor: pointer"
-                  data-i18n="btn_import_settings"
-                >
-                  BEÁLLÍTÁSOK IMPORTÁLÁSA
-                  <input
-                    type="file"
-                    id="importSettingsInput"
-                    accept=".json"
-                    style="display: none"
-                  />
-                </label>
-                <button
-                  class="btn btn-red"
-                  id="clearDbBtn"
-                  data-i18n="btn_clear_db"
-                  style="margin-left: auto"
-                >
-                  EPG ADATBÁZIS TÖRLÉSE
-                </button>
-              </div>
             </div>
 
             <!-- 2. KEDVENCEK TAB -->
@@ -2328,6 +2339,181 @@
                 </button>
               </div>
             </div>
+
+            <!-- 5. EXPORT / IMPORT TAB -->
+            <div class="settings-tab-pane" id="tabPaneExport">
+              <h3 data-i18n="export_heading">Exportálás és Importálás</h3>
+
+              <!-- Szekció 1: Csatornaadatok export/import -->
+              <div
+                style="
+                  background: #141520;
+                  border: 1px solid #282a3c;
+                  border-radius: 8px;
+                  padding: 16px;
+                  margin-bottom: 16px;
+                "
+              >
+                <div
+                  style="
+                    font-weight: bold;
+                    font-size: 14px;
+                    color: #e2e8f0;
+                    margin-bottom: 6px;
+                  "
+                  data-i18n="export_channels_section_title"
+                >
+                  Csatornaadatok exportálása / importálása
+                </div>
+                <div
+                  style="
+                    font-size: 12px;
+                    color: #8e94a8;
+                    margin-bottom: 14px;
+                    line-height: 1.5;
+                  "
+                  data-i18n="export_channels_desc"
+                >
+                  Csatornák egyéni beállításainak (sorrend, kedvenc, rejtés, egyéni név, logó) exportálása és importálása CSV fájlba források szerint.
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                  "
+                >
+                  <button
+                    class="btn btn-blue"
+                    id="exportChannelDataBtn"
+                    data-i18n="btn_export_channel_data"
+                  >
+                    CSATORNAADATOK EXPORTÁLÁSA
+                  </button>
+                  <label
+                    class="btn btn-blue"
+                    id="importChannelDataLabel"
+                    style="cursor: pointer"
+                    data-i18n="btn_import_channel_data"
+                  >
+                    CSATORNAADATOK IMPORTÁLÁSA
+                    <input
+                      type="file"
+                      id="importChannelDataInput"
+                      accept=".csv,text/csv"
+                      style="display: none"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <!-- Szekció 2: Alkalmazás beállítások export/import -->
+              <div
+                style="
+                  background: #141520;
+                  border: 1px solid #282a3c;
+                  border-radius: 8px;
+                  padding: 16px;
+                  margin-bottom: 16px;
+                "
+              >
+                <div
+                  style="
+                    font-weight: bold;
+                    font-size: 14px;
+                    color: #e2e8f0;
+                    margin-bottom: 6px;
+                  "
+                  data-i18n="export_settings_section_title"
+                >
+                  Alkalmazás beállítások exportálása / importálása
+                </div>
+                <div
+                  style="
+                    font-size: 12px;
+                    color: #8e94a8;
+                    margin-bottom: 14px;
+                    line-height: 1.5;
+                  "
+                  data-i18n="export_settings_desc"
+                >
+                  Minden alkalmazásbeállítás (források, kedvenc műsorok, csatornabeállítások és preferenciák) teljes mentése és visszaállítása.
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                  "
+                >
+                  <button
+                    class="btn btn-blue"
+                    id="exportSettingsBtn"
+                    data-i18n="btn_export_settings"
+                  >
+                    BEÁLLÍTÁSOK EXPORTÁLÁSA
+                  </button>
+                  <label
+                    class="btn btn-blue"
+                    id="importSettingsLabel"
+                    style="cursor: pointer"
+                    data-i18n="btn_import_settings"
+                  >
+                    BEÁLLÍTÁSOK IMPORTÁLÁSA
+                    <input
+                      type="file"
+                      id="importSettingsInput"
+                      accept=".json"
+                      style="display: none"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <!-- Szekció 3: Adatbázis törlése (Danger Zone) -->
+              <div
+                style="
+                  background: #141520;
+                  border: 1px solid #4a2020;
+                  border-radius: 8px;
+                  padding: 16px;
+                "
+              >
+                <div
+                  style="
+                    font-weight: bold;
+                    font-size: 14px;
+                    color: #fc8181;
+                    margin-bottom: 6px;
+                  "
+                  data-i18n="danger_zone_title"
+                >
+                  Veszélyes zóna
+                </div>
+                <div
+                  style="
+                    font-size: 12px;
+                    color: #8e94a8;
+                    margin-bottom: 14px;
+                    line-height: 1.5;
+                  "
+                  data-i18n="danger_zone_desc"
+                >
+                  A teljes helyi EPG adatbázis törlése. A műsoradatok törlődnek, de a források megmaradnak.
+                </div>
+                <div>
+                  <button
+                    class="btn btn-red"
+                    id="clearDbBtn"
+                    data-i18n="btn_clear_db"
+                  >
+                    EPG ADATBÁZIS TÖRLÉSE
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2510,6 +2696,26 @@
           tmdb_fix_remove_match: "Egyezés törlése",
           tmdb_fix_match_saved: "TMDB egyezés elmentve!",
           tmdb_fix_match_removed: "TMDB egyezés eltávolítva!",
+          tab_export: "Exportálás / Importálás",
+          export_heading: "Exportálás és Importálás",
+          export_channels_section_title: "Csatornaadatok exportálása / importálása",
+          export_channels_desc:
+            "Csatornák egyéni beállításainak (sorrend, kedvenc, rejtés, egyéni név, logó) exportálása és importálása CSV fájlba források szerint.",
+          btn_export_channel_data: "CSATORNAADATOK EXPORTÁLÁSA",
+          btn_import_channel_data: "CSATORNAADATOK IMPORTÁLÁSA",
+          export_settings_section_title:
+            "Alkalmazás beállítások exportálása / importálása",
+          export_settings_desc:
+            "Minden alkalmazásbeállítás (források, kedvenc műsorok, csatornabeállítások és preferenciák) teljes mentése és visszaállítása.",
+          danger_zone_title: "Veszélyes zóna",
+          danger_zone_desc:
+            "A teljes helyi EPG adatbázis törlése. A műsoradatok törlődnek, de a források megmaradnak.",
+          alert_channel_export_error:
+            "Hiba történt a csatornaadatok exportálásakor!",
+          alert_channel_import_success:
+            "A csatornaadatok sikeresen importálva lettek!",
+          alert_channel_import_error:
+            "Hiba történt a csatornaadatok importálásakor!",
         },
         english: {
           app_title: "EPG Viewer",
@@ -2666,6 +2872,23 @@
           tmdb_fix_remove_match: "Remove match",
           tmdb_fix_match_saved: "TMDB match saved!",
           tmdb_fix_match_removed: "TMDB match removed!",
+          tab_export: "Export / Import",
+          export_heading: "Export & Import",
+          export_channels_section_title: "Channel Data Export / Import",
+          export_channels_desc:
+            "Export and import channel configurations (order, favorites, hidden state, custom names, logos) to/from a CSV file by sources.",
+          btn_export_channel_data: "EXPORT CHANNEL DATA",
+          btn_import_channel_data: "IMPORT CHANNEL DATA",
+          export_settings_section_title:
+            "Application Settings Export / Import",
+          export_settings_desc:
+            "Full backup and restore of all application settings (sources, favorite programmes, channel configurations, and preferences).",
+          danger_zone_title: "Danger Zone",
+          danger_zone_desc:
+            "Clear the entire local EPG database. Downloaded programmes will be deleted, but configured sources will remain.",
+          alert_channel_export_error: "Error exporting channel data!",
+          alert_channel_import_success: "Channel data imported successfully!",
+          alert_channel_import_error: "Error importing channel data!",
         },
       };
 
@@ -3800,9 +4023,108 @@
 
       let currentModalFetchIndex = 0;
       let currentModalChannel = null;
+      let currentModalPosterPath = "";
       let fixSearchDebounce = null;
+      let posterZoomDebounce = null;
+
+      function getLargePosterUrl(posterPath) {
+        if (!posterPath) return "";
+        return `https://image.tmdb.org/t/p/original${posterPath}`;
+      }
+
+      async function preloadAndCacheLargePoster(posterPath) {
+        if (!posterPath) return;
+        const largeUrl = getLargePosterUrl(posterPath);
+        try {
+          // Check if already in SQLite logo/image cache
+          const cached = await invoke("get_cached_logo", { url: largeUrl });
+          if (!cached) {
+            // Background fetch and cache
+            invoke("cache_logo", { url: largeUrl }).catch(() => {});
+          }
+        } catch (_) {}
+      }
+
+      async function showPosterZoom(e) {
+        if (!currentModalPosterPath) return;
+        const popup = document.getElementById("posterZoomPopup");
+        const img = document.getElementById("posterZoomImg");
+        const loader = document.getElementById("posterZoomLoader");
+        const largeUrl = getLargePosterUrl(currentModalPosterPath);
+
+        popup.style.display = "block";
+        positionPosterZoom(e);
+
+        // Check if cached version exists
+        let srcToUse = largeUrl;
+        try {
+          const cached = await invoke("get_cached_logo", { url: largeUrl });
+          if (cached) {
+            srcToUse = cached;
+          } else {
+            // Background cache it for next time
+            invoke("cache_logo", { url: largeUrl }).catch(() => {});
+          }
+        } catch (_) {}
+
+        if (img.src !== srcToUse) {
+          loader.style.display = "flex";
+          img.onload = () => {
+            loader.style.display = "none";
+          };
+          img.onerror = () => {
+            loader.style.display = "none";
+          };
+          img.src = srcToUse;
+        } else {
+          loader.style.display = "none";
+        }
+
+        // Animate popup display
+        requestAnimationFrame(() => {
+          popup.classList.add("visible");
+        });
+      }
+
+      function hidePosterZoom() {
+        if (posterZoomDebounce) clearTimeout(posterZoomDebounce);
+        const popup = document.getElementById("posterZoomPopup");
+        if (popup) {
+          popup.classList.remove("visible");
+          popup.style.display = "none";
+        }
+      }
+
+      function positionPosterZoom(e) {
+        const popup = document.getElementById("posterZoomPopup");
+        if (!popup || popup.style.display === "none") return;
+
+        const pad = 16;
+        const popW = popup.offsetWidth || 380;
+        const popH = popup.offsetHeight || 570;
+
+        let left = e.clientX + 20;
+        let top = e.clientY - 60;
+
+        // If overflowing on the right, place to the left of the cursor
+        if (left + popW > window.innerWidth - pad) {
+          left = Math.max(pad, e.clientX - popW - 20);
+        }
+
+        // Keep inside vertical screen bounds
+        if (top + popH > window.innerHeight - pad) {
+          top = Math.max(pad, window.innerHeight - popH - pad);
+        }
+        if (top < pad) {
+          top = pad;
+        }
+
+        popup.style.left = `${left}px`;
+        popup.style.top = `${top}px`;
+      }
 
       function resetModalTmdbUi() {
+        hidePosterZoom();
         const posterCol = document.getElementById("modalPosterCol");
         const posterImg = document.getElementById("modalPoster");
         const backdrop = document.getElementById("modalBackdrop");
@@ -3856,8 +4178,12 @@
 
         // Poster
         if (tmdbData.posterPath) {
+          currentModalPosterPath = tmdbData.posterPath;
           posterImg.src = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
           posterCol.style.display = "block";
+          preloadAndCacheLargePoster(tmdbData.posterPath);
+        } else {
+          currentModalPosterPath = "";
         }
 
         // Backdrop
@@ -4331,6 +4657,8 @@
         } else if (tabName === "tmdb") {
           document.getElementById("tabPaneTmdb").classList.add("active");
           loadTmdbSettings();
+        } else if (tabName === "export") {
+          document.getElementById("tabPaneExport").classList.add("active");
         }
       }
 
@@ -4867,6 +5195,206 @@
         e.target.value = "";
       };
 
+      function parseCsvLine(line, delimiter = ",") {
+        const result = [];
+        let cur = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              cur += '"';
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === delimiter && !inQuotes) {
+            result.push(cur);
+            cur = "";
+          } else {
+            cur += char;
+          }
+        }
+        result.push(cur);
+        return result;
+      }
+
+      function parseCsvRows(text) {
+        // Normalize CRLF to LF
+        const clean = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        const rawLines = clean.split("\n");
+        const lines = [];
+        let acc = "";
+        let inQuotes = false;
+
+        for (const rawLine of rawLines) {
+          if (!inQuotes) {
+            acc = rawLine;
+          } else {
+            acc += "\n" + rawLine;
+          }
+          // Count quotes in rawLine
+          let quoteCount = 0;
+          for (let i = 0; i < rawLine.length; i++) {
+            if (rawLine[i] === '"') quoteCount++;
+          }
+          if (quoteCount % 2 === 1) {
+            inQuotes = !inQuotes;
+          }
+          if (!inQuotes && acc.trim()) {
+            lines.push(acc);
+            acc = "";
+          }
+        }
+        if (acc.trim()) {
+          lines.push(acc);
+        }
+        if (lines.length === 0) return [];
+
+        // Detect delimiter: comma or semicolon based on first line
+        const firstLine = lines[0];
+        const delimiter = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ";" : ",";
+
+        const headers = parseCsvLine(lines[0], delimiter).map((h) =>
+          h.trim().replace(/^[\uFEFF]/, "").toLowerCase()
+        );
+
+        const rows = [];
+        for (let i = 1; i < lines.length; i++) {
+          const cols = parseCsvLine(lines[i], delimiter);
+          const obj = {};
+          headers.forEach((h, idx) => {
+            obj[h] = cols[idx] !== undefined ? cols[idx].trim() : "";
+          });
+          rows.push(obj);
+        }
+        return rows;
+      }
+
+      function escapeCsvField(val) {
+        if (val === null || val === undefined) return "";
+        const str = String(val);
+        if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r") || str.includes(";")) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      }
+
+      document.getElementById("exportChannelDataBtn").onclick = async () => {
+        try {
+          const exportData = await invoke("export_channel_data");
+          const channels = exportData.channels || [];
+
+          const headers = [
+            "source_id",
+            "source_name",
+            "source_url",
+            "channel_id",
+            "channel_name",
+            "favorite",
+            "hidden",
+            "channel_position",
+            "custom_icon_url",
+            "custom_name",
+          ];
+
+          const csvRows = [headers.join(";")];
+          for (const ch of channels) {
+            const row = [
+              escapeCsvField(ch.sourceId || ""),
+              escapeCsvField(ch.sourceName || ""),
+              escapeCsvField(ch.sourceUrl || ""),
+              escapeCsvField(ch.channelId || ""),
+              escapeCsvField(ch.channelName || ""),
+              escapeCsvField(ch.isFavorite ? 1 : 0),
+              escapeCsvField(ch.isHidden ? 1 : 0),
+              escapeCsvField(ch.position !== null && ch.position !== undefined ? ch.position : ""),
+              escapeCsvField(ch.customIcon || ""),
+              escapeCsvField(ch.customName || ""),
+            ];
+            csvRows.push(row.join(";"));
+          }
+
+          const csvString = "\uFEFF" + csvRows.join("\r\n");
+          const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `epg-channels-${new Date().toISOString().slice(0, 10)}.csv`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          await showAlert(
+            t("alert_error_title"),
+            t("alert_channel_export_error") + ": " + err,
+          );
+        }
+      };
+
+      document.getElementById("importChannelDataInput").onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          let channels = [];
+
+          // Support both CSV and legacy JSON fallback
+          if (file.name.toLowerCase().endsWith(".json") || text.trim().startsWith("{")) {
+            const parsed = JSON.parse(text);
+            channels = parsed.channels || [];
+          } else {
+            const rows = parseCsvRows(text);
+            channels = rows.map((r) => {
+              const favVal = (r["favorite"] || r["is_favorite"] || r["isfavorite"] || "0").trim();
+              const hidVal = (r["hidden"] || r["is_hidden"] || r["ishidden"] || "0").trim();
+              const posVal = (r["channel_position"] || r["position"] || "").trim();
+
+              const sourceId = r["source_id"] || r["sourceid"] || "";
+              const channelId = r["channel_id"] || r["channelid"] || "";
+
+              const customIcon = r["custom_icon_url"] || r["custom_icon"] || r["customicon"] || "";
+              const customName = r["custom_name"] || r["customname"] || "";
+
+              return {
+                sourceId,
+                sourceName: r["source_name"] || r["sourcename"] || "",
+                sourceUrl: r["source_url"] || r["sourceurl"] || "",
+                channelId,
+                channelName: r["channel_name"] || r["channelname"] || "",
+                isFavorite: favVal === "1" || favVal.toLowerCase() === "true",
+                isHidden: hidVal === "1" || hidVal.toLowerCase() === "true",
+                position: posVal !== "" && !isNaN(parseInt(posVal, 10)) ? parseInt(posVal, 10) : null,
+                customIcon: customIcon || null,
+                customName: customName || null,
+              };
+            });
+          }
+
+          await invoke("import_channel_data", {
+            data: {
+              version: 1,
+              exportedAt: new Date().toISOString(),
+              channels,
+            },
+          });
+          await showAlert(
+            t("alert_success_title"),
+            t("alert_channel_import_success"),
+          );
+          await refreshSourcesFromDb();
+          await fetchEPG();
+          await renderChannelOrderList();
+        } catch (err) {
+          await showAlert(
+            t("alert_error_title"),
+            t("alert_channel_import_error") + ": " + err,
+          );
+        }
+        e.target.value = "";
+      };
+
       document.getElementById("favListBtn").onclick = () => {
         switchSettingsTab("favorites");
         document.getElementById("settingsOverlay").classList.add("active");
@@ -4885,9 +5413,25 @@
       };
 
       document.getElementById("modalClose").onclick = () => {
+        hidePosterZoom();
         closeFixOverlay();
         document.getElementById("modalOverlay").classList.remove("active");
       };
+
+      // Modal poster hover enlarge listeners
+      const modalPosterColEl = document.getElementById("modalPosterCol");
+      modalPosterColEl.addEventListener("mouseenter", (e) => {
+        if (posterZoomDebounce) clearTimeout(posterZoomDebounce);
+        posterZoomDebounce = setTimeout(() => {
+          showPosterZoom(e);
+        }, 120);
+      });
+      modalPosterColEl.addEventListener("mousemove", (e) => {
+        positionPosterZoom(e);
+      });
+      modalPosterColEl.addEventListener("mouseleave", () => {
+        hidePosterZoom();
+      });
 
       document.getElementById("modalFixBtn").onclick = () => {
         openFixOverlay();
