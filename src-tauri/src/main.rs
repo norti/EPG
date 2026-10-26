@@ -57,6 +57,12 @@ struct Source {
     last_downloaded: Option<String>,
     country_code: Option<String>,
     time_offset: Option<i32>,
+    #[serde(default)]
+    channel_count: Option<i64>,
+    #[serde(default)]
+    favorite_count: Option<i64>,
+    #[serde(default)]
+    hidden_count: Option<i64>,
 }
 
 fn get_db_path() -> PathBuf {
@@ -340,7 +346,15 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
 #[tauri::command]
 async fn get_sources() -> Result<Vec<Source>, String> {
     let conn = init_db();
-    let mut stmt = conn.prepare("SELECT id, name, url, last_downloaded, country_code, time_offset FROM sources ORDER BY rowid ASC").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset,
+                (SELECT COUNT(*) FROM channels c WHERE c.source_id = s.id) AS ch_count,
+                (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_favorite = 1) AS fav_count,
+                (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_hidden = 1) AS hid_count
+         FROM sources s
+         ORDER BY s.rowid ASC"
+    ).map_err(|e| e.to_string())?;
+
     let rows = stmt.query_map([], |row| {
         Ok(Source {
             id: row.get(0)?,
@@ -349,6 +363,9 @@ async fn get_sources() -> Result<Vec<Source>, String> {
             last_downloaded: row.get(3)?,
             country_code: row.get(4)?,
             time_offset: row.get(5)?,
+            channel_count: Some(row.get(6)?),
+            favorite_count: Some(row.get(7)?),
+            hidden_count: Some(row.get(8)?),
         })
     }).map_err(|e| e.to_string())?;
 
@@ -812,7 +829,14 @@ async fn export_settings() -> Result<BackupData, String> {
     let conn = init_db();
 
     // Sources
-    let mut stmt = conn.prepare("SELECT id, name, url, last_downloaded, country_code, time_offset FROM sources ORDER BY rowid ASC").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset,
+                (SELECT COUNT(*) FROM channels c WHERE c.source_id = s.id) AS ch_count,
+                (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_favorite = 1) AS fav_count,
+                (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_hidden = 1) AS hid_count
+         FROM sources s
+         ORDER BY s.rowid ASC"
+    ).map_err(|e| e.to_string())?;
     let sources_iter = stmt.query_map([], |row| {
         Ok(Source {
             id: row.get(0)?,
@@ -821,6 +845,9 @@ async fn export_settings() -> Result<BackupData, String> {
             last_downloaded: row.get(3)?,
             country_code: row.get(4)?,
             time_offset: row.get(5)?,
+            channel_count: Some(row.get(6)?),
+            favorite_count: Some(row.get(7)?),
+            hidden_count: Some(row.get(8)?),
         })
     }).map_err(|e| e.to_string())?;
     let mut sources = Vec::new();

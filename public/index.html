@@ -340,7 +340,17 @@
           <div class="settings-content-area">
             <!-- 1. FORRÁSOK TAB -->
             <div class="settings-tab-pane active" id="tabPaneSources">
-              <h3 data-i18n="sources_heading">EPG Források Kezelése</h3>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px;">
+                <h3 data-i18n="sources_heading" style="margin: 0">EPG Források Kezelése</h3>
+                <button
+                  class="btn btn-green"
+                  id="updateAllSourcesBtn"
+                  data-i18n="btn_update_all"
+                  style="padding: 6px 14px; font-weight: bold; flex-shrink: 0;"
+                >
+                  ÖSSZES FRISSÍTÉSE
+                </button>
+              </div>
               <div class="source-input-row">
                 <input type="hidden" id="editSourceId" />
                 <input
@@ -472,6 +482,14 @@
                     data-i18n="filter_all"
                   >
                     Mind
+                  </button>
+                  <button
+                    class="btn btn-filter-channel"
+                    id="filterChanActive"
+                    data-filter="active"
+                    data-i18n="filter_active"
+                  >
+                    👁 Aktívak
                   </button>
                   <button
                     class="btn btn-filter-channel"
@@ -745,6 +763,7 @@
                       style="display: none"
                     />
                   </label>
+                  <span id="channelDataStatus" class="export-import-status" style="display: none"></span>
                 </div>
               </div>
 
@@ -811,6 +830,7 @@
                       style="display: none"
                     />
                   </label>
+                  <span id="settingsDataStatus" class="export-import-status" style="display: none"></span>
                 </div>
               </div>
 
@@ -879,6 +899,59 @@
       </div>
     </div>
 
+    <!-- CSATORNA SZERKESZTÉSE MODAL -->
+    <div class="modal-overlay" id="channelEditModalOverlay" style="z-index: 250">
+      <div class="channel-edit-dialog">
+        <div class="channel-edit-header">
+          <div class="channel-edit-title-group">
+            <span class="channel-edit-title" id="channelEditModalTitle" data-i18n="channel_edit_title">Csatorna szerkesztése</span>
+            <span class="channel-edit-orig-title" id="channelEditOrigTitle"></span>
+          </div>
+          <button class="modal-close" id="channelEditCloseBtn">&times;</button>
+        </div>
+        <div class="channel-edit-body">
+          <div class="channel-edit-field">
+            <label class="channel-edit-label" for="channelEditNameInput" data-i18n="channel_name_label">Saját név:</label>
+            <input
+              type="text"
+              id="channelEditNameInput"
+              class="channel-edit-input"
+              placeholder="Csatorna egyéni neve..."
+              data-i18n-placeholder="channel_name_placeholder"
+              autocomplete="off"
+            />
+          </div>
+          <div class="channel-edit-field">
+            <label class="channel-edit-label" for="channelEditLogoInput" data-i18n="channel_logo_label">Logo URL:</label>
+            <input
+              type="text"
+              id="channelEditLogoInput"
+              class="channel-edit-input"
+              placeholder="https://... csatorna logó URL"
+              data-i18n-placeholder="channel_logo_placeholder"
+              autocomplete="off"
+            />
+          </div>
+          <div class="channel-edit-logo-preview" id="channelEditLogoPreview">
+            <span style="font-size: 11px; color: #718096">TV</span>
+          </div>
+        </div>
+        <div class="channel-edit-actions">
+          <button class="btn btn-red" id="channelEditResetBtn" data-i18n="btn_rename_reset">
+            Alaphelyzet
+          </button>
+          <div class="channel-edit-actions-right">
+            <button class="btn btn-blue" id="channelEditCancelBtn" data-i18n="btn_cancel">
+              Mégse
+            </button>
+            <button class="btn btn-green" id="channelEditSaveBtn" data-i18n="btn_rename_save">
+              Mentés
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
       const { invoke } = window.__TAURI__.core;
 
@@ -910,6 +983,16 @@
           tab_favorites: "Kedvencek",
           tab_channels: "Csatornák",
           sources_heading: "EPG Források Kezelése",
+          btn_update_all: "ÖSSZES FRISSÍTÉSE",
+          btn_update_all_progress: "Frissítés",
+          no_sources_to_update: "Nincsenek frissíthető források!",
+          status_update_all_done_errors: "Frissítés befejezve, de hibák történtek ({count}/{total} sikeres).",
+          channel_edit_title: "Csatorna szerkesztése",
+          original_channel_name: "Eredeti név",
+          channel_logo_preview_hint: "Előnézet (a logó automatikusan megjelenik)",
+          status_exporting: "Exportálás...",
+          status_importing: "Importálás...",
+          alert_export_success: "Sikeres exportálás!",
           source_name_placeholder: "Forrás neve",
           source_url_placeholder: "EPG URL (.xml vagy .gz)",
           btn_save_source: "MENTÉS",
@@ -937,7 +1020,11 @@
           channels_drag_hint: "Húzza a csatornákat vagy használja a nyilakat.",
           btn_reset_channel_order: "Eredeti sorrend visszaállítása",
           channels_search_placeholder: "Keresés a csatornák között...",
+          source_stat_all: "Összes",
+          source_stat_fav: "Kedvenc",
+          source_stat_hid: "Rejtett",
           filter_all: "Mind",
+          filter_active: "👁 Aktívak",
           filter_favorites: "★ Kedvencek",
           filter_hidden: "🚫 Rejtettek",
           channel_fav_toggle_on:
@@ -1089,6 +1176,16 @@
           tab_favorites: "Favorites",
           tab_channels: "Channels",
           sources_heading: "EPG Sources Management",
+          btn_update_all: "UPDATE ALL",
+          btn_update_all_progress: "Updating",
+          no_sources_to_update: "No sources to update!",
+          status_update_all_done_errors: "Update completed with some errors ({count}/{total} successful).",
+          channel_edit_title: "Edit Channel",
+          original_channel_name: "Original name",
+          channel_logo_preview_hint: "Preview (logo updates automatically)",
+          status_exporting: "Exporting...",
+          status_importing: "Importing...",
+          alert_export_success: "Export successful!",
           source_name_placeholder: "Source name",
           source_url_placeholder: "EPG URL (.xml or .gz)",
           btn_save_source: "SAVE",
@@ -1117,7 +1214,11 @@
             "Drag and drop channels or use arrows to reorder.",
           btn_reset_channel_order: "Reset to default order",
           channels_search_placeholder: "Search channels...",
+          source_stat_all: "All",
+          source_stat_fav: "Favorite",
+          source_stat_hid: "Hidden",
           filter_all: "All",
+          filter_active: "👁 Active",
           filter_favorites: "★ Favorites",
           filter_hidden: "🚫 Hidden",
           channel_fav_toggle_on: "Favorite channel (click to remove)",
@@ -1253,6 +1354,7 @@
       let favorites = [];
       let settings = {};
       const downloadingSources = new Set();
+      let isUpdatingAllSources = false;
 
       function showConfirm(title, message) {
         return new Promise((resolve) => {
@@ -1306,6 +1408,76 @@
           closeBtn.onclick = () => cleanup();
 
           overlay.classList.add("active");
+        });
+      }
+
+      function openChannelEditModal(channel) {
+        return new Promise((resolve) => {
+          const overlay = document.getElementById("channelEditModalOverlay");
+          const titleEl = document.getElementById("channelEditModalTitle");
+          const origTitleEl = document.getElementById("channelEditOrigTitle");
+          const nameInput = document.getElementById("channelEditNameInput");
+          const logoInput = document.getElementById("channelEditLogoInput");
+          const previewEl = document.getElementById("channelEditLogoPreview");
+          const closeBtn = document.getElementById("channelEditCloseBtn");
+          const cancelBtn = document.getElementById("channelEditCancelBtn");
+          const saveBtn = document.getElementById("channelEditSaveBtn");
+          const resetBtn = document.getElementById("channelEditResetBtn");
+
+          const origName = channel.originalName || channel.name;
+          origTitleEl.textContent = `${t("original_channel_name")}: ${origName} (ID: ${channel.id})`;
+
+          nameInput.value = channel.customName || "";
+          logoInput.value = channel.customIcon || "";
+
+          const updatePreview = () => {
+            const url = logoInput.value.trim();
+            const fallbackLogo = channel.cachedIcon || channel.icon || "";
+            const displayUrl = url || fallbackLogo;
+            if (displayUrl) {
+              previewEl.innerHTML = `<img src="${displayUrl}" alt="" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\\'font-size:10px; color:#555;\\'>ERR</span>';" />`;
+            } else {
+              previewEl.innerHTML = `<span style="font-size: 11px; color: #718096">TV</span>`;
+            }
+          };
+
+          updatePreview();
+          logoInput.oninput = updatePreview;
+
+          const cleanup = (result) => {
+            overlay.classList.remove("active");
+            closeBtn.onclick = null;
+            cancelBtn.onclick = null;
+            saveBtn.onclick = null;
+            resetBtn.onclick = null;
+            logoInput.oninput = null;
+            resolve(result);
+          };
+
+          closeBtn.onclick = () => cleanup(null);
+          cancelBtn.onclick = () => cleanup(null);
+
+          saveBtn.onclick = () => {
+            cleanup({
+              action: "save",
+              name: nameInput.value.trim(),
+              logo: logoInput.value.trim(),
+            });
+          };
+
+          resetBtn.onclick = () => {
+            cleanup({
+              action: "reset",
+              name: "",
+              logo: "",
+            });
+          };
+
+          overlay.classList.add("active");
+          setTimeout(() => {
+            nameInput.focus();
+            nameInput.select();
+          }, 60);
         });
       }
 
@@ -1503,6 +1675,11 @@
                 )
               : t("never_updated");
 
+          const isUpdatingAll = isUpdatingAllSources;
+          const allCount = s.channelCount !== undefined && s.channelCount !== null ? s.channelCount : 0;
+          const favCount = s.favoriteCount !== undefined && s.favoriteCount !== null ? s.favoriteCount : 0;
+          const hidCount = s.hiddenCount !== undefined && s.hiddenCount !== null ? s.hiddenCount : 0;
+
           const item = document.createElement("div");
           item.className = "source-item";
           item.innerHTML = `
@@ -1510,11 +1687,16 @@
                         <strong>${s.name} <span style="font-size:11px; color:#48bb78; background:#1a2f20; padding:1px 5px; border-radius:3px;">${s.countryCode || "HU"}</span> <span style="font-size:11px; color:#a0aec0;">(Offset: ${s.timeOffset >= 0 ? "+" : ""}${s.timeOffset || 0}h)</span></strong>
                         <small>${s.url}</small>
                         <small style="color: #4299e1; margin-top: 3px;">${t("last_updated")} ${lastDate}</small>
+                        <div class="source-stats-row">
+                            <span class="source-stat-badge source-stat-all">${t("source_stat_all")}: ${allCount}</span>
+                            <span class="source-stat-badge source-stat-fav">${t("source_stat_fav")}: ${favCount}</span>
+                            <span class="source-stat-badge source-stat-hid">${t("source_stat_hid")}: ${hidCount}</span>
+                        </div>
                     </div>
                     <div class="source-actions">
-                        <button class="btn btn-green" onclick="downloadSource('${s.id}')" ${isDownloading ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
-                        <button class="btn btn-blue" onclick="editSource('${s.id}')" ${isDownloading ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_edit")}</button>
-                        <button class="btn btn-red" onclick="deleteSource('${s.id}')" ${isDownloading ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_delete")}</button>
+                        <button class="btn btn-green" onclick="downloadSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
+                        <button class="btn btn-blue" onclick="editSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_edit")}</button>
+                        <button class="btn btn-red" onclick="deleteSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_delete")}</button>
                     </div>
                 `;
           sourcesList.appendChild(item);
@@ -1722,6 +1904,68 @@
           );
         }
       };
+
+      window.updateAllSources = async function () {
+        if (isUpdatingAllSources) return;
+        if (!sources || sources.length === 0) {
+          await showAlert(t("alert_warning_title"), t("no_sources_to_update"));
+          return;
+        }
+
+        isUpdatingAllSources = true;
+        const btn = document.getElementById("updateAllSourcesBtn");
+        const originalText = btn ? btn.innerText : t("btn_update_all");
+
+        loadSourcesDropdown();
+
+        let updatedCount = 0;
+        let hasErrors = false;
+
+        for (let i = 0; i < sources.length; i++) {
+          const s = sources[i];
+          const progressLabel = `${t("btn_update_all_progress")} (${i + 1}/${sources.length}): ${s.name}...`;
+          if (btn) btn.innerText = progressLabel;
+          document.getElementById("status").innerText = t("status_downloading", {
+            name: s.name,
+          });
+
+          downloadingSources.add(s.id);
+          loadSourcesDropdown();
+
+          try {
+            await invoke("update_source_epg", { sourceId: s.id, url: s.url });
+            updatedCount++;
+          } catch (err) {
+            console.error(`Hiba a(z) ${s.name} forrás frissítésekor:`, err);
+            hasErrors = true;
+          } finally {
+            downloadingSources.delete(s.id);
+          }
+        }
+
+        isUpdatingAllSources = false;
+        await refreshSourcesFromDb();
+
+        if (btn) btn.innerText = originalText;
+        if (hasErrors) {
+          document.getElementById("status").innerText = t("status_download_error");
+          await showAlert(
+            t("alert_error_title"),
+            t("status_update_all_done_errors", { count: updatedCount, total: sources.length }),
+          );
+        } else {
+          document.getElementById("status").innerText = t("status_download_success");
+        }
+
+        if (currentSourceId) {
+          await fetchEPG();
+        }
+      };
+
+      const updateAllBtn = document.getElementById("updateAllSourcesBtn");
+      if (updateAllBtn) {
+        updateAllBtn.onclick = () => window.updateAllSources();
+      }
 
       window.editSource = function (id) {
         const src = sources.find((s) => s.id === id);
@@ -2228,25 +2472,54 @@
           if (renameBtn) {
             renameBtn.onclick = async (e) => {
               e.stopPropagation();
-              const currentCustomName = channel.customName || "";
-              const originalName = channel.originalName || channel.name;
-              const newName = prompt(
-                `${t("prompt_rename_channel")}\n(${originalName})`,
-                currentCustomName,
-              );
-              if (newName === null) return; // cancelled
+              const result = await openChannelEditModal(channel);
+              if (!result) return;
+
               const targetSrc = channel.sourceId || currentSourceId;
               const targetChId = channel.id.includes("::")
                 ? channel.id.split("::").slice(1).join("::")
                 : channel.id;
-              await invoke("rename_channel", {
-                sourceId: targetSrc,
-                channelId: targetChId,
-                name: newName,
-              });
-              const trimmed = newName.trim();
-              channel.customName = trimmed || null;
-              channel.name = trimmed || channel.originalName || channel.name;
+
+              if (result.action === "reset") {
+                await invoke("rename_channel", {
+                  sourceId: targetSrc,
+                  channelId: targetChId,
+                  name: "",
+                });
+                await invoke("set_channel_logo", {
+                  sourceId: targetSrc,
+                  channelId: targetChId,
+                  logoUrl: "",
+                });
+                channel.customName = null;
+                channel.name = channel.originalName || channel.name;
+                channel.customIcon = null;
+                channel.cachedIcon = null;
+              } else if (result.action === "save") {
+                await invoke("rename_channel", {
+                  sourceId: targetSrc,
+                  channelId: targetChId,
+                  name: result.name,
+                });
+                await invoke("set_channel_logo", {
+                  sourceId: targetSrc,
+                  channelId: targetChId,
+                  logoUrl: result.logo,
+                });
+                channel.customName = result.name || null;
+                channel.name = result.name || channel.originalName || channel.name;
+                channel.customIcon = result.logo || null;
+                channel.cachedIcon = null;
+                if (result.logo) {
+                  invoke("cache_logo", { url: result.logo })
+                    .then((dataUri) => {
+                      channel.cachedIcon = dataUri;
+                      renderEPG();
+                    })
+                    .catch(() => {});
+                }
+              }
+
               renderEPG();
               if (
                 document
@@ -2769,6 +3042,8 @@
         const clearBtn = document.getElementById("modalFixClearBtn");
         const statusEl = document.getElementById("modalFixStatus");
         const resultsEl = document.getElementById("modalFixResultsList");
+        const modalContent = document.querySelector("#modalOverlay .modal-content");
+        if (modalContent) modalContent.classList.add("has-fix-open");
 
         overlay.style.display = "flex";
         searchInput.value = currentModalTitle;
@@ -2787,6 +3062,8 @@
       function closeFixOverlay() {
         const overlay = document.getElementById("modalFixOverlay");
         if (overlay) overlay.style.display = "none";
+        const modalContent = document.querySelector("#modalOverlay .modal-content");
+        if (modalContent) modalContent.classList.remove("has-fix-open");
         if (fixSearchDebounce) {
           clearTimeout(fixSearchDebounce);
           fixSearchDebounce = null;
@@ -3366,13 +3643,15 @@
         };
       }
 
-      ["all", "fav", "hidden"].forEach((mode) => {
+      ["all", "active", "fav", "hidden"].forEach((mode) => {
         const btnId =
           mode === "all"
             ? "filterChanAll"
-            : mode === "fav"
-              ? "filterChanFav"
-              : "filterChanHidden";
+            : mode === "active"
+              ? "filterChanActive"
+              : mode === "fav"
+                ? "filterChanFav"
+                : "filterChanHidden";
         const btn = document.getElementById(btnId);
         if (btn) {
           btn.onclick = () => {
@@ -3396,6 +3675,9 @@
               ? sources[0].id
               : "");
         const container = document.getElementById("channelOrderList");
+        const contentArea = document.querySelector(".settings-content-area");
+        const savedContainerScroll = container ? container.scrollTop : 0;
+        const savedContentAreaScroll = contentArea ? contentArea.scrollTop : 0;
         container.innerHTML = "";
 
         if (!targetSourceId) {
@@ -3423,6 +3705,7 @@
         }
 
         const filteredChannels = sourceChannels.filter((ch) => {
+          if (channelFilterMode === "active" && ch.isHidden) return false;
           if (channelFilterMode === "fav" && !ch.isFavorite) return false;
           if (channelFilterMode === "hidden" && !ch.isHidden) return false;
           if (channelSearchQuery) {
@@ -3501,17 +3784,19 @@
                 <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
               </div>
             </div>
-            <div class="channel-logo-box">
-              <span class="channel-logo-label">${t("channel_logo_label")}</span>
-              <input type="text" class="channel-logo-input" placeholder="${t("channel_logo_placeholder")}" value="${ch.customIcon || ""}" />
-              <button class="btn-logo-action btn-logo-save btn btn-green">${t("btn_logo_save")}</button>
-              ${ch.customIcon ? `<button class="btn-logo-action btn-logo-clear btn btn-red" title="${t("btn_logo_clear")}">✕</button>` : ""}
-            </div>
-            <div class="channel-rename-box">
-              <span class="channel-rename-label">${t("channel_name_label")}</span>
-              <input type="text" class="channel-rename-input" placeholder="${t("channel_name_placeholder")}" value="${ch.customName || ""}" />
-              <button class="btn-logo-action btn-rename-save btn btn-green">${t("btn_rename_save")}</button>
-              ${ch.customName ? `<button class="btn-logo-action btn-rename-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
+            <div class="channel-edit-fields-container">
+              <div class="channel-rename-row">
+                <span class="channel-rename-label">${t("channel_name_label")}</span>
+                <input type="text" class="channel-rename-input" placeholder="${t("channel_name_placeholder")}" value="${ch.customName || ""}" />
+                <div class="channel-edit-fields-actions">
+                  <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
+                  ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
+                </div>
+              </div>
+              <div class="channel-logo-row">
+                <span class="channel-logo-label">${t("channel_logo_label")}</span>
+                <input type="text" class="channel-logo-input" placeholder="${t("channel_logo_placeholder")}" value="${ch.customIcon || ""}" />
+              </div>
             </div>
           `;
 
@@ -3553,110 +3838,142 @@
             renderChannelOrderList();
           };
 
-          // Logó mentése
+          // Együttes mentés (Név és Logó egyszerre)
           const logoInput = item.querySelector(".channel-logo-input");
-          const saveLogo = async () => {
-            const url = logoInput.value.trim();
-            await invoke("set_channel_logo", {
-              sourceId: targetSourceId,
-              channelId: ch.id,
-              logoUrl: url,
-            });
-            ch.customIcon = url || null;
-            if (targetSourceId === currentSourceId) {
-              const liveCh = epgData.channels.find((c) => c.id === ch.id);
-              if (liveCh) liveCh.customIcon = ch.customIcon;
-              renderEPG();
-            }
-            renderChannelOrderList();
-          };
-
-          item.querySelector(".btn-logo-save").onclick = (e) => {
-            e.stopPropagation();
-            saveLogo();
-          };
-
-          logoInput.onkeydown = (e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              saveLogo();
-            }
-          };
-
-          const clearBtn = item.querySelector(".btn-logo-clear");
-          if (clearBtn) {
-            clearBtn.onclick = async (e) => {
-              e.stopPropagation();
-              await invoke("set_channel_logo", {
-                sourceId: targetSourceId,
-                channelId: ch.id,
-                logoUrl: "",
-              });
-              ch.customIcon = null;
-              if (targetSourceId === currentSourceId) {
-                const liveCh = epgData.channels.find((c) => c.id === ch.id);
-                if (liveCh) liveCh.customIcon = null;
-                renderEPG();
-              }
-              renderChannelOrderList();
-            };
-          }
-
-          // Csatorna átnevezés mentése / visszaállítása
           const renameInput = item.querySelector(".channel-rename-input");
-          const saveRename = async () => {
+
+          const saveBoth = async () => {
             const newName = renameInput.value.trim();
+            const newLogo = logoInput.value.trim();
+
             await invoke("rename_channel", {
               sourceId: targetSourceId,
               channelId: ch.id,
               name: newName,
             });
+            await invoke("set_channel_logo", {
+              sourceId: targetSourceId,
+              channelId: ch.id,
+              logoUrl: newLogo,
+            });
+
             ch.customName = newName || null;
+            ch.customIcon = newLogo || null;
+
             if (targetSourceId === currentSourceId) {
               const liveCh = epgData.channels.find((c) => c.id === ch.id);
               if (liveCh) {
                 liveCh.customName = ch.customName;
-                liveCh.name =
-                  ch.customName || liveCh.originalName || liveCh.name;
+                liveCh.name = ch.customName || liveCh.originalName || liveCh.name;
+                liveCh.customIcon = ch.customIcon;
+                liveCh.cachedIcon = null;
+                if (newLogo) {
+                  invoke("cache_logo", { url: newLogo })
+                    .then((dataUri) => {
+                      liveCh.cachedIcon = dataUri;
+                      renderEPG();
+                    })
+                    .catch(() => {});
+                }
               }
               renderEPG();
             }
-            renderChannelOrderList();
+
+            // Frissítsük közvetlenül a DOM elemet újrarajzolás nélkül, így megmarad a fókusz és a görgetési pozíció
+            const nameSpan = item.querySelector(".channel-order-name");
+            if (nameSpan) {
+              nameSpan.textContent = ch.customName || ch.originalName || ch.name;
+              nameSpan.title = ch.customName || ch.originalName || ch.name;
+            }
+            const logoPreview = item.querySelector(".channel-order-logo-preview");
+            const effectiveLogo = ch.customIcon || ch.icon || "";
+            if (logoPreview) {
+              logoPreview.innerHTML = effectiveLogo
+                ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
+                : '<span style="font-size:10px; color:#555;">TV</span>';
+            }
+            const actionsWrap = item.querySelector(".channel-edit-fields-actions");
+            if (actionsWrap) {
+              actionsWrap.innerHTML = `
+                <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
+                ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
+              `;
+              const newSaveBtn = actionsWrap.querySelector(".btn-channel-data-save");
+              if (newSaveBtn) newSaveBtn.onclick = (e) => { e.stopPropagation(); saveBoth(); };
+              const newResetBtn = actionsWrap.querySelector(".btn-channel-data-reset");
+              if (newResetBtn) newResetBtn.onclick = (e) => { e.stopPropagation(); resetBoth(); };
+            }
           };
 
-          item.querySelector(".btn-rename-save").onclick = (e) => {
-            e.stopPropagation();
-            saveRename();
+          const resetBoth = async () => {
+            await invoke("rename_channel", {
+              sourceId: targetSourceId,
+              channelId: ch.id,
+              name: "",
+            });
+            await invoke("set_channel_logo", {
+              sourceId: targetSourceId,
+              channelId: ch.id,
+              logoUrl: "",
+            });
+
+            ch.customName = null;
+            ch.customIcon = null;
+
+            if (targetSourceId === currentSourceId) {
+              const liveCh = epgData.channels.find((c) => c.id === ch.id);
+              if (liveCh) {
+                liveCh.customName = null;
+                liveCh.name = liveCh.originalName || liveCh.name;
+                liveCh.customIcon = null;
+                liveCh.cachedIcon = null;
+              }
+              renderEPG();
+            }
+
+            renameInput.value = "";
+            logoInput.value = "";
+            const nameSpan = item.querySelector(".channel-order-name");
+            if (nameSpan) {
+              nameSpan.textContent = ch.originalName || ch.name;
+              nameSpan.title = ch.originalName || ch.name;
+            }
+            const logoPreview = item.querySelector(".channel-order-logo-preview");
+            const effectiveLogo = ch.icon || "";
+            if (logoPreview) {
+              logoPreview.innerHTML = effectiveLogo
+                ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
+                : '<span style="font-size:10px; color:#555;">TV</span>';
+            }
+            const actionsWrap = item.querySelector(".channel-edit-fields-actions");
+            if (actionsWrap) {
+              actionsWrap.innerHTML = `
+                <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
+              `;
+              const newSaveBtn = actionsWrap.querySelector(".btn-channel-data-save");
+              if (newSaveBtn) newSaveBtn.onclick = (e) => { e.stopPropagation(); saveBoth(); };
+            }
           };
+
+          const saveBtn = item.querySelector(".btn-channel-data-save");
+          if (saveBtn) saveBtn.onclick = (e) => { e.stopPropagation(); saveBoth(); };
+
+          const resetBtn = item.querySelector(".btn-channel-data-reset");
+          if (resetBtn) resetBtn.onclick = (e) => { e.stopPropagation(); resetBoth(); };
 
           renameInput.onkeydown = (e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              saveRename();
+              saveBoth();
             }
           };
 
-          const resetRenameBtn = item.querySelector(".btn-rename-reset");
-          if (resetRenameBtn) {
-            resetRenameBtn.onclick = async (e) => {
-              e.stopPropagation();
-              await invoke("rename_channel", {
-                sourceId: targetSourceId,
-                channelId: ch.id,
-                name: "",
-              });
-              ch.customName = null;
-              if (targetSourceId === currentSourceId) {
-                const liveCh = epgData.channels.find((c) => c.id === ch.id);
-                if (liveCh) {
-                  liveCh.customName = null;
-                  liveCh.name = liveCh.originalName || liveCh.name;
-                }
-                renderEPG();
-              }
-              renderChannelOrderList();
-            };
-          }
+          logoInput.onkeydown = (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              saveBoth();
+            }
+          };
 
           // Nyilakkal mozgatás
           item.querySelector(".btn-up").onclick = (e) => {
@@ -3682,6 +3999,13 @@
 
           container.appendChild(item);
         });
+
+        if (savedContainerScroll > 0) {
+          container.scrollTop = savedContainerScroll;
+        }
+        if (savedContentAreaScroll > 0 && contentArea) {
+          contentArea.scrollTop = savedContentAreaScroll;
+        }
       }
 
       document.getElementById("resetChannelOrderBtn").onclick = async () => {
@@ -3699,8 +4023,24 @@
         await renderChannelOrderList();
       };
 
+      function setExportImportStatus(elementId, text, type = "loading") {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        el.className = `export-import-status status-${type}`;
+        el.textContent = text;
+        el.style.display = "inline-block";
+        if (type !== "loading") {
+          setTimeout(() => {
+            if (el.textContent === text) {
+              el.style.display = "none";
+            }
+          }, 6000);
+        }
+      }
+
       document.getElementById("exportSettingsBtn").onclick = async () => {
         try {
+          setExportImportStatus("settingsDataStatus", t("status_exporting"), "loading");
           const backup = await invoke("export_settings");
           const json = JSON.stringify(backup, null, 2);
           const blob = new Blob([json], { type: "application/json" });
@@ -3712,7 +4052,9 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
+          setExportImportStatus("settingsDataStatus", t("alert_export_success"), "success");
         } catch (err) {
+          setExportImportStatus("settingsDataStatus", t("alert_export_error"), "error");
           await showAlert(
             t("alert_error_title"),
             t("alert_export_error") + ": " + err,
@@ -3724,9 +4066,11 @@
         const file = e.target.files[0];
         if (!file) return;
         try {
+          setExportImportStatus("settingsDataStatus", t("status_importing"), "loading");
           const text = await file.text();
           const backup = JSON.parse(text);
           await invoke("import_settings", { backup });
+          setExportImportStatus("settingsDataStatus", t("alert_import_success"), "success");
           await showAlert(t("alert_success_title"), t("alert_import_success"));
           await refreshSourcesFromDb();
           favorites = await invoke("get_favorites");
@@ -3734,6 +4078,7 @@
           renderFavoritesList();
           await renderChannelOrderList();
         } catch (err) {
+          setExportImportStatus("settingsDataStatus", t("alert_import_error"), "error");
           await showAlert(
             t("alert_error_title"),
             t("alert_import_error") + ": " + err,
@@ -3842,6 +4187,7 @@
 
       document.getElementById("exportChannelDataBtn").onclick = async () => {
         try {
+          setExportImportStatus("channelDataStatus", t("status_exporting"), "loading");
           const exportData = await invoke("export_channel_data");
           const channels = exportData.channels || [];
 
@@ -3891,7 +4237,9 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
+          setExportImportStatus("channelDataStatus", t("alert_export_success"), "success");
         } catch (err) {
+          setExportImportStatus("channelDataStatus", t("alert_channel_export_error"), "error");
           await showAlert(
             t("alert_error_title"),
             t("alert_channel_export_error") + ": " + err,
@@ -3905,6 +4253,7 @@
         const file = e.target.files[0];
         if (!file) return;
         try {
+          setExportImportStatus("channelDataStatus", t("status_importing"), "loading");
           const text = await file.text();
           let channels = [];
 
@@ -3971,6 +4320,7 @@
               channels,
             },
           });
+          setExportImportStatus("channelDataStatus", t("alert_channel_import_success"), "success");
           await showAlert(
             t("alert_success_title"),
             t("alert_channel_import_success"),
@@ -3979,6 +4329,7 @@
           await fetchEPG();
           await renderChannelOrderList();
         } catch (err) {
+          setExportImportStatus("channelDataStatus", t("alert_channel_import_error"), "error");
           await showAlert(
             t("alert_error_title"),
             t("alert_channel_import_error") + ": " + err,
