@@ -50,6 +50,16 @@
         <option value="5" data-i18n="view_5m">5 perc</option>
       </select>
 
+      <button
+        class="btn"
+        id="layoutToggleBtn"
+        title="Váltás vízszintes nézetre"
+        data-i18n-title="title_layout_toggle"
+      >
+        <span id="layoutToggleIcon">⇄</span>
+        <span id="layoutToggleLabel" data-i18n="btn_layout_horizontal">VÍZSZINTES</span>
+      </button>
+
       <div class="search-box">
         <input
           type="text"
@@ -1235,6 +1245,7 @@
       let currentSourceId = "";
       let currentStepMin = 20;
       let currentMinuteHeight = 2;
+      let currentLayout = "vertical"; // "vertical" | "horizontal"
       let currentModalTitle = "";
       let searchTimeout = null;
 
@@ -1349,6 +1360,7 @@
           const key = el.getAttribute("data-i18n-title");
           el.title = t(key);
         });
+        updateLayoutButtonUi();
       }
 
       async function init() {
@@ -1366,6 +1378,10 @@
           currentStepMin = parseInt(settings.view_step_min);
         if (settings.view_minute_height)
           currentMinuteHeight = parseFloat(settings.view_minute_height);
+        if (settings.view_layout === "horizontal" || settings.view_layout === "vertical")
+          currentLayout = settings.view_layout;
+
+        updateLayoutButtonUi();
 
         const viewSelect = document.getElementById("viewSelect");
         if (viewSelect) {
@@ -1404,6 +1420,29 @@
           } else {
             btn.classList.remove("active");
           }
+        }
+      }
+
+      function updateLayoutButtonUi() {
+        const btn = document.getElementById("layoutToggleBtn");
+        const icon = document.getElementById("layoutToggleIcon");
+        const label = document.getElementById("layoutToggleLabel");
+        if (!btn) return;
+
+        if (currentLayout === "horizontal") {
+          btn.classList.add("horizontal-active");
+          if (icon) icon.textContent = "⥮";
+          if (label) {
+            label.textContent = t("btn_layout_vertical");
+          }
+          btn.title = t("title_layout_toggle_vert");
+        } else {
+          btn.classList.remove("horizontal-active");
+          if (icon) icon.textContent = "⇄";
+          if (label) {
+            label.textContent = t("btn_layout_horizontal");
+          }
+          btn.title = t("title_layout_toggle");
         }
       }
 
@@ -1881,6 +1920,11 @@
         columnWrapper,
         channelId,
       ) {
+        const isHorizontal = currentLayout === "horizontal";
+        const itemSelector = isHorizontal
+          ? ".channel-row-wrapper"
+          : ".channel-column-wrapper";
+
         headerItem.addEventListener("pointerdown", (e) => {
           if (e.button !== 0) return;
           if (
@@ -1907,11 +1951,11 @@
 
             if (isDraggingCol) {
               document
-                .querySelectorAll(".channel-column-wrapper")
+                .querySelectorAll(itemSelector)
                 .forEach((el) => el.classList.remove("drag-over"));
               const targetCol = document
                 .elementFromPoint(moveEvent.clientX, moveEvent.clientY)
-                ?.closest(".channel-column-wrapper");
+                ?.closest(itemSelector);
               if (targetCol && targetCol.dataset.channelId !== channelId) {
                 targetCol.classList.add("drag-over");
               }
@@ -1929,7 +1973,7 @@
 
             columnWrapper.classList.remove("dragging");
             document
-              .querySelectorAll(".channel-column-wrapper")
+              .querySelectorAll(itemSelector)
               .forEach((el) => el.classList.remove("drag-over"));
 
             if (!isDraggingCol) return;
@@ -1937,7 +1981,7 @@
 
             const targetCol = document
               .elementFromPoint(upEvent.clientX, upEvent.clientY)
-              ?.closest(".channel-column-wrapper");
+              ?.closest(itemSelector);
             if (
               targetCol &&
               targetCol.dataset.channelId &&
@@ -1987,6 +2031,11 @@
         const viewport = document.getElementById("epgViewport");
         if (!viewport) return;
 
+        const isHorizontal = currentLayout === "horizontal";
+        const rootMargin = isHorizontal
+          ? "300px 600px 300px 600px"
+          : "600px 300px 600px 300px";
+
         programObserver = new IntersectionObserver(
           (entries) => {
             entries.forEach((entry) => {
@@ -2004,7 +2053,7 @@
           },
           {
             root: viewport,
-            rootMargin: "600px 0px 600px 0px",
+            rootMargin,
             threshold: 0.01,
           },
         );
@@ -2062,14 +2111,30 @@
           .getElementById("searchInput")
           .value.toLowerCase()
           .trim();
+        const epgGridEl = document.getElementById("epgGrid");
         const timeColumn = document.getElementById("timeColumn");
         const channelsContainer = document.getElementById("channelsContainer");
         timeColumn.innerHTML = "";
         channelsContainer.innerHTML = "";
 
+        const isHorizontal = currentLayout === "horizontal";
+        const minuteScale = getEffectiveMinuteScale();
+
+        if (isHorizontal) {
+          epgGridEl.classList.add("layout-horizontal");
+          timeColumn.className = "timeline-row";
+        } else {
+          epgGridEl.classList.remove("layout-horizontal");
+          timeColumn.className = "time-column";
+        }
+
         document.documentElement.style.setProperty(
           "--minute-height",
           `${currentMinuteHeight}px`,
+        );
+        document.documentElement.style.setProperty(
+          "--minute-scale",
+          `${minuteScale}px`,
         );
         document.documentElement.style.setProperty(
           "--step-min",
@@ -2081,7 +2146,7 @@
           const h = Math.floor(min / 60) % 24;
           const m = min % 60;
           const timeDiv = document.createElement("div");
-          timeDiv.className = "time-slot";
+          timeDiv.className = isHorizontal ? "timeline-slot" : "time-slot";
           if (m === 0) timeDiv.classList.add("full-hour");
           timeDiv.textContent = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
           timeColumn.appendChild(timeDiv);
@@ -2118,12 +2183,16 @@
             if (!chNameMatch && !progMatch) return;
           }
 
-          const columnWrapper = document.createElement("div");
-          columnWrapper.className = "channel-column-wrapper";
-          columnWrapper.dataset.channelId = channel.id;
+          const wrapper = document.createElement("div");
+          wrapper.className = isHorizontal
+            ? "channel-row-wrapper"
+            : "channel-column-wrapper";
+          wrapper.dataset.channelId = channel.id;
 
           const headerItem = document.createElement("div");
-          headerItem.className = "channel-header-item";
+          headerItem.className = isHorizontal
+            ? "channel-row-header"
+            : "channel-header-item";
           headerItem.dataset.channelId = channel.id;
 
           // Use cached base64 icon if available, else fall back to URL
@@ -2229,11 +2298,11 @@
             };
           }
 
-          setupMainHeaderPointerDrag(headerItem, columnWrapper, channel.id);
-          columnWrapper.appendChild(headerItem);
+          setupMainHeaderPointerDrag(headerItem, wrapper, channel.id);
+          wrapper.appendChild(headerItem);
 
           const grid = document.createElement("div");
-          grid.className = "programme-grid";
+          grid.className = isHorizontal ? "channel-row-programmes" : "programme-grid";
 
           channelProgs.forEach((prog) => {
             // Use wall-clock minutes instead of elapsed time to avoid
@@ -2263,8 +2332,13 @@
 
             const progEl = document.createElement("div");
             progEl.className = `programme ${isFav ? "favorite" : ""} ${isHighlight ? "highlight" : ""} ${isActual ? "actual" : ""}`;
-            progEl.style.top = `${startDiffMin * currentMinuteHeight}px`;
-            progEl.style.height = `${Math.max(16, durationMin * currentMinuteHeight - 1)}px`;
+            if (isHorizontal) {
+              progEl.style.left = `${startDiffMin * minuteScale}px`;
+              progEl.style.width = `${Math.max(20, durationMin * minuteScale - 1)}px`;
+            } else {
+              progEl.style.top = `${startDiffMin * currentMinuteHeight}px`;
+              progEl.style.height = `${Math.max(16, durationMin * currentMinuteHeight - 1)}px`;
+            }
 
             const startStr = prog.start.toTimeString().substring(0, 5);
             const stopStr = prog.stop.toTimeString().substring(0, 5);
@@ -2298,15 +2372,19 @@
             }
           });
 
-          columnWrapper.appendChild(grid);
-          channelsContainer.appendChild(columnWrapper);
+          wrapper.appendChild(grid);
+          channelsContainer.appendChild(wrapper);
         });
 
         renderNowLine(dayStart);
 
         if (firstMatchEl) {
           const viewport = document.getElementById("epgViewport");
-          viewport.scrollTop = firstMatchEl.offsetTop - 150;
+          if (isHorizontal) {
+            viewport.scrollLeft = Math.max(0, firstMatchEl.offsetLeft - 350);
+          } else {
+            viewport.scrollTop = Math.max(0, firstMatchEl.offsetTop - 150);
+          }
         }
       }
 
@@ -3030,32 +3108,79 @@
       }
 
       function renderNowLine(dayStart) {
-        const oldLine = document.querySelector(".now-line");
-        if (oldLine) oldLine.remove();
+        const oldLines = document.querySelectorAll(".now-line, .now-line-vertical");
+        oldLines.forEach((l) => l.remove());
 
         const now = new Date();
         const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
         if (selectedDateStr === todayStr) {
           const currentMin = now.getHours() * 60 + now.getMinutes();
-          const headerHeight =
-            parseInt(
-              getComputedStyle(document.documentElement).getPropertyValue(
-                "--header-height",
-              ),
-            ) || 56;
-          const topPx = currentMin * currentMinuteHeight + headerHeight;
-          const line = document.createElement("div");
-          line.className = "now-line";
-          line.style.top = `${topPx}px`;
-          document.getElementById("channelsContainer").appendChild(line);
+
+          if (currentLayout === "horizontal") {
+            const channelColWidth =
+              parseInt(
+                getComputedStyle(document.documentElement).getPropertyValue(
+                  "--channel-col-width",
+                ),
+              ) || 300;
+            const minuteScale = getEffectiveMinuteScale();
+            const leftPx = currentMin * minuteScale + channelColWidth;
+            const line = document.createElement("div");
+            line.className = "now-line-vertical";
+            line.style.left = `${leftPx}px`;
+            document.getElementById("channelsContainer").appendChild(line);
+          } else {
+            const headerHeight =
+              parseInt(
+                getComputedStyle(document.documentElement).getPropertyValue(
+                  "--header-height",
+                ),
+              ) || 56;
+            const topPx = currentMin * currentMinuteHeight + headerHeight;
+            const line = document.createElement("div");
+            line.className = "now-line";
+            line.style.top = `${topPx}px`;
+            document.getElementById("channelsContainer").appendChild(line);
+          }
         }
       }
 
       function scrollToNow() {
-        const nowLine = document.querySelector(".now-line");
-        if (nowLine) {
-          document.getElementById("epgViewport").scrollTop =
-            nowLine.offsetTop - 200;
+        const viewport = document.getElementById("epgViewport");
+        if (!viewport) return;
+
+        if (currentLayout === "horizontal") {
+          const now = new Date();
+          const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+          // Find the earliest starting time among all currently running programs
+          let earliestStartMin = null;
+          if (selectedDateStr === todayStr && epgData.programmes) {
+            epgData.programmes.forEach((p) => {
+              if (p.start <= now && p.stop > now) {
+                const sMin = p.start.getHours() * 60 + p.start.getMinutes();
+                if (earliestStartMin === null || sMin < earliestStartMin) {
+                  earliestStartMin = sMin;
+                }
+              }
+            });
+          }
+
+          const minuteScale = getEffectiveMinuteScale();
+          if (earliestStartMin !== null) {
+            // Align the beginning of the earliest actual program to the grid start (right after channel column)
+            viewport.scrollLeft = Math.max(0, earliestStartMin * minuteScale);
+          } else {
+            const nowLine = document.querySelector(".now-line-vertical");
+            if (nowLine) {
+              viewport.scrollLeft = Math.max(0, nowLine.offsetLeft - 350);
+            }
+          }
+        } else {
+          const nowLine = document.querySelector(".now-line");
+          if (nowLine) {
+            viewport.scrollTop = Math.max(0, nowLine.offsetTop - 200);
+          }
         }
       }
 
@@ -3988,6 +4113,22 @@
         5: 6,
       };
 
+      // In horizontal mode, timeline cells need enough width so "00:00" fits comfortably
+      const HORIZONTAL_SCALE_MAP = {
+        60: 3.0, // 60 min -> 180px cell
+        30: 3.6, // 30 min -> 108px cell
+        20: 4.5, // 20 min -> 90px cell
+        10: 7.0, // 10 min -> 70px cell
+        5: 12.0, // 5 min -> 60px cell
+      };
+
+      function getEffectiveMinuteScale() {
+        if (currentLayout === "horizontal") {
+          return HORIZONTAL_SCALE_MAP[currentStepMin] || (currentMinuteHeight * 2);
+        }
+        return currentMinuteHeight;
+      }
+
       const viewSelect = document.getElementById("viewSelect");
       if (viewSelect) {
         viewSelect.onchange = async (e) => {
@@ -4023,6 +4164,19 @@
         });
       }
 
+      const layoutToggleBtn = document.getElementById("layoutToggleBtn");
+      if (layoutToggleBtn) {
+        layoutToggleBtn.onclick = async () => {
+          currentLayout = currentLayout === "horizontal" ? "vertical" : "horizontal";
+          await invoke("set_setting", {
+            key: "view_layout",
+            value: currentLayout,
+          });
+          updateLayoutButtonUi();
+          renderEPG();
+        };
+      }
+
       const epgViewportEl = document.getElementById("epgViewport");
       if (epgViewportEl) {
         epgViewportEl.addEventListener("scroll", scheduleEPGScrollUpdate, {
@@ -4047,6 +4201,7 @@
           // Ha csatorna headert vagy kedvenc csillagot fogunk meg, ne indítsunk pannolást
           if (
             e.target.closest(".channel-header-item") ||
+            e.target.closest(".channel-row-header") ||
             e.target.closest(".fav-star")
           ) {
             return;
