@@ -1,0 +1,3696 @@
+const { invoke } = window.__TAURI__.core;
+
+const I18N_FALLBACK = {
+  hungarian: {
+    app_title: "EPG Megjelenítő",
+    search_placeholder: "Keresés...",
+    search_btn: "KERESÉS",
+    clear_search: "Keresés törlése",
+    now_btn: "MOST",
+    favorites_btn: "★ KEDVENCEK",
+    settings_btn: "⚙ BEÁLLÍTÁSOK",
+    view_1h: "1 ÓRA",
+    view_30m: "30 PERC",
+    view_20m: "20 PERC",
+    view_10m: "10 PERC",
+    view_5m: "5 PERC",
+    status_starting: "Indítás...",
+    status_loading: "Adatok betöltése...",
+    status_ready: "Kész!",
+    status_error: "Hiba az adatok feldolgozásakor.",
+    status_downloading: "EPG letöltése: {name}...",
+    status_updating: "Frissítés alatt...",
+    status_download_success: "Sikeres frissítés!",
+    status_download_error: "Hiba történt a frissítéskor.",
+    settings_title: "BEÁLLÍTÁSOK",
+    language_label: "Nyelv:",
+    tab_sources: "Források",
+    tab_favorites: "Kedvencek",
+    tab_channels: "Csatornák",
+    sources_heading: "EPG Források Kezelése",
+    btn_update_all: "ÖSSZES FRISSÍTÉSE",
+    btn_update_all_progress: "Frissítés",
+    no_sources_to_update: "Nincsenek frissíthető források!",
+    status_update_all_done_errors:
+      "Frissítés befejezve, de hibák történtek ({count}/{total} sikeres).",
+    channel_edit_title: "Csatorna szerkesztése",
+    original_channel_name: "Eredeti név",
+    channel_logo_preview_hint: "Előnézet (a logó automatikusan megjelenik)",
+    status_exporting: "Exportálás...",
+    status_importing: "Importálás...",
+    alert_export_success: "Sikeres exportálás!",
+    source_name_placeholder: "Forrás neve",
+    source_url_placeholder: "EPG URL (.xml vagy .gz)",
+    btn_save_source: "MENTÉS",
+    btn_save_source_edit: "MÓDOSÍTÁS MENTÉSE",
+    btn_update: "Frissítés",
+    btn_edit: "Módosítás",
+    btn_delete: "Törlés",
+    btn_clear_db: "EPG ADATBÁZIS TÖRLÉSE",
+    btn_ok: "OK",
+    btn_cancel: "Mégse",
+    confirm_delete_source_title: "Forrás törlése",
+    confirm_delete_source: "Biztosan törölni szeretné ezt a forrást?",
+    confirm_clear_db_title: "Adatbázis törlése",
+    confirm_clear_db: "Biztosan törölni szeretné a teljes EPG adatbázist?",
+    alert_warning_title: "Figyelmeztetés",
+    alert_success_title: "Sikeres művelet",
+    alert_error_title: "Hiba történt",
+    alert_fill_fields: "Kérjük töltsön ki minden mezőt!",
+    alert_db_cleared: "Az adatbázis sikeresen kiürítve!",
+    favorites_heading: "★ Kedvenc Műsorok",
+    no_favorites: "Még nincsenek kedvenc műsorok kiválasztva.",
+    channels_heading: "Csatornák Kezelése és Sorrendje",
+    select_source: "Forrás:",
+    channels_drag_hint: "Húzza a csatornákat vagy használja a nyilakat.",
+    btn_reset_channel_order: "Eredeti sorrend visszaállítása",
+    channels_search_placeholder: "Keresés a csatornák között...",
+    source_stat_all: "Összes",
+    source_stat_fav: "Kedvenc",
+    source_stat_hid: "Rejtett",
+    filter_all: "Mind",
+    filter_active: "👁 Aktívak",
+    filter_favorites: "★ Kedvencek",
+    filter_hidden: "🚫 Rejtettek",
+    channel_fav_toggle_on: "Kedvenc csatorna (kattintson az eltávolításhoz)",
+    channel_fav_toggle_off: "Nem kedvenc (kattintson a hozzáadáshoz)",
+    channel_hide_toggle: "Csatorna elrejtése",
+    channel_unhide_toggle: "Csatorna megjelenítése",
+    channel_hidden_badge: "Rejtve",
+    channel_logo_label: "Logó URL:",
+    channel_logo_placeholder: "https://... csatorna logó kép URL",
+    btn_logo_save: "Mentés",
+    btn_logo_clear: "Törlés",
+    btn_logo_saved: "Mentve!",
+    channel_name_label: "Név:",
+    channel_name_placeholder: "Csatorna egyéni neve...",
+    btn_rename_save: "Mentés",
+    btn_rename_reset: "Eredeti név visszaállítása",
+    prompt_rename_channel:
+      "Adja meg a csatorna új nevét (üresen hagyva visszaáll):",
+    btn_export_settings: "BEÁLLÍTÁSOK EXPORTÁLÁSA",
+    btn_import_settings: "BEÁLLÍTÁSOK IMPORTÁLÁSA",
+    alert_import_success: "A beállítások sikeresen importálva lettek!",
+    alert_import_error: "Hiba történt a beállítások importálásakor!",
+    alert_export_error: "Hiba történt a beállítások exportálásakor!",
+    btn_prev_day: "Előző nap",
+    btn_next_day: "Következő nap",
+    modal_no_desc: "Nincs leírás.",
+    last_updated: "Frissítve:",
+    never_updated: "Még nem frissült",
+    day_today: "Ma",
+    day_yesterday: "Tegnap",
+    day_tomorrow: "Holnap",
+    days: [
+      "Vasárnap",
+      "Hétfő",
+      "Kedd",
+      "Szerda",
+      "Csütörtök",
+      "Péntek",
+      "Szombat",
+    ],
+    months: [
+      "január",
+      "február",
+      "március",
+      "április",
+      "május",
+      "június",
+      "július",
+      "augusztus",
+      "szeptember",
+      "október",
+      "november",
+      "december",
+    ],
+    tab_tmdb: "TMDB",
+    tmdb_heading: "TMDB (The Movie Database) Integráció",
+    tmdb_desc:
+      "Adja meg a TMDB API kulcsát vagy Read Access Tokenjét a műsorok borítóképeinek, posztereinek, értékeléseinek és leírásainak megjelenítéséhez.",
+    tmdb_api_key_label: "TMDB API kulcs / Bearer Token:",
+    tmdb_api_key_placeholder:
+      "Adja meg a TMDB API kulcsát (pl. v3 key vagy v4 Bearer token)...",
+    tmdb_status_label: "Állapot:",
+    tmdb_status_configured: "Beállítva",
+    tmdb_status_not_configured: "Nincs beállítva",
+    tmdb_status_valid: "Érvényes kulcs",
+    tmdb_status_invalid: "Érvénytelen kulcs vagy kapcsolati hiba",
+    tmdb_btn_save: "Mentés",
+    tmdb_btn_clear: "Kulcs törlése",
+    tmdb_btn_test: "Kapcsolat tesztelése",
+    tmdb_btn_clear_cache: "TMDB gyorsítótár kiürítése",
+    tmdb_cache_cleared: "A TMDB gyorsítótár sikeresen kiürítve!",
+    tmdb_saved_success: "TMDB API kulcs sikeresen mentve!",
+    tmdb_test_success: "Sikeres kapcsolat a TMDB szervereivel!",
+    tmdb_test_fail:
+      "Sikertelen kapcsolat! Kérjük ellenőrizze a megadott kulcsot.",
+    tmdb_copied_to_clipboard: "Cím másolva a vágólapra!",
+    tmdb_overview_heading: "Részletes leírás",
+    badge_hu: "Magyar:",
+    badge_en: "Angol:",
+    badge_orig: "Eredeti:",
+    badge_rating: "Értékelés:",
+    badge_year: "Év:",
+    media_type_movie: "Film",
+    media_type_tv: "Sorozat",
+    tmdb_loading: "TMDB adatok betöltése...",
+    all_favorites_source: "★ Összes kedvenc csatorna",
+    all_favorites_btn: "★ Kedvenc csatornák",
+    no_favorite_channels_title: "Még nincsenek kedvenc csatornák",
+    no_favorite_channels_desc:
+      "Kattintson a ★ csillag ikonra bármelyik csatorna fejlécében a kedvencekhez adáshoz.",
+    btn_tmdb_fix: "Fix",
+    tmdb_fix_title: "TMDB egyezés javítása",
+    tmdb_fix_search_placeholder: "Keresés a TMDB-ben...",
+    tmdb_fix_search_btn: "Keresés",
+    tmdb_fix_no_results: "Nincs találat a megadott címre.",
+    tmdb_fix_searching: "Keresés folyamatban...",
+    tmdb_fix_api_key_missing:
+      "A TMDB API kulcs nincs beállítva a Beállításokban.",
+    tmdb_fix_remove_match: "Egyezés törlése",
+    tmdb_fix_match_saved: "TMDB egyezés elmentve!",
+    tmdb_fix_match_removed: "TMDB egyezés eltávolítva!",
+    tab_export: "Exportálás / Importálás",
+    export_heading: "Exportálás és Importálás",
+    export_channels_section_title: "Csatornaadatok exportálása / importálása",
+    export_channels_desc:
+      "Csatornák egyéni beállításainak (sorrend, kedvenc, rejtés, egyéni név, logó) exportálása és importálása CSV fájlba források szerint.",
+    btn_export_channel_data: "CSATORNAADATOK EXPORTÁLÁSA",
+    btn_import_channel_data: "CSATORNAADATOK IMPORTÁLÁSA",
+    export_settings_section_title:
+      "Alkalmazás beállítások exportálása / importálása",
+    export_settings_desc:
+      "Minden alkalmazásbeállítás (források, kedvenc műsorok, csatornabeállítások és preferenciák) teljes mentése és visszaállítása.",
+    danger_zone_title: "Veszélyes zóna",
+    danger_zone_desc:
+      "A teljes helyi EPG adatbázis törlése. A műsoradatok törlődnek, de a források megmaradnak.",
+    alert_channel_export_error: "Hiba történt a csatornaadatok exportálásakor!",
+    alert_channel_import_success:
+      "A csatornaadatok sikeresen importálva lettek!",
+    alert_channel_import_error: "Hiba történt a csatornaadatok importálásakor!",
+  },
+  english: {
+    app_title: "EPG Viewer",
+    search_placeholder: "Search...",
+    search_btn: "SEARCH",
+    clear_search: "Clear search",
+    now_btn: "NOW",
+    favorites_btn: "★ FAVORITES",
+    settings_btn: "⚙ SETTINGS",
+    view_1h: "1 HOUR",
+    view_30m: "30 MIN",
+    view_20m: "20 MIN",
+    view_10m: "10 MIN",
+    view_5m: "5 MIN",
+    status_starting: "Starting...",
+    status_loading: "Loading data...",
+    status_ready: "Ready!",
+    status_error: "Error processing data.",
+    status_downloading: "Downloading EPG: {name}...",
+    status_updating: "Updating...",
+    status_download_success: "Update successful!",
+    status_download_error: "Error occurred during update.",
+    settings_title: "SETTINGS",
+    language_label: "Language:",
+    tab_sources: "Sources",
+    tab_favorites: "Favorites",
+    tab_channels: "Channels",
+    sources_heading: "EPG Sources Management",
+    btn_update_all: "UPDATE ALL",
+    btn_update_all_progress: "Updating",
+    no_sources_to_update: "No sources to update!",
+    status_update_all_done_errors:
+      "Update completed with some errors ({count}/{total} successful).",
+    channel_edit_title: "Edit Channel",
+    original_channel_name: "Original name",
+    channel_logo_preview_hint: "Preview (logo updates automatically)",
+    status_exporting: "Exporting...",
+    status_importing: "Importing...",
+    alert_export_success: "Export successful!",
+    source_name_placeholder: "Source name",
+    source_url_placeholder: "EPG URL (.xml or .gz)",
+    btn_save_source: "SAVE",
+    btn_save_source_edit: "SAVE CHANGES",
+    btn_update: "Update",
+    btn_edit: "Edit",
+    btn_delete: "Delete",
+    btn_clear_db: "CLEAR EPG DATABASE",
+    btn_ok: "OK",
+    btn_cancel: "Cancel",
+    confirm_delete_source_title: "Delete Source",
+    confirm_delete_source: "Are you sure you want to delete this source?",
+    confirm_clear_db_title: "Clear Database",
+    confirm_clear_db: "Are you sure you want to clear the entire EPG database?",
+    alert_warning_title: "Warning",
+    alert_success_title: "Success",
+    alert_error_title: "Error occurred",
+    alert_fill_fields: "Please fill in all fields!",
+    alert_db_cleared: "Database cleared successfully!",
+    favorites_heading: "★ Favorite Programmes",
+    no_favorites: "No favorite programmes selected yet.",
+    channels_heading: "Channel Management and Ordering",
+    select_source: "Source:",
+    channels_drag_hint: "Drag and drop channels or use arrows to reorder.",
+    btn_reset_channel_order: "Reset to default order",
+    channels_search_placeholder: "Search channels...",
+    source_stat_all: "All",
+    source_stat_fav: "Favorite",
+    source_stat_hid: "Hidden",
+    filter_all: "All",
+    filter_active: "👁 Active",
+    filter_favorites: "★ Favorites",
+    filter_hidden: "🚫 Hidden",
+    channel_fav_toggle_on: "Favorite channel (click to remove)",
+    channel_fav_toggle_off: "Not favorite (click to add)",
+    channel_hide_toggle: "Hide channel",
+    channel_unhide_toggle: "Show channel",
+    channel_hidden_badge: "Hidden",
+    channel_logo_label: "Logo URL:",
+    channel_logo_placeholder: "https://... channel logo image URL",
+    btn_logo_save: "Save",
+    btn_logo_clear: "Clear",
+    btn_logo_saved: "Saved!",
+    channel_name_label: "Name:",
+    channel_name_placeholder: "Custom channel name...",
+    btn_rename_save: "Save",
+    btn_rename_reset: "Reset to default name",
+    prompt_rename_channel: "Enter new channel name (leave empty to reset):",
+    btn_export_settings: "EXPORT SETTINGS",
+    btn_import_settings: "IMPORT SETTINGS",
+    alert_import_success: "Settings imported successfully!",
+    alert_import_error: "Error importing settings file!",
+    alert_export_error: "Error exporting settings!",
+    btn_prev_day: "Previous day",
+    btn_next_day: "Next day",
+    modal_no_desc: "No description available.",
+    last_updated: "Updated:",
+    never_updated: "Never updated",
+    day_today: "Today",
+    day_yesterday: "Yesterday",
+    day_tomorrow: "Tomorrow",
+    days: [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ],
+    months: [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ],
+    tab_tmdb: "TMDB",
+    tmdb_heading: "TMDB (The Movie Database) Integration",
+    tmdb_desc:
+      "Configure your TMDB API Key or Read Access Token to display posters, ratings, and detailed descriptions for programmes.",
+    tmdb_api_key_label: "TMDB API Key / Bearer Token:",
+    tmdb_api_key_placeholder:
+      "Enter your TMDB API key (e.g. v3 key or v4 Bearer token)...",
+    tmdb_status_label: "Status:",
+    tmdb_status_configured: "Configured",
+    tmdb_status_not_configured: "Not configured",
+    tmdb_status_valid: "Valid key",
+    tmdb_status_invalid: "Invalid key or connection error",
+    tmdb_btn_save: "Save",
+    tmdb_btn_clear: "Clear Key",
+    tmdb_btn_test: "Test Connection",
+    tmdb_btn_clear_cache: "Clear TMDB Cache",
+    tmdb_cache_cleared: "TMDB cache cleared successfully!",
+    tmdb_saved_success: "TMDB API key saved successfully!",
+    tmdb_test_success: "Successfully connected to TMDB!",
+    tmdb_test_fail: "Connection failed! Please check your API key.",
+    tmdb_copied_to_clipboard: "Title copied to clipboard!",
+    tmdb_overview_heading: "Detailed Description",
+    badge_hu: "Hungarian:",
+    badge_en: "English:",
+    badge_orig: "Original:",
+    badge_rating: "Rating:",
+    badge_year: "Year:",
+    media_type_movie: "Movie",
+    media_type_tv: "TV Series",
+    tmdb_loading: "Loading TMDB details...",
+    all_favorites_source: "★ All Favorite Channels",
+    all_favorites_btn: "★ Favorite Channels",
+    no_favorite_channels_title: "No Favorite Channels Yet",
+    no_favorite_channels_desc:
+      "Click the ★ star icon on any channel header to add it to your favorites.",
+    btn_tmdb_fix: "Fix",
+    tmdb_fix_title: "Fix TMDB Match",
+    tmdb_fix_search_placeholder: "Search TMDB...",
+    tmdb_fix_search_btn: "Search",
+    tmdb_fix_no_results: "No results found for this title.",
+    tmdb_fix_searching: "Searching...",
+    tmdb_fix_api_key_missing: "TMDB API key is not configured in Settings.",
+    tmdb_fix_remove_match: "Remove match",
+    tmdb_fix_match_saved: "TMDB match saved!",
+    tmdb_fix_match_removed: "TMDB match removed!",
+    tab_export: "Export / Import",
+    export_heading: "Export & Import",
+    export_channels_section_title: "Channel Data Export / Import",
+    export_channels_desc:
+      "Export and import channel configurations (order, favorites, hidden state, custom names, logos) to/from a CSV file by sources.",
+    btn_export_channel_data: "EXPORT CHANNEL DATA",
+    btn_import_channel_data: "IMPORT CHANNEL DATA",
+    export_settings_section_title: "Application Settings Export / Import",
+    export_settings_desc:
+      "Full backup and restore of all application settings (sources, favorite programmes, channel configurations, and preferences).",
+    danger_zone_title: "Danger Zone",
+    danger_zone_desc:
+      "Clear the entire local EPG database. Downloaded programmes will be deleted, but configured sources will remain.",
+    alert_channel_export_error: "Error exporting channel data!",
+    alert_channel_import_success: "Channel data imported successfully!",
+    alert_channel_import_error: "Error importing channel data!",
+  },
+};
+
+let currentLang = "hungarian";
+let currentDict = I18N_FALLBACK.hungarian;
+
+let epgData = { channels: [], programmes: [] };
+let selectedDateStr = "";
+let currentSourceId = "";
+let currentStepMin = 20;
+let currentMinuteHeight = 2;
+let currentLayout = "vertical"; // "vertical" | "horizontal"
+let currentModalTitle = "";
+let searchTimeout = null;
+
+let sources = [];
+let favorites = [];
+let settings = {};
+const downloadingSources = new Set();
+let isUpdatingAllSources = false;
+
+function showConfirm(title, message) {
+  return new Promise((resolve) => {
+    document.getElementById("customConfirmTitle").innerText = title;
+    document.getElementById("customConfirmMessage").innerText = message;
+    const overlay = document.getElementById("customConfirmOverlay");
+    const okBtn = document.getElementById("customConfirmOkBtn");
+    const cancelBtn = document.getElementById("customConfirmCancelBtn");
+    const closeBtn = document.getElementById("customConfirmClose");
+
+    cancelBtn.style.display = "inline-block";
+    cancelBtn.innerText = t("btn_cancel");
+    okBtn.innerText = t("btn_ok");
+
+    const cleanup = (result) => {
+      overlay.classList.remove("active");
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      closeBtn.onclick = null;
+      resolve(result);
+    };
+
+    okBtn.onclick = () => cleanup(true);
+    cancelBtn.onclick = () => cleanup(false);
+    closeBtn.onclick = () => cleanup(false);
+
+    overlay.classList.add("active");
+  });
+}
+
+function showAlert(title, message) {
+  return new Promise((resolve) => {
+    document.getElementById("customConfirmTitle").innerText = title;
+    document.getElementById("customConfirmMessage").innerText = message;
+    const overlay = document.getElementById("customConfirmOverlay");
+    const okBtn = document.getElementById("customConfirmOkBtn");
+    const cancelBtn = document.getElementById("customConfirmCancelBtn");
+    const closeBtn = document.getElementById("customConfirmClose");
+
+    cancelBtn.style.display = "none";
+    okBtn.innerText = t("btn_ok");
+
+    const cleanup = () => {
+      overlay.classList.remove("active");
+      okBtn.onclick = null;
+      closeBtn.onclick = null;
+      resolve();
+    };
+
+    okBtn.onclick = () => cleanup();
+    closeBtn.onclick = () => cleanup();
+
+    overlay.classList.add("active");
+  });
+}
+
+function openChannelEditModal(channel) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("channelEditModalOverlay");
+    const titleEl = document.getElementById("channelEditModalTitle");
+    const origTitleEl = document.getElementById("channelEditOrigTitle");
+    const nameInput = document.getElementById("channelEditNameInput");
+    const logoInput = document.getElementById("channelEditLogoInput");
+    const previewEl = document.getElementById("channelEditLogoPreview");
+    const closeBtn = document.getElementById("channelEditCloseBtn");
+    const cancelBtn = document.getElementById("channelEditCancelBtn");
+    const saveBtn = document.getElementById("channelEditSaveBtn");
+    const resetBtn = document.getElementById("channelEditResetBtn");
+
+    const origName = channel.originalName || channel.name;
+    origTitleEl.textContent = `${t("original_channel_name")}: ${origName} (ID: ${channel.id})`;
+
+    nameInput.value = channel.customName || "";
+    logoInput.value = channel.customIcon || "";
+
+    const updatePreview = () => {
+      const url = logoInput.value.trim();
+      const fallbackLogo = channel.cachedIcon || channel.icon || "";
+      const displayUrl = url || fallbackLogo;
+      if (displayUrl) {
+        previewEl.innerHTML = `<img src="${displayUrl}" alt="" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\\'font-size:10px; color:#555;\\'>ERR</span>';" />`;
+      } else {
+        previewEl.innerHTML = `<span style="font-size: 11px; color: #718096">TV</span>`;
+      }
+    };
+
+    updatePreview();
+    logoInput.oninput = updatePreview;
+
+    const cleanup = (result) => {
+      overlay.classList.remove("active");
+      closeBtn.onclick = null;
+      cancelBtn.onclick = null;
+      saveBtn.onclick = null;
+      resetBtn.onclick = null;
+      logoInput.oninput = null;
+      resolve(result);
+    };
+
+    closeBtn.onclick = () => cleanup(null);
+    cancelBtn.onclick = () => cleanup(null);
+
+    saveBtn.onclick = () => {
+      cleanup({
+        action: "save",
+        name: nameInput.value.trim(),
+        logo: logoInput.value.trim(),
+      });
+    };
+
+    resetBtn.onclick = () => {
+      cleanup({
+        action: "reset",
+        name: "",
+        logo: "",
+      });
+    };
+
+    overlay.classList.add("active");
+    setTimeout(() => {
+      nameInput.focus();
+      nameInput.select();
+    }, 60);
+  });
+}
+
+function t(key, params = {}) {
+  let str =
+    currentDict[key] ||
+    (I18N_FALLBACK[currentLang] && I18N_FALLBACK[currentLang][key]) ||
+    I18N_FALLBACK.hungarian[key] ||
+    key;
+  if (typeof str === "string") {
+    for (const [k, v] of Object.entries(params)) {
+      str = str.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+    }
+  }
+  return str;
+}
+
+async function setLanguage(lang) {
+  currentLang = lang;
+  document.getElementById("languageSelect").value = lang;
+  try {
+    const res = await fetch(`./locales/${lang}.lng`);
+    if (res.ok) {
+      const loaded = await res.json();
+      currentDict = { ...I18N_FALLBACK[lang], ...loaded };
+    } else {
+      currentDict = I18N_FALLBACK[lang] || I18N_FALLBACK.hungarian;
+    }
+  } catch (e) {
+    currentDict = I18N_FALLBACK[lang] || I18N_FALLBACK.hungarian;
+  }
+
+  await invoke("set_setting", { key: "language", value: lang });
+  applyTranslations();
+  setupDateSelector();
+  renderEPG();
+  loadSourcesDropdown();
+  renderFavoritesList();
+}
+
+function applyTranslations() {
+  document.title = t("app_title");
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.getAttribute("data-i18n");
+    el.innerText = t(key);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-placeholder");
+    el.placeholder = t(key);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-title");
+    el.title = t(key);
+  });
+  updateLayoutButtonUi();
+}
+
+async function init() {
+  try {
+    settings = await invoke("get_settings");
+  } catch (e) {
+    console.error("Nem sikerült lekérni a beállításokat:", e);
+    settings = {};
+  }
+
+  const initialLang = settings.language || "hungarian";
+  await setLanguage(initialLang);
+
+  if (settings.view_step_min) currentStepMin = parseInt(settings.view_step_min);
+  if (settings.view_minute_height)
+    currentMinuteHeight = parseFloat(settings.view_minute_height);
+  if (
+    settings.view_layout === "horizontal" ||
+    settings.view_layout === "vertical"
+  )
+    currentLayout = settings.view_layout;
+
+  updateLayoutButtonUi();
+
+  const viewSelect = document.getElementById("viewSelect");
+  if (viewSelect) {
+    viewSelect.value = String(currentStepMin);
+  }
+
+  await refreshSourcesFromDb();
+  favorites = await invoke("get_favorites");
+
+  if (sources.length > 0) {
+    if (
+      settings.current_source_id &&
+      (settings.current_source_id === "__ALL_FAVORITES__" ||
+        sources.some((s) => s.id === settings.current_source_id))
+    ) {
+      currentSourceId = settings.current_source_id;
+    } else {
+      currentSourceId = "__ALL_FAVORITES__";
+    }
+    document.getElementById("sourceSelect").value = currentSourceId;
+    updateAllFavBtnState();
+    await fetchEPG();
+  } else {
+    currentSourceId = "";
+    updateAllFavBtnState();
+    document.getElementById("status").innerText = t("status_ready");
+    renderEmptySourcesState();
+  }
+}
+
+function updateAllFavBtnState() {
+  const btn = document.getElementById("allFavChannelsBtn");
+  if (btn) {
+    if (currentSourceId === "__ALL_FAVORITES__") {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  }
+}
+
+function updateLayoutButtonUi() {
+  const btn = document.getElementById("layoutToggleBtn");
+  const icon = document.getElementById("layoutToggleIcon");
+  const label = document.getElementById("layoutToggleLabel");
+  if (!btn) return;
+
+  if (currentLayout === "horizontal") {
+    btn.classList.add("horizontal-active");
+    if (icon) icon.textContent = "☷";
+    if (label) {
+      label.textContent = t("btn_layout_vertical");
+    }
+    btn.title = t("title_layout_toggle_vert");
+  } else {
+    btn.classList.remove("horizontal-active");
+    if (icon) icon.textContent = "☷";
+    if (label) {
+      label.textContent = t("btn_layout_horizontal");
+    }
+    btn.title = t("title_layout_toggle");
+  }
+}
+
+function renderEmptySourcesState() {
+  document.getElementById("channelsContainer").innerHTML = `
+                <div class="empty-grid-notice">
+                    <h2>Nincsenek EPG források beállítva</h2>
+                    <p>Kattintson a <strong>⚙ BEÁLLÍTÁSOK</strong> gombra egy EPG forrás URL megadásához.</p>
+                    <button class="btn btn-green" onclick="document.getElementById('settingsBtn').click()" style="padding: 10px 20px; font-size: 14px;">FORRÁS HOZZÁADÁSA</button>
+                </div>
+            `;
+  document.getElementById("timeColumn").innerHTML = "";
+  document.getElementById("dateSelect").innerHTML = "";
+}
+
+function renderEmptyFavoritesState() {
+  document.getElementById("channelsContainer").innerHTML = `
+                <div class="empty-grid-notice">
+                    <h2>${t("no_favorite_channels_title")}</h2>
+                    <p>${t("no_favorite_channels_desc")}</p>
+                </div>
+            `;
+  document.getElementById("timeColumn").innerHTML = "";
+  document.getElementById("dateSelect").innerHTML = "";
+}
+
+async function refreshSourcesFromDb() {
+  sources = await invoke("get_sources");
+  loadSourcesDropdown();
+  loadChannelOrderSourcesDropdown();
+}
+
+function loadSourcesDropdown() {
+  const sourceSelect = document.getElementById("sourceSelect");
+  const sourcesList = document.getElementById("sourcesList");
+  sourceSelect.innerHTML = "";
+  sourcesList.innerHTML = "";
+
+  if (sources.length > 0) {
+    const allFavOpt = document.createElement("option");
+    allFavOpt.value = "__ALL_FAVORITES__";
+    allFavOpt.textContent = t("all_favorites_source");
+    sourceSelect.appendChild(allFavOpt);
+  }
+
+  sources.forEach((s) => {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
+    sourceSelect.appendChild(opt);
+
+    const isDownloading = downloadingSources.has(s.id);
+    const lastDate = isDownloading
+      ? `<span style="color: #ecc94b; font-weight: bold;">${t("status_updating")}</span>`
+      : s.lastDownloaded
+        ? new Date(s.lastDownloaded).toLocaleString(
+            currentLang === "english" ? "en-US" : "hu-HU",
+          )
+        : t("never_updated");
+
+    const isUpdatingAll = isUpdatingAllSources;
+    const allCount =
+      s.channelCount !== undefined && s.channelCount !== null
+        ? s.channelCount
+        : 0;
+    const favCount =
+      s.favoriteCount !== undefined && s.favoriteCount !== null
+        ? s.favoriteCount
+        : 0;
+    const hidCount =
+      s.hiddenCount !== undefined && s.hiddenCount !== null ? s.hiddenCount : 0;
+
+    const item = document.createElement("div");
+    item.className = "source-item";
+    item.innerHTML = `
+                    <div class="source-info">
+                        <strong>${s.name} <span style="font-size:11px; color:#48bb78; background:#1a2f20; padding:1px 5px; border-radius:3px;">${s.countryCode || "HU"}</span> <span style="font-size:11px; color:#a0aec0;">(Offset: ${s.timeOffset >= 0 ? "+" : ""}${s.timeOffset || 0}h)</span></strong>
+                        <small>${s.url}</small>
+                        <small style="color: #4299e1; margin-top: 3px;">${t("last_updated")} ${lastDate}</small>
+                        <div class="source-stats-row">
+                            <span class="source-stat-badge source-stat-all">${t("source_stat_all")}: ${allCount}</span>
+                            <span class="source-stat-badge source-stat-fav">${t("source_stat_fav")}: ${favCount}</span>
+                            <span class="source-stat-badge source-stat-hid">${t("source_stat_hid")}: ${hidCount}</span>
+                        </div>
+                    </div>
+                    <div class="source-actions">
+                        <button class="btn btn-green" onclick="downloadSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
+                        <button class="btn btn-blue" onclick="editSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_edit")}</button>
+                        <button class="btn btn-red" onclick="deleteSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_delete")}</button>
+                    </div>
+                `;
+    sourcesList.appendChild(item);
+  });
+
+  if (!currentSourceId && sources.length > 0) {
+    currentSourceId = "__ALL_FAVORITES__";
+  }
+  sourceSelect.value = currentSourceId;
+  updateAllFavBtnState();
+
+  sourceSelect.onchange = async (e) => {
+    currentSourceId = e.target.value;
+    updateAllFavBtnState();
+    await invoke("set_setting", {
+      key: "current_source_id",
+      value: currentSourceId,
+    });
+    fetchEPG();
+  };
+
+  const allFavBtn = document.getElementById("allFavChannelsBtn");
+  if (allFavBtn) {
+    allFavBtn.onclick = async () => {
+      if (currentSourceId === "__ALL_FAVORITES__") {
+        if (sources.length > 0) {
+          currentSourceId = sources[0].id;
+        }
+      } else {
+        currentSourceId = "__ALL_FAVORITES__";
+      }
+      sourceSelect.value = currentSourceId;
+      updateAllFavBtnState();
+      await invoke("set_setting", {
+        key: "current_source_id",
+        value: currentSourceId,
+      });
+      fetchEPG();
+    };
+  }
+}
+
+// KORRIGÁLT XMLTV IDŐPONT ÉRTELMEZŐ (Kezeli a +0200, +0000 offset-et ISO UTC konverzióval)
+function parseEPGDate(str, manualOffsetHours = 0) {
+  if (!str || str.length < 12) return new Date();
+
+  const y = parseInt(str.substring(0, 4), 10);
+  const m = parseInt(str.substring(4, 6), 10) - 1;
+  const d = parseInt(str.substring(6, 8), 10);
+  const h = parseInt(str.substring(8, 10), 10);
+  const min = parseInt(str.substring(10, 12), 10);
+  const sec = str.length >= 14 ? parseInt(str.substring(12, 14), 10) : 0;
+
+  let tzOffsetMin = 0;
+  // Ha szerepel benne offset megadás (pl. "20260902200000 +0200")
+  const spaceIdx = str.indexOf(" ");
+  if (spaceIdx !== -1) {
+    const tzStr = str.substring(spaceIdx + 1).trim();
+    if (tzStr.length >= 5) {
+      const sign = tzStr.charAt(0) === "-" ? -1 : 1;
+      const tzH = parseInt(tzStr.substring(1, 3), 10);
+      const tzM = parseInt(tzStr.substring(3, 5), 10);
+      tzOffsetMin = sign * (tzH * 60 + tzM);
+    }
+  }
+
+  // Kiszámítjuk a UTC időpontot milliszekundumban
+  let utcMs = Date.UTC(y, m, d, h, min, sec) - tzOffsetMin * 60 * 1000;
+
+  // Manuális felhasználói offset alkalmazása (órában)
+  if (manualOffsetHours) {
+    utcMs += manualOffsetHours * 3600 * 1000;
+  }
+
+  return new Date(utcMs);
+}
+
+function formatDateLabel(dateStr) {
+  const date = new Date(dateStr + "T00:00:00");
+  const months = t("months");
+  const days = t("days");
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
+
+  let dayName = days[date.getDay()];
+  if (diffDays === 0) dayName = t("day_today");
+  else if (diffDays === -1) dayName = t("day_yesterday");
+  else if (diffDays === 1) dayName = t("day_tomorrow");
+
+  const dayNum = date.getDate();
+  if (currentLang === "english") {
+    return `${dayName} - ${months[date.getMonth()]} ${dayNum}, ${date.getFullYear()}`;
+  }
+  return `${dayName} - ${date.getFullYear()}. ${months[date.getMonth()]} ${dayNum}.`;
+}
+
+async function fetchEPG() {
+  if (!currentSourceId) {
+    renderEmptySourcesState();
+    return;
+  }
+
+  updateAllFavBtnState();
+  document.getElementById("status").innerText = t("status_loading");
+  try {
+    epgData = await invoke("get_epg_data", { sourceId: currentSourceId });
+
+    if (currentSourceId === "__ALL_FAVORITES__") {
+      if (!epgData.channels || epgData.channels.length === 0) {
+        document.getElementById("status").innerText = t("status_ready");
+        renderEmptyFavoritesState();
+        return;
+      }
+    } else if (!epgData.channels || epgData.channels.length === 0) {
+      await downloadSource(currentSourceId);
+      epgData = await invoke("get_epg_data", {
+        sourceId: currentSourceId,
+      });
+    }
+
+    const currentSrcObj = sources.find((s) => s.id === currentSourceId);
+    const defaultOffset = currentSrcObj ? currentSrcObj.timeOffset || 0 : 0;
+
+    epgData.programmes.forEach((p) => {
+      const offset =
+        currentSourceId === "__ALL_FAVORITES__" &&
+        p.timeOffset !== undefined &&
+        p.timeOffset !== null
+          ? p.timeOffset
+          : defaultOffset;
+      p.start = parseEPGDate(p.start, offset);
+      p.stop = parseEPGDate(p.stop, offset);
+    });
+
+    document.getElementById("status").innerText = t("status_ready");
+    setupDateSelector();
+    renderEPG();
+    scrollToNow();
+
+    // Cache logos in the background for channels that have a URL but no cached data
+    epgData.channels.forEach((channel) => {
+      const logoUrl = channel.customIcon || channel.icon;
+      if (logoUrl && !channel.cachedIcon) {
+        invoke("cache_logo", { url: logoUrl })
+          .then((dataUri) => {
+            channel.cachedIcon = dataUri;
+          })
+          .catch(() => {});
+      }
+    });
+    if (
+      document.getElementById("settingsOverlay").classList.contains("active")
+    ) {
+      renderChannelOrderList();
+    }
+  } catch (err) {
+    console.error(err);
+    document.getElementById("status").innerText = t("status_error");
+  }
+}
+
+window.downloadSource = async function (id) {
+  const src = sources.find((s) => s.id === id);
+  if (!src) return;
+  if (!src || downloadingSources.has(id)) return;
+
+  downloadingSources.add(id);
+  loadSourcesDropdown();
+
+  document.getElementById("status").innerText = t("status_downloading", {
+    name: src.name,
+  });
+  try {
+    await invoke("update_source_epg", { sourceId: src.id, url: src.url });
+    downloadingSources.delete(id);
+    await refreshSourcesFromDb();
+
+    document.getElementById("status").innerText = t("status_download_success");
+    if (id === currentSourceId || currentSourceId === "__ALL_FAVORITES__") {
+      await fetchEPG();
+    }
+  } catch (err) {
+    downloadingSources.delete(id);
+    await refreshSourcesFromDb();
+    console.error(err);
+    await showAlert(
+      t("alert_error_title"),
+      t("status_download_error") + ": " + err,
+    );
+    document.getElementById("status").innerText = t("status_download_error");
+  }
+};
+
+window.updateAllSources = async function () {
+  if (isUpdatingAllSources) return;
+  if (!sources || sources.length === 0) {
+    await showAlert(t("alert_warning_title"), t("no_sources_to_update"));
+    return;
+  }
+
+  isUpdatingAllSources = true;
+  const btn = document.getElementById("updateAllSourcesBtn");
+  const originalText = btn ? btn.innerText : t("btn_update_all");
+
+  loadSourcesDropdown();
+
+  let updatedCount = 0;
+  let hasErrors = false;
+
+  for (let i = 0; i < sources.length; i++) {
+    const s = sources[i];
+    const progressLabel = `${t("btn_update_all_progress")} (${i + 1}/${sources.length}): ${s.name}...`;
+    if (btn) btn.innerText = progressLabel;
+    document.getElementById("status").innerText = t("status_downloading", {
+      name: s.name,
+    });
+
+    downloadingSources.add(s.id);
+    loadSourcesDropdown();
+
+    try {
+      await invoke("update_source_epg", { sourceId: s.id, url: s.url });
+      updatedCount++;
+    } catch (err) {
+      console.error(`Hiba a(z) ${s.name} forrás frissítésekor:`, err);
+      hasErrors = true;
+    } finally {
+      downloadingSources.delete(s.id);
+    }
+  }
+
+  isUpdatingAllSources = false;
+  await refreshSourcesFromDb();
+
+  if (btn) btn.innerText = originalText;
+  if (hasErrors) {
+    document.getElementById("status").innerText = t("status_download_error");
+    await showAlert(
+      t("alert_error_title"),
+      t("status_update_all_done_errors", {
+        count: updatedCount,
+        total: sources.length,
+      }),
+    );
+  } else {
+    document.getElementById("status").innerText = t("status_download_success");
+  }
+
+  if (currentSourceId) {
+    await fetchEPG();
+  }
+};
+
+const updateAllBtn = document.getElementById("updateAllSourcesBtn");
+if (updateAllBtn) {
+  updateAllBtn.onclick = () => window.updateAllSources();
+}
+
+window.editSource = function (id) {
+  const src = sources.find((s) => s.id === id);
+  if (!src) return;
+
+  document.getElementById("editSourceId").value = src.id;
+  document.getElementById("sourceNameInput").value = src.name;
+  document.getElementById("sourceUrlInput").value = src.url;
+  document.getElementById("sourceCountrySelect").value =
+    src.countryCode || "HU";
+  document.getElementById("sourceOffsetInput").value = src.timeOffset || 0;
+  document.getElementById("saveSourceBtn").innerText = t(
+    "btn_save_source_edit",
+  );
+};
+
+window.deleteSource = async function (id) {
+  const confirmed = await showConfirm(
+    t("confirm_delete_source_title"),
+    t("confirm_delete_source"),
+  );
+  if (!confirmed) return;
+
+  try {
+    await invoke("delete_source", { sourceId: id });
+    await refreshSourcesFromDb();
+
+    if (sources.length === 0) {
+      currentSourceId = "";
+      await invoke("set_setting", {
+        key: "current_source_id",
+        value: "",
+      });
+      updateAllFavBtnState();
+    } else if (currentSourceId === id) {
+      currentSourceId = "__ALL_FAVORITES__";
+      await invoke("set_setting", {
+        key: "current_source_id",
+        value: currentSourceId,
+      });
+    }
+
+    loadSourcesDropdown();
+    if (currentSourceId) {
+      await fetchEPG();
+    } else {
+      epgData = { channels: [], programmes: [] };
+      renderEmptySourcesState();
+    }
+  } catch (err) {
+    console.error(err);
+    await showAlert(t("alert_error_title"), err);
+  }
+};
+
+document.getElementById("clearDbBtn").onclick = async () => {
+  const confirmed = await showConfirm(
+    t("confirm_clear_db_title"),
+    t("confirm_clear_db"),
+  );
+  if (!confirmed) return;
+
+  try {
+    await invoke("clear_entire_database");
+    await refreshSourcesFromDb();
+    epgData = { channels: [], programmes: [] };
+    renderEPG();
+    renderChannelOrderList();
+    await showAlert(t("alert_success_title"), t("alert_db_cleared"));
+  } catch (err) {
+    console.error(err);
+    await showAlert(t("alert_error_title"), err);
+  }
+};
+
+document.getElementById("saveSourceBtn").onclick = async () => {
+  const editId = document.getElementById("editSourceId").value;
+  const name = document.getElementById("sourceNameInput").value.trim();
+  const url = document.getElementById("sourceUrlInput").value.trim();
+  const countryCode = document.getElementById("sourceCountrySelect").value;
+  const timeOffset =
+    parseInt(document.getElementById("sourceOffsetInput").value, 10) || 0;
+
+  if (!name || !url)
+    return await showAlert(t("alert_warning_title"), t("alert_fill_fields"));
+
+  const sourceObj = {
+    id: editId ? editId : "src_" + Date.now(),
+    name,
+    url,
+    lastDownloaded: null,
+    countryCode,
+    timeOffset,
+  };
+
+  await invoke("save_source", { source: sourceObj });
+  await refreshSourcesFromDb();
+
+  document.getElementById("editSourceId").value = "";
+  document.getElementById("sourceNameInput").value = "";
+  document.getElementById("sourceUrlInput").value = "";
+  document.getElementById("sourceCountrySelect").value = "HU";
+  document.getElementById("sourceOffsetInput").value = 0;
+  document.getElementById("saveSourceBtn").innerText = t("btn_save_source");
+
+  if (!currentSourceId || editId === currentSourceId) {
+    currentSourceId = sourceObj.id;
+    document.getElementById("sourceSelect").value = currentSourceId;
+    await fetchEPG();
+  }
+};
+
+function setupDateSelector() {
+  const dateSelect = document.getElementById("dateSelect");
+  const prevBtn = document.getElementById("prevDayBtn");
+  const nextBtn = document.getElementById("nextDayBtn");
+  const dates = new Set();
+
+  epgData.programmes.forEach((p) => {
+    if (p.start && !isNaN(p.start.getTime())) {
+      const y = p.start.getFullYear();
+      const m = String(p.start.getMonth() + 1).padStart(2, "0");
+      const d = String(p.start.getDate()).padStart(2, "0");
+      dates.add(`${y}-${m}-${d}`);
+    }
+  });
+
+  const sortedDates = Array.from(dates).sort();
+  dateSelect.innerHTML = "";
+
+  sortedDates.forEach((d) => {
+    const opt = document.createElement("option");
+    opt.value = d;
+    opt.textContent = formatDateLabel(d);
+    dateSelect.appendChild(opt);
+  });
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  if (sortedDates.includes(todayStr)) {
+    selectedDateStr = todayStr;
+  } else if (sortedDates.length > 0) {
+    selectedDateStr = sortedDates[0];
+  }
+  dateSelect.value = selectedDateStr;
+
+  function updateNavBtns() {
+    const idx = sortedDates.indexOf(selectedDateStr);
+    if (prevBtn) prevBtn.disabled = idx <= 0;
+    if (nextBtn) nextBtn.disabled = idx < 0 || idx >= sortedDates.length - 1;
+  }
+
+  updateNavBtns();
+
+  dateSelect.onchange = (e) => {
+    selectedDateStr = e.target.value;
+    updateNavBtns();
+    renderEPG();
+  };
+
+  if (prevBtn) {
+    prevBtn.onclick = () => {
+      const idx = sortedDates.indexOf(selectedDateStr);
+      if (idx > 0) {
+        selectedDateStr = sortedDates[idx - 1];
+        dateSelect.value = selectedDateStr;
+        updateNavBtns();
+        renderEPG();
+      }
+    };
+  }
+
+  if (nextBtn) {
+    nextBtn.onclick = () => {
+      const idx = sortedDates.indexOf(selectedDateStr);
+      if (idx >= 0 && idx < sortedDates.length - 1) {
+        selectedDateStr = sortedDates[idx + 1];
+        dateSelect.value = selectedDateStr;
+        updateNavBtns();
+        renderEPG();
+      }
+    };
+  }
+}
+
+function setupMainHeaderPointerDrag(headerItem, columnWrapper, channelId) {
+  const isHorizontal = currentLayout === "horizontal";
+  const itemSelector = isHorizontal
+    ? ".channel-row-wrapper"
+    : ".channel-column-wrapper";
+
+  headerItem.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if (
+      e.target.closest(".channel-header-fav-btn") ||
+      e.target.closest(".channel-header-rename-btn")
+    )
+      return;
+    let isDraggingCol = false;
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const onPointerMove = (moveEvent) => {
+      const dist = Math.hypot(
+        moveEvent.clientX - startX,
+        moveEvent.clientY - startY,
+      );
+      if (!isDraggingCol && dist > 5) {
+        isDraggingCol = true;
+        columnWrapper.classList.add("dragging");
+        try {
+          headerItem.setPointerCapture(e.pointerId);
+        } catch (err) {}
+      }
+
+      if (isDraggingCol) {
+        document
+          .querySelectorAll(itemSelector)
+          .forEach((el) => el.classList.remove("drag-over"));
+        const targetCol = document
+          .elementFromPoint(moveEvent.clientX, moveEvent.clientY)
+          ?.closest(itemSelector);
+        if (targetCol && targetCol.dataset.channelId !== channelId) {
+          targetCol.classList.add("drag-over");
+        }
+      }
+    };
+
+    const onPointerUp = async (upEvent) => {
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("pointercancel", onPointerUp);
+
+      try {
+        headerItem.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+
+      columnWrapper.classList.remove("dragging");
+      document
+        .querySelectorAll(itemSelector)
+        .forEach((el) => el.classList.remove("drag-over"));
+
+      if (!isDraggingCol) return;
+      isDraggingCol = false;
+
+      const targetCol = document
+        .elementFromPoint(upEvent.clientX, upEvent.clientY)
+        ?.closest(itemSelector);
+      if (
+        targetCol &&
+        targetCol.dataset.channelId &&
+        targetCol.dataset.channelId !== channelId
+      ) {
+        const targetId = targetCol.dataset.channelId;
+        const fromIdx = epgData.channels.findIndex((c) => c.id === channelId);
+        const toIdx = epgData.channels.findIndex((c) => c.id === targetId);
+
+        if (fromIdx !== -1 && toIdx !== -1) {
+          const [moved] = epgData.channels.splice(fromIdx, 1);
+          epgData.channels.splice(toIdx, 0, moved);
+          const newOrder = epgData.channels.map((c) => c.id);
+          await invoke("save_channel_order", {
+            sourceId: currentSourceId,
+            order: newOrder,
+          });
+          renderEPG();
+          if (
+            document
+              .getElementById("settingsOverlay")
+              .classList.contains("active")
+          ) {
+            renderChannelOrderList();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("pointercancel", onPointerUp);
+  });
+}
+
+let programObserver = null;
+
+function setupProgramObserver() {
+  if (programObserver) {
+    programObserver.disconnect();
+  }
+
+  const viewport = document.getElementById("epgViewport");
+  if (!viewport) return;
+
+  const isHorizontal = currentLayout === "horizontal";
+  const rootMargin = isHorizontal
+    ? "300px 600px 300px 600px"
+    : "600px 300px 600px 300px";
+
+  programObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        const el = entry.target;
+        if (entry.isIntersecting) {
+          if (!el.dataset.rendered) {
+            renderProgramDetails(el);
+          }
+        } else {
+          if (el.dataset.rendered === "true") {
+            unrenderProgramDetails(el);
+          }
+        }
+      });
+    },
+    {
+      root: viewport,
+      rootMargin,
+      threshold: 0.01,
+    },
+  );
+}
+
+function renderProgramDetails(el) {
+  const data = el._progData;
+  if (!data) return;
+
+  const { prog, isFav, startStr, stopStr } = data;
+  el.innerHTML = `
+          <div class="prog-header">
+              <span class="start-badge">${startStr}</span>
+              <span class="prog-title" title="${escapeHtml(prog.title)}">${escapeHtml(prog.title)}</span>
+              <span class="fav-star ${isFav ? "active" : ""}">★</span>
+          </div>
+          ${prog.desc ? `<div class="prog-desc">${escapeHtml(prog.desc)}</div>` : ""}
+        `;
+
+  const star = el.querySelector(".fav-star");
+  if (star) {
+    star.onclick = (e) => {
+      e.stopPropagation();
+      toggleFavorite(prog.title);
+    };
+  }
+
+  el.dataset.rendered = "true";
+}
+
+function unrenderProgramDetails(el) {
+  el.innerHTML = '<div class="prog-placeholder"></div>';
+  delete el.dataset.rendered;
+}
+
+function escapeHtml(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function renderEPG() {
+  if (!currentSourceId || sources.length === 0) {
+    renderEmptySourcesState();
+    return;
+  }
+
+  setupProgramObserver();
+
+  const filterText = document
+    .getElementById("searchInput")
+    .value.toLowerCase()
+    .trim();
+  const epgGridEl = document.getElementById("epgGrid");
+  const timeColumn = document.getElementById("timeColumn");
+  const channelsContainer = document.getElementById("channelsContainer");
+  timeColumn.innerHTML = "";
+  channelsContainer.innerHTML = "";
+
+  const isHorizontal = currentLayout === "horizontal";
+  const minuteScale = getEffectiveMinuteScale();
+
+  if (isHorizontal) {
+    epgGridEl.classList.add("layout-horizontal");
+    timeColumn.className = "timeline-row";
+  } else {
+    epgGridEl.classList.remove("layout-horizontal");
+    timeColumn.className = "time-column";
+  }
+
+  document.documentElement.style.setProperty(
+    "--minute-height",
+    `${currentMinuteHeight}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--minute-scale",
+    `${minuteScale}px`,
+  );
+  document.documentElement.style.setProperty("--step-min", currentStepMin);
+
+  const totalMinutes = 1440;
+  for (let min = 0; min < totalMinutes; min += currentStepMin) {
+    const h = Math.floor(min / 60) % 24;
+    const m = min % 60;
+    const timeDiv = document.createElement("div");
+    timeDiv.className = isHorizontal ? "timeline-slot" : "time-slot";
+    if (m === 0) timeDiv.classList.add("full-hour");
+    timeDiv.textContent = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    timeColumn.appendChild(timeDiv);
+  }
+
+  const dayStart = new Date(`${selectedDateStr}T00:00:00`);
+  // Use next day's midnight in wall-clock time (DST-safe)
+  const dayEndDate = new Date(dayStart);
+  dayEndDate.setDate(dayEndDate.getDate() + 1);
+  const dayEnd = dayEndDate;
+  const now = new Date();
+
+  let firstMatchEl = null;
+
+  epgData.channels.forEach((channel) => {
+    if (channel.isHidden) return;
+
+    const channelProgs = epgData.programmes.filter(
+      (p) => p.channel === channel.id && p.stop > dayStart && p.start < dayEnd,
+    );
+
+    if (channelProgs.length === 0) return;
+
+    if (filterText) {
+      const chNameMatch = String(channel.name || "")
+        .toLowerCase()
+        .includes(filterText);
+      const progMatch = channelProgs.some((p) =>
+        String(p.title || "")
+          .toLowerCase()
+          .includes(filterText),
+      );
+      if (!chNameMatch && !progMatch) return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = isHorizontal
+      ? "channel-row-wrapper"
+      : "channel-column-wrapper";
+    wrapper.dataset.channelId = channel.id;
+
+    const headerItem = document.createElement("div");
+    headerItem.className = isHorizontal
+      ? "channel-row-header"
+      : "channel-header-item";
+    headerItem.dataset.channelId = channel.id;
+
+    // Use cached base64 icon if available, else fall back to URL
+    const effectiveLogo =
+      channel.cachedIcon || channel.customIcon || channel.icon || "";
+
+    const showSourceBadge =
+      currentSourceId === "__ALL_FAVORITES__" || !!channel.sourceName;
+    const sourceBadgeHtml =
+      showSourceBadge && (channel.sourceName || channel.countryCode)
+        ? `<span class="channel-source-badge" title="${channel.sourceName || ""}">${channel.sourceName || channel.countryCode}</span>`
+        : "";
+
+    const nameTextGroup = `<span>${channel.name}</span>`;
+
+    headerItem.innerHTML = `
+                    <div class="channel-name-badge ${channel.isFavorite ? "favorite-channel" : ""}" title="${(channel.originalName || channel.name).replace(/"/g, "&quot;")}">
+                        ${effectiveLogo ? `<img class="channel-header-logo" src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : ""}
+                        ${nameTextGroup}
+                    </div>
+                    <div class="channel-header-btns">
+                        <div class="channel-header-btns-row">
+                            <button class="channel-header-rename-btn" title="✏">...</button>
+                            <button class="channel-header-fav-btn ${channel.isFavorite ? "active" : ""}" title="${channel.isFavorite ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+                        </div>
+                        ${sourceBadgeHtml}
+                    </div>
+                `;
+
+    const renameBtn = headerItem.querySelector(".channel-header-rename-btn");
+    if (renameBtn) {
+      renameBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const result = await openChannelEditModal(channel);
+        if (!result) return;
+
+        const targetSrc = channel.sourceId || currentSourceId;
+        const targetChId = channel.id.includes("::")
+          ? channel.id.split("::").slice(1).join("::")
+          : channel.id;
+
+        if (result.action === "reset") {
+          await invoke("rename_channel", {
+            sourceId: targetSrc,
+            channelId: targetChId,
+            name: "",
+          });
+          await invoke("set_channel_logo", {
+            sourceId: targetSrc,
+            channelId: targetChId,
+            logoUrl: "",
+          });
+          channel.customName = null;
+          channel.name = channel.originalName || channel.name;
+          channel.customIcon = null;
+          channel.cachedIcon = null;
+        } else if (result.action === "save") {
+          await invoke("rename_channel", {
+            sourceId: targetSrc,
+            channelId: targetChId,
+            name: result.name,
+          });
+          await invoke("set_channel_logo", {
+            sourceId: targetSrc,
+            channelId: targetChId,
+            logoUrl: result.logo,
+          });
+          channel.customName = result.name || null;
+          channel.name = result.name || channel.originalName || channel.name;
+          channel.customIcon = result.logo || null;
+          channel.cachedIcon = null;
+          if (result.logo) {
+            invoke("cache_logo", { url: result.logo })
+              .then((dataUri) => {
+                channel.cachedIcon = dataUri;
+                renderEPG();
+              })
+              .catch(() => {});
+          }
+        }
+
+        renderEPG();
+        if (
+          document
+            .getElementById("settingsOverlay")
+            .classList.contains("active")
+        ) {
+          renderChannelOrderList();
+        }
+      };
+    }
+
+    const favBtn = headerItem.querySelector(".channel-header-fav-btn");
+    if (favBtn) {
+      favBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const targetSrc = channel.sourceId || currentSourceId;
+        const targetChId = channel.id.includes("::")
+          ? channel.id.split("::").slice(1).join("::")
+          : channel.id;
+        const newFav = await invoke("toggle_channel_favorite", {
+          sourceId: targetSrc,
+          channelId: targetChId,
+        });
+        channel.isFavorite = newFav;
+        if (currentSourceId === "__ALL_FAVORITES__" && !newFav) {
+          epgData.channels = epgData.channels.filter(
+            (c) => c.id !== channel.id,
+          );
+          if (epgData.channels.length === 0) {
+            renderEmptyFavoritesState();
+            return;
+          }
+        } else {
+          epgData.channels.sort((a, b) => {
+            if (a.isFavorite !== b.isFavorite) {
+              return a.isFavorite ? -1 : 1;
+            }
+            return 0;
+          });
+        }
+        renderEPG();
+        if (
+          document
+            .getElementById("settingsOverlay")
+            .classList.contains("active")
+        ) {
+          renderChannelOrderList();
+        }
+      };
+    }
+
+    setupMainHeaderPointerDrag(headerItem, wrapper, channel.id);
+    wrapper.appendChild(headerItem);
+
+    const grid = document.createElement("div");
+    grid.className = isHorizontal ? "channel-row-programmes" : "programme-grid";
+
+    channelProgs.forEach((prog) => {
+      // Use wall-clock minutes instead of elapsed time to avoid
+      // DST offset issues (e.g. fall-back day adding an extra hour)
+      const startDiffMin =
+        prog.start <= dayStart
+          ? 0
+          : Math.max(0, prog.start.getHours() * 60 + prog.start.getMinutes());
+      const endDiffMin =
+        prog.stop >= dayEnd
+          ? totalMinutes
+          : Math.min(
+              totalMinutes,
+              prog.stop.getHours() * 60 + prog.stop.getMinutes(),
+            );
+      const durationMin = endDiffMin - startDiffMin;
+
+      if (durationMin <= 0) return;
+
+      const isFav = favorites.includes(prog.title);
+      const isHighlight =
+        filterText && prog.title.toLowerCase().includes(filterText);
+      const isActual = prog.start <= now && prog.stop > now;
+
+      const progEl = document.createElement("div");
+      progEl.className = `programme ${isFav ? "favorite" : ""} ${isHighlight ? "highlight" : ""} ${isActual ? "actual" : ""}`;
+      if (isHorizontal) {
+        progEl.style.left = `${startDiffMin * minuteScale}px`;
+        progEl.style.width = `${Math.max(20, durationMin * minuteScale - 1)}px`;
+      } else {
+        progEl.style.top = `${startDiffMin * currentMinuteHeight}px`;
+        progEl.style.height = `${Math.max(16, durationMin * currentMinuteHeight - 1)}px`;
+      }
+
+      const startStr = prog.start.toTimeString().substring(0, 5);
+      const stopStr = prog.stop.toTimeString().substring(0, 5);
+
+      progEl._progData = {
+        prog,
+        isFav,
+        isHighlight,
+        isActual,
+        startStr,
+        stopStr,
+        channel,
+      };
+      progEl.innerHTML = '<div class="prog-placeholder"></div>';
+
+      if (isHighlight && !firstMatchEl) {
+        firstMatchEl = progEl;
+      }
+
+      progEl.onclick = () =>
+        openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc, channel);
+
+      grid.appendChild(progEl);
+      if (programObserver) {
+        programObserver.observe(progEl);
+      }
+    });
+
+    wrapper.appendChild(grid);
+    channelsContainer.appendChild(wrapper);
+  });
+
+  renderNowLine(dayStart);
+
+  if (firstMatchEl) {
+    const viewport = document.getElementById("epgViewport");
+    if (isHorizontal) {
+      viewport.scrollLeft = Math.max(0, firstMatchEl.offsetLeft - 350);
+    } else {
+      viewport.scrollTop = Math.max(0, firstMatchEl.offsetTop - 150);
+    }
+  }
+}
+
+async function toggleFavorite(title) {
+  const isFav = await invoke("toggle_favorite", { title });
+  if (isFav) {
+    if (!favorites.includes(title)) favorites.push(title);
+  } else {
+    favorites = favorites.filter((t) => t !== title);
+  }
+  updateModalFavStar();
+  renderEPG();
+  renderFavoritesList();
+}
+
+function getTmdbLang(countryCode) {
+  const code = (countryCode || "").toUpperCase();
+  const map = {
+    HU: "hu-HU",
+    DE: "de-DE",
+    EN: "en-US",
+    US: "en-US",
+    UK: "en-GB",
+    FR: "fr-FR",
+    ES: "es-ES",
+    IT: "it-IT",
+    SK: "sk-SK",
+    RO: "ro-RO",
+    PL: "pl-PL",
+    PT: "pt-PT",
+    CZ: "cs-CZ",
+  };
+  return map[code] || (currentLang === "english" ? "en-US" : "hu-HU");
+}
+
+function copyText(text, badgeEl) {
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        if (badgeEl) {
+          const origText = badgeEl.textContent;
+          badgeEl.textContent = `✓ ${t("tmdb_copied_to_clipboard")}`;
+          setTimeout(() => {
+            badgeEl.textContent = origText;
+          }, 1400);
+        }
+      })
+      .catch(() => {});
+  }
+}
+
+let currentModalFetchIndex = 0;
+let currentModalChannel = null;
+let currentModalPosterPath = "";
+let currentModalTmdbData = null;
+let fixSearchDebounce = null;
+let posterZoomDebounce = null;
+
+function getLargePosterUrl(posterPath) {
+  if (!posterPath) return "";
+  return `https://image.tmdb.org/t/p/original${posterPath}`;
+}
+
+async function preloadAndCacheLargePoster(posterPath) {
+  if (!posterPath) return;
+  const largeUrl = getLargePosterUrl(posterPath);
+  try {
+    // Check if already in SQLite logo/image cache
+    const cached = await invoke("get_cached_logo", { url: largeUrl });
+    if (!cached) {
+      // Background fetch and cache
+      invoke("cache_logo", { url: largeUrl }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
+async function showPosterZoom(e) {
+  if (!currentModalPosterPath) return;
+  const popup = document.getElementById("posterZoomPopup");
+  const img = document.getElementById("posterZoomImg");
+  const loader = document.getElementById("posterZoomLoader");
+  const largeUrl = getLargePosterUrl(currentModalPosterPath);
+
+  popup.style.display = "block";
+  positionPosterZoom(e);
+
+  // Check if cached version exists
+  let srcToUse = largeUrl;
+  try {
+    const cached = await invoke("get_cached_logo", { url: largeUrl });
+    if (cached) {
+      srcToUse = cached;
+    } else {
+      // Background cache it for next time
+      invoke("cache_logo", { url: largeUrl }).catch(() => {});
+    }
+  } catch (_) {}
+
+  if (img.src !== srcToUse) {
+    loader.style.display = "flex";
+    img.onload = () => {
+      loader.style.display = "none";
+    };
+    img.onerror = () => {
+      loader.style.display = "none";
+    };
+    img.src = srcToUse;
+  } else {
+    loader.style.display = "none";
+  }
+
+  // Animate popup display
+  requestAnimationFrame(() => {
+    popup.classList.add("visible");
+  });
+}
+
+function hidePosterZoom() {
+  if (posterZoomDebounce) clearTimeout(posterZoomDebounce);
+  const popup = document.getElementById("posterZoomPopup");
+  if (popup) {
+    popup.classList.remove("visible");
+    popup.style.display = "none";
+  }
+}
+
+function positionPosterZoom(e) {
+  const popup = document.getElementById("posterZoomPopup");
+  if (!popup || popup.style.display === "none") return;
+
+  const pad = 16;
+  const popW = popup.offsetWidth || 380;
+  const popH = popup.offsetHeight || 570;
+
+  let left = e.clientX + 20;
+  let top = e.clientY - 60;
+
+  // If overflowing on the right, place to the left of the cursor
+  if (left + popW > window.innerWidth - pad) {
+    left = Math.max(pad, e.clientX - popW - 20);
+  }
+
+  // Keep inside vertical screen bounds
+  if (top + popH > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - popH - pad);
+  }
+  if (top < pad) {
+    top = pad;
+  }
+
+  popup.style.left = `${left}px`;
+  popup.style.top = `${top}px`;
+}
+
+function resetModalTmdbUi() {
+  hidePosterZoom();
+  const posterCol = document.getElementById("modalPosterCol");
+  const posterImg = document.getElementById("modalPoster");
+  const backdrop = document.getElementById("modalBackdrop");
+  const mediaBadge = document.getElementById("modalMediaBadge");
+  const ratingBadge = document.getElementById("modalRatingBadge");
+  const yearBadge = document.getElementById("modalYearBadge");
+  const variantsRow = document.getElementById("modalTitleVariants");
+  const huBadge = document.getElementById("modalHuTitleBadge");
+  const enBadge = document.getElementById("modalEnTitleBadge");
+  const origBadge = document.getElementById("modalOrigTitleBadge");
+  const tmdbLoading = document.getElementById("modalTmdbLoading");
+  const tmdbOverview = document.getElementById("modalTmdbOverview");
+  const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
+
+  posterCol.style.display = "none";
+  posterImg.src = "";
+  backdrop.style.display = "none";
+  backdrop.style.backgroundImage = "";
+  mediaBadge.style.display = "none";
+  ratingBadge.style.display = "none";
+  yearBadge.style.display = "none";
+  variantsRow.style.display = "none";
+  huBadge.style.display = "none";
+  enBadge.style.display = "none";
+  origBadge.style.display = "none";
+  tmdbOverview.style.display = "none";
+  tmdbOverviewText.textContent = "";
+  tmdbLoading.style.display = "none";
+}
+
+function renderTmdbDetailsInModal(tmdbData) {
+  resetModalTmdbUi();
+  if (!tmdbData) return;
+
+  const posterCol = document.getElementById("modalPosterCol");
+  const posterImg = document.getElementById("modalPoster");
+  const backdrop = document.getElementById("modalBackdrop");
+  const mediaBadge = document.getElementById("modalMediaBadge");
+  const ratingBadge = document.getElementById("modalRatingBadge");
+  const yearBadge = document.getElementById("modalYearBadge");
+  const variantsRow = document.getElementById("modalTitleVariants");
+  const huBadge = document.getElementById("modalHuTitleBadge");
+  const enBadge = document.getElementById("modalEnTitleBadge");
+  const origBadge = document.getElementById("modalOrigTitleBadge");
+  const tmdbOverview = document.getElementById("modalTmdbOverview");
+  const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
+
+  // Poster
+  if (tmdbData.posterPath) {
+    currentModalPosterPath = tmdbData.posterPath;
+    currentModalTmdbData = tmdbData;
+    posterImg.src = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
+    posterCol.style.display = "block";
+    preloadAndCacheLargePoster(tmdbData.posterPath);
+  } else {
+    currentModalPosterPath = "";
+    currentModalTmdbData = tmdbData;
+  }
+
+  // Backdrop
+  if (tmdbData.backdropPath) {
+    backdrop.style.backgroundImage = `url('https://image.tmdb.org/t/p/w780${tmdbData.backdropPath}')`;
+    backdrop.style.display = "block";
+  }
+
+  // Media type badge
+  if (tmdbData.mediaType) {
+    mediaBadge.textContent =
+      tmdbData.mediaType === "tv" ? t("media_type_tv") : t("media_type_movie");
+    mediaBadge.style.display = "inline-flex";
+  }
+
+  // Rating badge
+  if (tmdbData.voteAverage && tmdbData.voteAverage > 0) {
+    ratingBadge.textContent = `★ ${tmdbData.voteAverage.toFixed(1)} / 10`;
+    ratingBadge.style.display = "inline-flex";
+  }
+
+  // Release year badge
+  if (tmdbData.releaseDate && tmdbData.releaseDate.length >= 4) {
+    yearBadge.textContent = tmdbData.releaseDate.substring(0, 4);
+    yearBadge.style.display = "inline-flex";
+  }
+
+  // Title variants badges
+  let hasVariant = false;
+
+  if (tmdbData.huTitle) {
+    huBadge.textContent = `🇭🇺 ${t("badge_hu")} ${tmdbData.huTitle}`;
+    huBadge.style.display = "inline-flex";
+    huBadge.onclick = () => switchTmdbLang(tmdbData, "hu-HU");
+    hasVariant = true;
+  }
+
+  if (tmdbData.enTitle && tmdbData.enTitle !== tmdbData.huTitle) {
+    enBadge.textContent = `🇬🇧 ${t("badge_en")} ${tmdbData.enTitle}`;
+    enBadge.style.display = "inline-flex";
+    enBadge.onclick = () => switchTmdbLang(tmdbData, "en-US");
+    hasVariant = true;
+  }
+
+  if (
+    tmdbData.originalTitle &&
+    tmdbData.originalTitle !== tmdbData.huTitle &&
+    tmdbData.originalTitle !== tmdbData.enTitle
+  ) {
+    origBadge.textContent = `🌐 ${t("badge_orig")} ${tmdbData.originalTitle}`;
+    origBadge.style.display = "inline-flex";
+    const origLang = tmdbData.originalLanguage
+      ? langCodeToTmdbLang(tmdbData.originalLanguage)
+      : "en-US";
+    origBadge.onclick = () => switchTmdbLang(tmdbData, origLang);
+    hasVariant = true;
+  }
+
+  if (hasVariant) {
+    variantsRow.style.display = "flex";
+  }
+
+  // TMDB Overview
+  if (tmdbData.overview && tmdbData.overview.trim().length > 0) {
+    tmdbOverviewText.textContent = tmdbData.overview;
+    tmdbOverview.style.display = "block";
+  }
+}
+
+function getCurrentModalLang() {
+  const srcId = currentModalChannel?.sourceId || currentSourceId;
+  const currentSrcObj = sources.find((s) => s.id === srcId);
+  const countryCode =
+    currentModalChannel?.countryCode ||
+    (currentSrcObj ? currentSrcObj.countryCode : "HU");
+  return getTmdbLang(countryCode);
+}
+
+function langCodeToTmdbLang(iso639) {
+  const map = {
+    hu: "hu-HU",
+    en: "en-US",
+    de: "de-DE",
+    fr: "fr-FR",
+    es: "es-ES",
+    it: "it-IT",
+    sk: "sk-SK",
+    ro: "ro-RO",
+    pl: "pl-PL",
+    pt: "pt-PT",
+    cs: "cs-CZ",
+    ja: "ja-JP",
+    ko: "ko-KR",
+    zh: "zh-CN",
+    ru: "ru-RU",
+    ar: "ar-SA",
+    tr: "tr-TR",
+    nl: "nl-NL",
+    sv: "sv-SE",
+    da: "da-DK",
+    no: "no-NO",
+    fi: "fi-FI",
+  };
+  return (
+    map[(iso639 || "").toLowerCase()] || `${iso639}-${iso639.toUpperCase()}`
+  );
+}
+
+async function switchTmdbLang(tmdbData, targetLang) {
+  if (!tmdbData || !tmdbData.tmdbId || !tmdbData.mediaType) return;
+  const posterImg = document.getElementById("modalPoster");
+  const posterCol = document.getElementById("modalPosterCol");
+  const backdrop = document.getElementById("modalBackdrop");
+  const tmdbOverview = document.getElementById("modalTmdbOverview");
+  const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
+  const tmdbLoading = document.getElementById("modalTmdbLoading");
+
+  tmdbLoading.style.display = "flex";
+  try {
+    const details = await invoke("get_tmdb_details_for_lang", {
+      tmdbId: tmdbData.tmdbId,
+      mediaType: tmdbData.mediaType,
+      lang: targetLang,
+      queryTitle: currentModalTitle,
+    });
+
+    tmdbLoading.style.display = "none";
+
+    if (details.posterPath) {
+      currentModalPosterPath = details.posterPath;
+      posterImg.src = `https://image.tmdb.org/t/p/w500${details.posterPath}`;
+      posterCol.style.display = "block";
+      preloadAndCacheLargePoster(details.posterPath);
+    }
+
+    if (details.backdropPath) {
+      backdrop.style.backgroundImage = `url('https://image.tmdb.org/t/p/w780${details.backdropPath}')`;
+      backdrop.style.display = "block";
+    }
+
+    if (details.overview && details.overview.trim().length > 0) {
+      tmdbOverviewText.textContent = details.overview;
+      tmdbOverview.style.display = "block";
+    } else {
+      tmdbOverview.style.display = "none";
+      tmdbOverviewText.textContent = "";
+    }
+  } catch (e) {
+    tmdbLoading.style.display = "none";
+    console.warn("TMDB lang switch error:", e);
+  }
+}
+
+function openFixOverlay() {
+  if (!currentModalTitle) return;
+  const overlay = document.getElementById("modalFixOverlay");
+  const searchInput = document.getElementById("modalFixSearchInput");
+  const clearBtn = document.getElementById("modalFixClearBtn");
+  const statusEl = document.getElementById("modalFixStatus");
+  const resultsEl = document.getElementById("modalFixResultsList");
+  const modalContent = document.querySelector("#modalOverlay .modal-content");
+  if (modalContent) modalContent.classList.add("has-fix-open");
+
+  overlay.style.display = "flex";
+  searchInput.value = currentModalTitle;
+  clearBtn.style.display = searchInput.value ? "block" : "none";
+  statusEl.style.display = "none";
+  resultsEl.innerHTML = "";
+
+  setTimeout(() => {
+    searchInput.focus();
+    searchInput.select();
+  }, 50);
+
+  triggerFixSearch(currentModalTitle);
+}
+
+function closeFixOverlay() {
+  const overlay = document.getElementById("modalFixOverlay");
+  if (overlay) overlay.style.display = "none";
+  const modalContent = document.querySelector("#modalOverlay .modal-content");
+  if (modalContent) modalContent.classList.remove("has-fix-open");
+  if (fixSearchDebounce) {
+    clearTimeout(fixSearchDebounce);
+    fixSearchDebounce = null;
+  }
+}
+
+async function triggerFixSearch(query) {
+  const statusEl = document.getElementById("modalFixStatus");
+  const resultsEl = document.getElementById("modalFixResultsList");
+  const spinner = document.getElementById("modalFixSpinner");
+
+  const q = (query || "").trim();
+  if (!q) {
+    resultsEl.innerHTML = "";
+    statusEl.textContent = t("tmdb_fix_no_results");
+    statusEl.style.display = "block";
+    return;
+  }
+
+  spinner.style.display = "inline-block";
+  statusEl.textContent = t("tmdb_fix_searching");
+  statusEl.style.display = "block";
+  resultsEl.innerHTML = "";
+
+  const lang = getCurrentModalLang();
+
+  try {
+    const results = await invoke("search_tmdb", { query: q, lang });
+    spinner.style.display = "none";
+
+    if (!results || results.length === 0) {
+      statusEl.textContent = t("tmdb_fix_no_results");
+      statusEl.style.display = "block";
+      return;
+    }
+
+    statusEl.style.display = "none";
+    renderFixResults(results);
+  } catch (e) {
+    spinner.style.display = "none";
+    const errStr = String(e);
+    if (errStr.includes("TMDB API")) {
+      statusEl.textContent = t("tmdb_fix_api_key_missing");
+    } else {
+      statusEl.textContent = errStr;
+    }
+    statusEl.style.display = "block";
+  }
+}
+
+function renderFixResults(items) {
+  const resultsEl = document.getElementById("modalFixResultsList");
+  resultsEl.innerHTML = "";
+
+  items.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "fix-result-card";
+
+    // Poster
+    if (item.posterPath) {
+      const img = document.createElement("img");
+      img.className = "fix-result-poster";
+      img.src = `https://image.tmdb.org/t/p/w92${item.posterPath}`;
+      img.alt = item.title || "Poster";
+      card.appendChild(img);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "fix-result-poster-placeholder";
+      placeholder.textContent = item.mediaType === "tv" ? "📺" : "🎬";
+      card.appendChild(placeholder);
+    }
+
+    // Info
+    const info = document.createElement("div");
+    info.className = "fix-result-info";
+
+    const header = document.createElement("div");
+    header.className = "fix-result-header";
+
+    const title = document.createElement("span");
+    title.className = "fix-result-title";
+    title.textContent = item.title;
+    header.appendChild(title);
+
+    if (item.originalTitle && item.originalTitle !== item.title) {
+      const orig = document.createElement("span");
+      orig.className = "fix-result-orig-title";
+      orig.textContent = `(${item.originalTitle})`;
+      header.appendChild(orig);
+    }
+
+    const badges = document.createElement("div");
+    badges.className = "fix-result-badges";
+
+    const mediaBadge = document.createElement("span");
+    mediaBadge.className = "tmdb-badge tmdb-badge-media";
+    mediaBadge.textContent =
+      item.mediaType === "tv" ? t("media_type_tv") : t("media_type_movie");
+    badges.appendChild(mediaBadge);
+
+    if (item.releaseDate && item.releaseDate.length >= 4) {
+      const yearBadge = document.createElement("span");
+      yearBadge.className = "tmdb-badge tmdb-badge-year";
+      yearBadge.textContent = item.releaseDate.substring(0, 4);
+      badges.appendChild(yearBadge);
+    }
+
+    if (item.voteAverage && item.voteAverage > 0) {
+      const ratingBadge = document.createElement("span");
+      ratingBadge.className = "tmdb-badge tmdb-badge-rating";
+      ratingBadge.textContent = `★ ${item.voteAverage.toFixed(1)}`;
+      badges.appendChild(ratingBadge);
+    }
+
+    header.appendChild(badges);
+    info.appendChild(header);
+
+    if (item.overview && item.overview.trim().length > 0) {
+      const overview = document.createElement("div");
+      overview.className = "fix-result-overview";
+      overview.textContent = item.overview;
+      info.appendChild(overview);
+    }
+
+    card.appendChild(info);
+
+    card.onclick = async () => {
+      if (card.classList.contains("selecting")) return;
+      card.classList.add("selecting");
+      const lang = getCurrentModalLang();
+      try {
+        const updatedDetails = await invoke("set_tmdb_match", {
+          queryTitle: currentModalTitle,
+          tmdbId: item.id,
+          mediaType: item.mediaType,
+          lang,
+        });
+        renderTmdbDetailsInModal(updatedDetails);
+        closeFixOverlay();
+      } catch (err) {
+        console.error("Hiba a TMDB egyezés mentésekor:", err);
+        card.classList.remove("selecting");
+        alert(String(err));
+      }
+    };
+
+    resultsEl.appendChild(card);
+  });
+}
+
+async function removeTmdbMatch() {
+  if (!currentModalTitle) return;
+  const lang = getCurrentModalLang();
+  try {
+    await invoke("clear_tmdb_match", {
+      queryTitle: currentModalTitle,
+      lang,
+    });
+    resetModalTmdbUi();
+    closeFixOverlay();
+  } catch (e) {
+    console.error("Hiba a TMDB egyezés törlésekor:", e);
+  }
+}
+
+async function openModal(title, time, desc, channel) {
+  currentModalTitle = title;
+  currentModalChannel = channel;
+  currentModalFetchIndex++;
+  const fetchIndex = currentModalFetchIndex;
+
+  // Set basic EPG fields immediately
+  document.getElementById("modalTitle").innerText = title;
+  document.getElementById("modalTime").innerText = time;
+  document.getElementById("modalDesc").innerText = desc || t("modal_no_desc");
+  updateModalFavStar();
+
+  // Close fix overlay and reset TMDB UI
+  closeFixOverlay();
+  resetModalTmdbUi();
+
+  const tmdbLoading = document.getElementById("modalTmdbLoading");
+  tmdbLoading.style.display = "flex";
+
+  document.getElementById("modalOverlay").classList.add("active");
+
+  const lang = getCurrentModalLang();
+
+  try {
+    const tmdbData = await invoke("get_tmdb_details", {
+      title,
+      lang,
+    });
+
+    // Check if modal is still open for the same request
+    if (
+      currentModalTitle !== title ||
+      fetchIndex !== currentModalFetchIndex ||
+      !document.getElementById("modalOverlay").classList.contains("active")
+    ) {
+      return;
+    }
+
+    tmdbLoading.style.display = "none";
+    renderTmdbDetailsInModal(tmdbData);
+  } catch (e) {
+    console.warn("TMDB betöltési hiba:", e);
+    if (currentModalTitle === title) {
+      document.getElementById("modalTmdbLoading").style.display = "none";
+    }
+  }
+}
+
+function updateModalFavStar() {
+  const star = document.getElementById("modalFavStar");
+  if (favorites.includes(currentModalTitle)) {
+    star.classList.add("active");
+  } else {
+    star.classList.remove("active");
+  }
+}
+
+document.getElementById("modalFavStar").onclick = () => {
+  if (currentModalTitle) toggleFavorite(currentModalTitle);
+};
+
+async function loadTmdbSettings() {
+  const statusBadge = document.getElementById("tmdbKeyStatusBadge");
+  const keyInput = document.getElementById("tmdbApiKeyInput");
+  try {
+    const key = await invoke("get_tmdb_api_key");
+    if (key && key.trim()) {
+      keyInput.value = key;
+      statusBadge.textContent = t("tmdb_status_configured");
+      statusBadge.style.background = "#2b6cb0";
+    } else {
+      keyInput.value = "";
+      statusBadge.textContent = t("tmdb_status_not_configured");
+      statusBadge.style.background = "#4a5568";
+    }
+  } catch (e) {
+    console.error("Hiba a TMDB kulcs lekérésekor:", e);
+  }
+}
+
+async function saveTmdbKey() {
+  const key = document.getElementById("tmdbApiKeyInput").value.trim();
+  const statusBadge = document.getElementById("tmdbKeyStatusBadge");
+  try {
+    await invoke("set_tmdb_api_key", { apiKey: key });
+    if (key) {
+      statusBadge.textContent = t("tmdb_status_configured");
+      statusBadge.style.background = "#2b6cb0";
+      await showAlert(t("alert_success_title"), t("tmdb_saved_success"));
+    } else {
+      statusBadge.textContent = t("tmdb_status_not_configured");
+      statusBadge.style.background = "#4a5568";
+    }
+  } catch (e) {
+    await showAlert(t("alert_error_title"), String(e));
+  }
+}
+
+async function clearTmdbKey() {
+  document.getElementById("tmdbApiKeyInput").value = "";
+  await saveTmdbKey();
+}
+
+async function testTmdbKey() {
+  const key = document.getElementById("tmdbApiKeyInput").value.trim();
+  const statusBadge = document.getElementById("tmdbKeyStatusBadge");
+  if (!key) {
+    statusBadge.textContent = t("tmdb_status_not_configured");
+    statusBadge.style.background = "#4a5568";
+    return await showAlert(
+      t("alert_warning_title"),
+      t("tmdb_api_key_placeholder"),
+    );
+  }
+  statusBadge.textContent = "...";
+  try {
+    const isValid = await invoke("test_tmdb_api_key", { apiKey: key });
+    if (isValid) {
+      statusBadge.textContent = t("tmdb_status_valid");
+      statusBadge.style.background = "#28a745";
+      await showAlert(t("alert_success_title"), t("tmdb_test_success"));
+    } else {
+      statusBadge.textContent = t("tmdb_status_invalid");
+      statusBadge.style.background = "#e53e3e";
+      await showAlert(t("alert_error_title"), t("tmdb_test_fail"));
+    }
+  } catch (e) {
+    statusBadge.textContent = t("tmdb_status_invalid");
+    statusBadge.style.background = "#e53e3e";
+    await showAlert(t("alert_error_title"), `${t("tmdb_test_fail")}\n(${e})`);
+  }
+}
+
+async function clearTmdbCache() {
+  const confirmed = await showConfirm(
+    t("tmdb_btn_clear_cache"),
+    t("tmdb_desc") + "\n\n" + t("confirm_clear_db_title") + "?",
+  );
+  if (!confirmed) return;
+  try {
+    await invoke("clear_tmdb_cache");
+    await showAlert(t("alert_success_title"), t("tmdb_cache_cleared"));
+  } catch (e) {
+    await showAlert(t("alert_error_title"), String(e));
+  }
+}
+
+function renderNowLine(dayStart) {
+  const oldLines = document.querySelectorAll(".now-line, .now-line-vertical");
+  oldLines.forEach((l) => l.remove());
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  if (selectedDateStr === todayStr) {
+    const currentMin = now.getHours() * 60 + now.getMinutes();
+
+    if (currentLayout === "horizontal") {
+      const channelColWidth =
+        parseInt(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--channel-col-width",
+          ),
+        ) || 300;
+      const minuteScale = getEffectiveMinuteScale();
+      const leftPx = currentMin * minuteScale + channelColWidth;
+      const line = document.createElement("div");
+      line.className = "now-line-vertical";
+      line.style.left = `${leftPx}px`;
+      document.getElementById("channelsContainer").appendChild(line);
+    } else {
+      const headerHeight =
+        parseInt(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--header-height",
+          ),
+        ) || 56;
+      const topPx = currentMin * currentMinuteHeight + headerHeight;
+      const line = document.createElement("div");
+      line.className = "now-line";
+      line.style.top = `${topPx}px`;
+      document.getElementById("channelsContainer").appendChild(line);
+    }
+  }
+}
+
+function scrollToNow() {
+  const viewport = document.getElementById("epgViewport");
+  if (!viewport) return;
+
+  if (currentLayout === "horizontal") {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    // Find the earliest starting time among all currently running programs
+    let earliestStartMin = null;
+    if (selectedDateStr === todayStr && epgData.programmes) {
+      epgData.programmes.forEach((p) => {
+        if (p.start <= now && p.stop > now) {
+          const sMin = p.start.getHours() * 60 + p.start.getMinutes();
+          if (earliestStartMin === null || sMin < earliestStartMin) {
+            earliestStartMin = sMin;
+          }
+        }
+      });
+    }
+
+    const minuteScale = getEffectiveMinuteScale();
+    if (earliestStartMin !== null) {
+      // Align the beginning of the earliest actual program to the grid start (right after channel column)
+      viewport.scrollLeft = Math.max(0, earliestStartMin * minuteScale);
+    } else {
+      const nowLine = document.querySelector(".now-line-vertical");
+      if (nowLine) {
+        viewport.scrollLeft = Math.max(0, nowLine.offsetLeft - 350);
+      }
+    }
+  } else {
+    const nowLine = document.querySelector(".now-line");
+    if (nowLine) {
+      viewport.scrollTop = Math.max(0, nowLine.offsetTop - 200);
+    }
+  }
+}
+
+function switchSettingsTab(tabName) {
+  document.querySelectorAll(".settings-nav-item").forEach((btn) => {
+    if (btn.dataset.tab === tabName) btn.classList.add("active");
+    else btn.classList.remove("active");
+  });
+
+  document
+    .querySelectorAll(".settings-tab-pane")
+    .forEach((pane) => pane.classList.remove("active"));
+  if (tabName === "sources") {
+    document.getElementById("tabPaneSources").classList.add("active");
+  } else if (tabName === "favorites") {
+    document.getElementById("tabPaneFavorites").classList.add("active");
+    renderFavoritesList();
+  } else if (tabName === "channels") {
+    document.getElementById("tabPaneChannels").classList.add("active");
+    renderChannelOrderList();
+  } else if (tabName === "tmdb") {
+    document.getElementById("tabPaneTmdb").classList.add("active");
+    loadTmdbSettings();
+  } else if (tabName === "export") {
+    document.getElementById("tabPaneExport").classList.add("active");
+  }
+}
+
+document.querySelectorAll(".settings-nav-item").forEach((item) => {
+  item.onclick = () => switchSettingsTab(item.dataset.tab);
+});
+
+function renderFavoritesList() {
+  const content = document.getElementById("favListContent");
+  content.innerHTML = "";
+
+  if (favorites.length === 0) {
+    content.innerHTML = `<p style="color:#8e94a8; font-size:13px;">${t("no_favorites")}</p>`;
+    return;
+  }
+
+  let matchedList = [];
+  favorites.forEach((favTitle) => {
+    const progs = epgData.programmes.filter((p) => p.title === favTitle);
+    progs.forEach((p) => matchedList.push(p));
+  });
+
+  matchedList.sort((a, b) => a.start - b.start);
+
+  const groupedByDay = {};
+  matchedList.forEach((prog) => {
+    const dayKey = formatDateLabel(
+      `${prog.start.getFullYear()}-${String(prog.start.getMonth() + 1).padStart(2, "0")}-${String(prog.start.getDate()).padStart(2, "0")}`,
+    );
+    if (!groupedByDay[dayKey]) groupedByDay[dayKey] = [];
+    groupedByDay[dayKey].push(prog);
+  });
+
+  if (Object.keys(groupedByDay).length === 0) {
+    favorites.forEach((favTitle) => {
+      const row = document.createElement("div");
+      row.className = "fav-item-row";
+      row.innerHTML = `
+                        <span class="fav-item-title">${favTitle}</span>
+                        <button class="btn btn-red" style="padding: 2px 6px; margin-left: 6px;">X</button>
+                    `;
+      row.querySelector("button").onclick = () => toggleFavorite(favTitle);
+      content.appendChild(row);
+    });
+    return;
+  }
+
+  for (const [dayHeader, progs] of Object.entries(groupedByDay)) {
+    const groupDiv = document.createElement("div");
+    groupDiv.className = "fav-day-group";
+
+    const header = document.createElement("div");
+    header.className = "fav-day-header";
+    header.textContent = dayHeader;
+    groupDiv.appendChild(header);
+
+    progs.forEach((prog) => {
+      const ch = epgData.channels.find((c) => c.id === prog.channel);
+      const chName = ch ? ch.name : prog.channel;
+      const startStr = prog.start.toTimeString().substring(0, 5);
+
+      const row = document.createElement("div");
+      row.className = "fav-item-row";
+      row.innerHTML = `
+                        <span class="start-badge">${startStr}</span>
+                        <span class="fav-item-title">${prog.title}</span>
+                        <span class="channel-badge">${chName}</span>
+                        <button class="btn btn-red" style="padding: 2px 6px; margin-left: 6px;">X</button>
+                    `;
+      row.querySelector("button").onclick = () => toggleFavorite(prog.title);
+      groupDiv.appendChild(row);
+    });
+
+    content.appendChild(groupDiv);
+  }
+}
+
+function loadChannelOrderSourcesDropdown() {
+  const select = document.getElementById("channelOrderSourceSelect");
+  select.innerHTML = "";
+  sources.forEach((s) => {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
+    select.appendChild(opt);
+  });
+  if (currentSourceId && currentSourceId !== "__ALL_FAVORITES__") {
+    select.value = currentSourceId;
+  } else if (sources.length > 0) {
+    select.value = sources[0].id;
+  }
+  select.onchange = () => renderChannelOrderList();
+}
+
+function setupChannelOrderPointerDrag(item, handle, container, updateAndSave) {
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    item.classList.add("dragging");
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch (err) {}
+
+    const onPointerMove = (moveEvent) => {
+      const targetEl = document
+        .elementFromPoint(moveEvent.clientX, moveEvent.clientY)
+        ?.closest(".channel-order-item");
+      if (
+        targetEl &&
+        targetEl !== item &&
+        targetEl.parentElement === container
+      ) {
+        const rect = targetEl.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if (moveEvent.clientY < midY) {
+          container.insertBefore(item, targetEl);
+        } else {
+          container.insertBefore(item, targetEl.nextSibling);
+        }
+      }
+    };
+
+    const onPointerUp = async (upEvent) => {
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("pointercancel", onPointerUp);
+
+      try {
+        handle.releasePointerCapture(upEvent.pointerId);
+      } catch (err) {}
+
+      item.classList.remove("dragging");
+      await updateAndSave();
+    };
+
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp);
+    document.addEventListener("pointercancel", onPointerUp);
+  });
+}
+
+let channelFilterMode = "all";
+let channelSearchQuery = "";
+
+const channelSearchInput = document.getElementById("channelOrderSearchInput");
+if (channelSearchInput) {
+  channelSearchInput.oninput = (e) => {
+    channelSearchQuery = e.target.value.toLowerCase().trim();
+    renderChannelOrderList();
+  };
+}
+
+["all", "active", "fav", "hidden"].forEach((mode) => {
+  const btnId =
+    mode === "all"
+      ? "filterChanAll"
+      : mode === "active"
+        ? "filterChanActive"
+        : mode === "fav"
+          ? "filterChanFav"
+          : "filterChanHidden";
+  const btn = document.getElementById(btnId);
+  if (btn) {
+    btn.onclick = () => {
+      channelFilterMode = mode;
+      document
+        .querySelectorAll(".btn-filter-channel")
+        .forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderChannelOrderList();
+    };
+  }
+});
+
+async function renderChannelOrderList() {
+  const select = document.getElementById("channelOrderSourceSelect");
+  const targetSourceId =
+    select.value ||
+    (currentSourceId && currentSourceId !== "__ALL_FAVORITES__"
+      ? currentSourceId
+      : sources.length > 0
+        ? sources[0].id
+        : "");
+  const container = document.getElementById("channelOrderList");
+  const contentArea = document.querySelector(".settings-content-area");
+  const savedContainerScroll = container ? container.scrollTop : 0;
+  const savedContentAreaScroll = contentArea ? contentArea.scrollTop : 0;
+  container.innerHTML = "";
+
+  if (!targetSourceId) {
+    container.innerHTML = `<p style="color:#8e94a8; font-size:13px;">Nincsenek elérhető források.</p>`;
+    return;
+  }
+
+  let sourceChannels = [];
+  if (
+    targetSourceId === currentSourceId &&
+    currentSourceId !== "__ALL_FAVORITES__" &&
+    epgData.channels.length > 0
+  ) {
+    sourceChannels = [...epgData.channels];
+  } else {
+    const res = await invoke("get_epg_data", {
+      sourceId: targetSourceId,
+    });
+    sourceChannels = res.channels || [];
+  }
+
+  if (sourceChannels.length === 0) {
+    container.innerHTML = `<p style="color:#8e94a8; font-size:13px;">Nincsenek csatornák ebben a forrásban.</p>`;
+    return;
+  }
+
+  const filteredChannels = sourceChannels.filter((ch) => {
+    if (channelFilterMode === "active" && ch.isHidden) return false;
+    if (channelFilterMode === "fav" && !ch.isFavorite) return false;
+    if (channelFilterMode === "hidden" && !ch.isHidden) return false;
+    if (channelSearchQuery) {
+      const nameMatch = String(ch.name || "")
+        .toLowerCase()
+        .includes(channelSearchQuery);
+      const idMatch = String(ch.id || "")
+        .toLowerCase()
+        .includes(channelSearchQuery);
+      if (!nameMatch && !idMatch) return false;
+    }
+    return true;
+  });
+
+  if (filteredChannels.length === 0) {
+    container.innerHTML = `<p style="color:#8e94a8; font-size:13px; padding:10px 0;">Nincs a szűrésnek megfelelő csatorna.</p>`;
+    return;
+  }
+
+  const updateAndSave = async () => {
+    const reorderedItems = Array.from(
+      container.querySelectorAll(".channel-order-item"),
+    );
+    let newOrder = [];
+    if (channelFilterMode === "all" && !channelSearchQuery) {
+      newOrder = reorderedItems.map((el, i) => {
+        const idxEl = el.querySelector(".order-index");
+        if (idxEl) idxEl.innerText = i + 1;
+        return el.dataset.channelId;
+      });
+    } else {
+      newOrder = sourceChannels.map((c) => c.id);
+    }
+
+    await invoke("save_channel_order", {
+      sourceId: targetSourceId,
+      order: newOrder,
+    });
+
+    if (targetSourceId === currentSourceId) {
+      epgData.channels.sort((a, b) => {
+        if (a.isFavorite !== b.isFavorite) {
+          return a.isFavorite ? -1 : 1;
+        }
+        return newOrder.indexOf(a.id) - newOrder.indexOf(b.id);
+      });
+      renderEPG();
+    }
+  };
+
+  filteredChannels.forEach((ch, idx) => {
+    const item = document.createElement("div");
+    const isFav = !!ch.isFavorite;
+    const isHidden = !!ch.isHidden;
+    item.className = `channel-order-item ${isFav ? "is-fav" : ""} ${isHidden ? "is-hidden" : ""}`;
+    item.dataset.channelId = ch.id;
+
+    const effectiveLogo = ch.customIcon || ch.icon || "";
+
+    item.innerHTML = `
+            <div class="channel-item-main">
+              <span class="drag-handle" title="${t("channels_drag_hint")}">☰</span>
+              <span class="order-index">${idx + 1}</span>
+              <div class="channel-order-logo-preview">
+                ${effectiveLogo ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : '<span style="font-size:10px; color:#555;">TV</span>'}
+              </div>
+              <span class="channel-order-name" title="${ch.name}">${ch.name}</span>
+              <span class="channel-tag">ID: ${ch.id}</span>
+              ${isHidden ? `<span class="badge-hidden">${t("channel_hidden_badge")}</span>` : ""}
+              <button class="btn-channel-fav ${isFav ? "active" : ""}" title="${isFav ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+              <button class="btn-channel-hide ${isHidden ? "is-hidden" : ""}" title="${isHidden ? t("channel_unhide_toggle") : t("channel_hide_toggle")}">
+                ${isHidden ? "🚫" : "👁"}
+              </button>
+              <div class="channel-reorder-btns">
+                <button class="btn-order-arrow btn-up" title="Feljebb">▲</button>
+                <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
+              </div>
+            </div>
+            <div class="channel-edit-fields-container">
+              <div class="channel-rename-row">
+                <span class="channel-rename-label">${t("channel_name_label")}</span>
+                <input type="text" class="channel-rename-input" placeholder="${t("channel_name_placeholder")}" value="${ch.customName || ""}" />
+                <div class="channel-edit-fields-actions">
+                  <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
+                  ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
+                </div>
+              </div>
+              <div class="channel-logo-row">
+                <span class="channel-logo-label">${t("channel_logo_label")}</span>
+                <input type="text" class="channel-logo-input" placeholder="${t("channel_logo_placeholder")}" value="${ch.customIcon || ""}" />
+              </div>
+            </div>
+          `;
+
+    // Kedvenc kapcsoló
+    item.querySelector(".btn-channel-fav").onclick = async (e) => {
+      e.stopPropagation();
+      const newFav = await invoke("toggle_channel_favorite", {
+        sourceId: targetSourceId,
+        channelId: ch.id,
+      });
+      ch.isFavorite = newFav;
+      if (targetSourceId === currentSourceId) {
+        const liveCh = epgData.channels.find((c) => c.id === ch.id);
+        if (liveCh) liveCh.isFavorite = newFav;
+        epgData.channels.sort((a, b) => {
+          if (a.isFavorite !== b.isFavorite) {
+            return a.isFavorite ? -1 : 1;
+          }
+          return 0;
+        });
+        renderEPG();
+      }
+      renderChannelOrderList();
+    };
+
+    // Rejtés kapcsoló
+    item.querySelector(".btn-channel-hide").onclick = async (e) => {
+      e.stopPropagation();
+      const newHidden = await invoke("toggle_channel_hidden", {
+        sourceId: targetSourceId,
+        channelId: ch.id,
+      });
+      ch.isHidden = newHidden;
+      if (targetSourceId === currentSourceId) {
+        const liveCh = epgData.channels.find((c) => c.id === ch.id);
+        if (liveCh) liveCh.isHidden = newHidden;
+        renderEPG();
+      }
+      renderChannelOrderList();
+    };
+
+    // Együttes mentés (Név és Logó egyszerre)
+    const logoInput = item.querySelector(".channel-logo-input");
+    const renameInput = item.querySelector(".channel-rename-input");
+
+    const saveBoth = async () => {
+      const newName = renameInput.value.trim();
+      const newLogo = logoInput.value.trim();
+
+      await invoke("rename_channel", {
+        sourceId: targetSourceId,
+        channelId: ch.id,
+        name: newName,
+      });
+      await invoke("set_channel_logo", {
+        sourceId: targetSourceId,
+        channelId: ch.id,
+        logoUrl: newLogo,
+      });
+
+      ch.customName = newName || null;
+      ch.customIcon = newLogo || null;
+
+      if (targetSourceId === currentSourceId) {
+        const liveCh = epgData.channels.find((c) => c.id === ch.id);
+        if (liveCh) {
+          liveCh.customName = ch.customName;
+          liveCh.name = ch.customName || liveCh.originalName || liveCh.name;
+          liveCh.customIcon = ch.customIcon;
+          liveCh.cachedIcon = null;
+          if (newLogo) {
+            invoke("cache_logo", { url: newLogo })
+              .then((dataUri) => {
+                liveCh.cachedIcon = dataUri;
+                renderEPG();
+              })
+              .catch(() => {});
+          }
+        }
+        renderEPG();
+      }
+
+      // Frissítsük közvetlenül a DOM elemet újrarajzolás nélkül, így megmarad a fókusz és a görgetési pozíció
+      const nameSpan = item.querySelector(".channel-order-name");
+      if (nameSpan) {
+        nameSpan.textContent = ch.customName || ch.originalName || ch.name;
+        nameSpan.title = ch.customName || ch.originalName || ch.name;
+      }
+      const logoPreview = item.querySelector(".channel-order-logo-preview");
+      const effectiveLogo = ch.customIcon || ch.icon || "";
+      if (logoPreview) {
+        logoPreview.innerHTML = effectiveLogo
+          ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
+          : '<span style="font-size:10px; color:#555;">TV</span>';
+      }
+      const actionsWrap = item.querySelector(".channel-edit-fields-actions");
+      if (actionsWrap) {
+        actionsWrap.innerHTML = `
+                <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
+                ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
+              `;
+        const newSaveBtn = actionsWrap.querySelector(".btn-channel-data-save");
+        if (newSaveBtn)
+          newSaveBtn.onclick = (e) => {
+            e.stopPropagation();
+            saveBoth();
+          };
+        const newResetBtn = actionsWrap.querySelector(
+          ".btn-channel-data-reset",
+        );
+        if (newResetBtn)
+          newResetBtn.onclick = (e) => {
+            e.stopPropagation();
+            resetBoth();
+          };
+      }
+    };
+
+    const resetBoth = async () => {
+      await invoke("rename_channel", {
+        sourceId: targetSourceId,
+        channelId: ch.id,
+        name: "",
+      });
+      await invoke("set_channel_logo", {
+        sourceId: targetSourceId,
+        channelId: ch.id,
+        logoUrl: "",
+      });
+
+      ch.customName = null;
+      ch.customIcon = null;
+
+      if (targetSourceId === currentSourceId) {
+        const liveCh = epgData.channels.find((c) => c.id === ch.id);
+        if (liveCh) {
+          liveCh.customName = null;
+          liveCh.name = liveCh.originalName || liveCh.name;
+          liveCh.customIcon = null;
+          liveCh.cachedIcon = null;
+        }
+        renderEPG();
+      }
+
+      renameInput.value = "";
+      logoInput.value = "";
+      const nameSpan = item.querySelector(".channel-order-name");
+      if (nameSpan) {
+        nameSpan.textContent = ch.originalName || ch.name;
+        nameSpan.title = ch.originalName || ch.name;
+      }
+      const logoPreview = item.querySelector(".channel-order-logo-preview");
+      const effectiveLogo = ch.icon || "";
+      if (logoPreview) {
+        logoPreview.innerHTML = effectiveLogo
+          ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
+          : '<span style="font-size:10px; color:#555;">TV</span>';
+      }
+      const actionsWrap = item.querySelector(".channel-edit-fields-actions");
+      if (actionsWrap) {
+        actionsWrap.innerHTML = `
+                <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
+              `;
+        const newSaveBtn = actionsWrap.querySelector(".btn-channel-data-save");
+        if (newSaveBtn)
+          newSaveBtn.onclick = (e) => {
+            e.stopPropagation();
+            saveBoth();
+          };
+      }
+    };
+
+    const saveBtn = item.querySelector(".btn-channel-data-save");
+    if (saveBtn)
+      saveBtn.onclick = (e) => {
+        e.stopPropagation();
+        saveBoth();
+      };
+
+    const resetBtn = item.querySelector(".btn-channel-data-reset");
+    if (resetBtn)
+      resetBtn.onclick = (e) => {
+        e.stopPropagation();
+        resetBoth();
+      };
+
+    renameInput.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        saveBoth();
+      }
+    };
+
+    logoInput.onkeydown = (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        saveBoth();
+      }
+    };
+
+    // Nyilakkal mozgatás
+    item.querySelector(".btn-up").onclick = (e) => {
+      e.stopPropagation();
+      const prev = item.previousElementSibling;
+      if (prev) {
+        container.insertBefore(item, prev);
+        updateAndSave();
+      }
+    };
+
+    item.querySelector(".btn-down").onclick = (e) => {
+      e.stopPropagation();
+      const next = item.nextElementSibling;
+      if (next) {
+        container.insertBefore(next, item);
+        updateAndSave();
+      }
+    };
+
+    const handle = item.querySelector(".drag-handle");
+    setupChannelOrderPointerDrag(item, handle, container, updateAndSave);
+
+    container.appendChild(item);
+  });
+
+  if (savedContainerScroll > 0) {
+    container.scrollTop = savedContainerScroll;
+  }
+  if (savedContentAreaScroll > 0 && contentArea) {
+    contentArea.scrollTop = savedContentAreaScroll;
+  }
+}
+
+document.getElementById("resetChannelOrderBtn").onclick = async () => {
+  const select = document.getElementById("channelOrderSourceSelect");
+  const targetSourceId = select.value || currentSourceId;
+  if (!targetSourceId) return;
+
+  await invoke("save_channel_order", {
+    sourceId: targetSourceId,
+    order: [],
+  });
+  if (targetSourceId === currentSourceId) {
+    await fetchEPG();
+  }
+  await renderChannelOrderList();
+};
+
+function setExportImportStatus(elementId, text, type = "loading") {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.className = `export-import-status status-${type}`;
+  el.textContent = text;
+  el.style.display = "inline-block";
+  if (type !== "loading") {
+    setTimeout(() => {
+      if (el.textContent === text) {
+        el.style.display = "none";
+      }
+    }, 6000);
+  }
+}
+
+document.getElementById("exportSettingsBtn").onclick = async () => {
+  try {
+    setExportImportStatus(
+      "settingsDataStatus",
+      t("status_exporting"),
+      "loading",
+    );
+    const backup = await invoke("export_settings");
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `epg-viewer-settings-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setExportImportStatus(
+      "settingsDataStatus",
+      t("alert_export_success"),
+      "success",
+    );
+  } catch (err) {
+    setExportImportStatus(
+      "settingsDataStatus",
+      t("alert_export_error"),
+      "error",
+    );
+    await showAlert(
+      t("alert_error_title"),
+      t("alert_export_error") + ": " + err,
+    );
+  }
+};
+
+document.getElementById("importSettingsInput").onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    setExportImportStatus(
+      "settingsDataStatus",
+      t("status_importing"),
+      "loading",
+    );
+    const text = await file.text();
+    const backup = JSON.parse(text);
+    await invoke("import_settings", { backup });
+    setExportImportStatus(
+      "settingsDataStatus",
+      t("alert_import_success"),
+      "success",
+    );
+    await showAlert(t("alert_success_title"), t("alert_import_success"));
+    await refreshSourcesFromDb();
+    favorites = await invoke("get_favorites");
+    await fetchEPG();
+    renderFavoritesList();
+    await renderChannelOrderList();
+  } catch (err) {
+    setExportImportStatus(
+      "settingsDataStatus",
+      t("alert_import_error"),
+      "error",
+    );
+    await showAlert(
+      t("alert_error_title"),
+      t("alert_import_error") + ": " + err,
+    );
+  }
+  e.target.value = "";
+};
+
+function parseCsvLine(line, delimiter = ",") {
+  const result = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === delimiter && !inQuotes) {
+      result.push(cur);
+      cur = "";
+    } else {
+      cur += char;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+function parseCsvRows(text) {
+  // Normalize CRLF to LF
+  const clean = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const rawLines = clean.split("\n");
+  const lines = [];
+  let acc = "";
+  let inQuotes = false;
+
+  for (const rawLine of rawLines) {
+    if (!inQuotes) {
+      acc = rawLine;
+    } else {
+      acc += "\n" + rawLine;
+    }
+    // Count quotes in rawLine
+    let quoteCount = 0;
+    for (let i = 0; i < rawLine.length; i++) {
+      if (rawLine[i] === '"') quoteCount++;
+    }
+    if (quoteCount % 2 === 1) {
+      inQuotes = !inQuotes;
+    }
+    if (!inQuotes && acc.trim()) {
+      lines.push(acc);
+      acc = "";
+    }
+  }
+  if (acc.trim()) {
+    lines.push(acc);
+  }
+  if (lines.length === 0) return [];
+
+  // Detect delimiter: comma or semicolon based on first line
+  const firstLine = lines[0];
+  const delimiter =
+    (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length
+      ? ";"
+      : ",";
+
+  const headers = parseCsvLine(lines[0], delimiter).map((h) =>
+    h
+      .trim()
+      .replace(/^[\uFEFF]/, "")
+      .toLowerCase(),
+  );
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCsvLine(lines[i], delimiter);
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = cols[idx] !== undefined ? cols[idx].trim() : "";
+    });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function escapeCsvField(val) {
+  if (val === null || val === undefined) return "";
+  const str = String(val);
+  if (
+    str.includes(",") ||
+    str.includes('"') ||
+    str.includes("\n") ||
+    str.includes("\r") ||
+    str.includes(";")
+  ) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+document.getElementById("exportChannelDataBtn").onclick = async () => {
+  try {
+    setExportImportStatus(
+      "channelDataStatus",
+      t("status_exporting"),
+      "loading",
+    );
+    const exportData = await invoke("export_channel_data");
+    const channels = exportData.channels || [];
+
+    const headers = [
+      "source_id",
+      "source_name",
+      "source_url",
+      "channel_id",
+      "channel_name",
+      "favorite",
+      "hidden",
+      "channel_position",
+      "custom_icon_url",
+      "custom_name",
+    ];
+
+    const csvRows = [headers.join(";")];
+    for (const ch of channels) {
+      const row = [
+        escapeCsvField(ch.sourceId || ""),
+        escapeCsvField(ch.sourceName || ""),
+        escapeCsvField(ch.sourceUrl || ""),
+        escapeCsvField(ch.channelId || ""),
+        escapeCsvField(ch.channelName || ""),
+        escapeCsvField(ch.isFavorite ? 1 : 0),
+        escapeCsvField(ch.isHidden ? 1 : 0),
+        escapeCsvField(
+          ch.position !== null && ch.position !== undefined ? ch.position : "",
+        ),
+        escapeCsvField(ch.customIcon || ""),
+        escapeCsvField(ch.customName || ""),
+      ];
+      csvRows.push(row.join(";"));
+    }
+
+    const csvString = "\uFEFF" + csvRows.join("\r\n");
+    const blob = new Blob([csvString], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `epg-channels-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setExportImportStatus(
+      "channelDataStatus",
+      t("alert_export_success"),
+      "success",
+    );
+  } catch (err) {
+    setExportImportStatus(
+      "channelDataStatus",
+      t("alert_channel_export_error"),
+      "error",
+    );
+    await showAlert(
+      t("alert_error_title"),
+      t("alert_channel_export_error") + ": " + err,
+    );
+  }
+};
+
+document.getElementById("importChannelDataInput").onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    setExportImportStatus(
+      "channelDataStatus",
+      t("status_importing"),
+      "loading",
+    );
+    const text = await file.text();
+    let channels = [];
+
+    // Support both CSV and legacy JSON fallback
+    if (
+      file.name.toLowerCase().endsWith(".json") ||
+      text.trim().startsWith("{")
+    ) {
+      const parsed = JSON.parse(text);
+      channels = parsed.channels || [];
+    } else {
+      const rows = parseCsvRows(text);
+      channels = rows.map((r) => {
+        const favVal = (
+          r["favorite"] ||
+          r["is_favorite"] ||
+          r["isfavorite"] ||
+          "0"
+        ).trim();
+        const hidVal = (
+          r["hidden"] ||
+          r["is_hidden"] ||
+          r["ishidden"] ||
+          "0"
+        ).trim();
+        const posVal = (r["channel_position"] || r["position"] || "").trim();
+
+        const sourceId = r["source_id"] || r["sourceid"] || "";
+        const channelId = r["channel_id"] || r["channelid"] || "";
+
+        const customIcon =
+          r["custom_icon_url"] || r["custom_icon"] || r["customicon"] || "";
+        const customName = r["custom_name"] || r["customname"] || "";
+
+        return {
+          sourceId,
+          sourceName: r["source_name"] || r["sourcename"] || "",
+          sourceUrl: r["source_url"] || r["sourceurl"] || "",
+          channelId,
+          channelName: r["channel_name"] || r["channelname"] || "",
+          isFavorite: favVal === "1" || favVal.toLowerCase() === "true",
+          isHidden: hidVal === "1" || hidVal.toLowerCase() === "true",
+          position:
+            posVal !== "" && !isNaN(parseInt(posVal, 10))
+              ? parseInt(posVal, 10)
+              : null,
+          customIcon: customIcon || null,
+          customName: customName || null,
+        };
+      });
+    }
+
+    await invoke("import_channel_data", {
+      data: {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        channels,
+      },
+    });
+    setExportImportStatus(
+      "channelDataStatus",
+      t("alert_channel_import_success"),
+      "success",
+    );
+    await showAlert(
+      t("alert_success_title"),
+      t("alert_channel_import_success"),
+    );
+    await refreshSourcesFromDb();
+    await fetchEPG();
+    await renderChannelOrderList();
+  } catch (err) {
+    setExportImportStatus(
+      "channelDataStatus",
+      t("alert_channel_import_error"),
+      "error",
+    );
+    await showAlert(
+      t("alert_error_title"),
+      t("alert_channel_import_error") + ": " + err,
+    );
+  }
+  e.target.value = "";
+};
+
+document.getElementById("favListBtn").onclick = () => {
+  switchSettingsTab("favorites");
+  document.getElementById("settingsOverlay").classList.add("active");
+};
+
+document.getElementById("settingsBtn").onclick = () => {
+  switchSettingsTab("sources");
+  document.getElementById("settingsOverlay").classList.add("active");
+};
+
+document.getElementById("settingsClose").onclick = () => {
+  document.getElementById("settingsOverlay").classList.remove("active");
+  if (currentSourceId === "__ALL_FAVORITES__") {
+    fetchEPG();
+  }
+};
+
+document.getElementById("modalClose").onclick = () => {
+  hidePosterZoom();
+  closeFixOverlay();
+  document.getElementById("modalOverlay").classList.remove("active");
+};
+
+document.getElementById("tmdbLogoLink").onclick = () => {
+  invoke("open_url", { url: "https://www.themoviedb.org" });
+};
+
+// Modal poster hover enlarge listeners
+const modalPosterColEl = document.getElementById("modalPosterCol");
+modalPosterColEl.addEventListener("mouseenter", (e) => {
+  if (posterZoomDebounce) clearTimeout(posterZoomDebounce);
+  posterZoomDebounce = setTimeout(() => {
+    showPosterZoom(e);
+  }, 120);
+});
+modalPosterColEl.addEventListener("mousemove", (e) => {
+  positionPosterZoom(e);
+});
+modalPosterColEl.addEventListener("mouseleave", () => {
+  hidePosterZoom();
+});
+
+document.getElementById("modalFixBtn").onclick = () => {
+  openFixOverlay();
+};
+
+document.getElementById("modalFixClose").onclick = () => {
+  closeFixOverlay();
+};
+
+document.getElementById("modalFixSearchBtn").onclick = () => {
+  if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+  const input = document.getElementById("modalFixSearchInput");
+  triggerFixSearch(input.value.trim());
+};
+
+document.getElementById("modalFixSearchInput").oninput = (e) => {
+  const val = e.target.value;
+  document.getElementById("modalFixClearBtn").style.display = val
+    ? "block"
+    : "none";
+  if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+  fixSearchDebounce = setTimeout(() => {
+    triggerFixSearch(val.trim());
+  }, 350);
+};
+
+document.getElementById("modalFixSearchInput").onkeydown = (e) => {
+  if (e.key === "Enter") {
+    if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+    triggerFixSearch(e.target.value.trim());
+  } else if (e.key === "Escape") {
+    closeFixOverlay();
+  }
+};
+
+document.getElementById("modalFixClearBtn").onclick = () => {
+  const input = document.getElementById("modalFixSearchInput");
+  input.value = "";
+  document.getElementById("modalFixClearBtn").style.display = "none";
+  input.focus();
+  triggerFixSearch("");
+};
+
+document.getElementById("modalFixRemoveBtn").onclick = () => {
+  removeTmdbMatch();
+};
+
+document.querySelectorAll(".modal-overlay").forEach((overlay) => {
+  overlay.onclick = (e) => {
+    if (e.target === overlay) {
+      closeFixOverlay();
+      overlay.classList.remove("active");
+      if (
+        overlay.id === "settingsOverlay" &&
+        currentSourceId === "__ALL_FAVORITES__"
+      ) {
+        fetchEPG();
+      }
+    }
+  };
+});
+
+document.getElementById("languageSelect").onchange = (e) => {
+  setLanguage(e.target.value);
+};
+
+document.getElementById("searchInput").oninput = () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(renderEPG, 300);
+};
+
+document.getElementById("searchBtn").onclick = renderEPG;
+document.getElementById("clearSearchBtn").onclick = () => {
+  document.getElementById("searchInput").value = "";
+  renderEPG();
+};
+
+const VIEW_HEIGHT_MAP = {
+  60: 1.2,
+  30: 1.5,
+  20: 2,
+  10: 3.5,
+  5: 6,
+};
+
+// In horizontal mode, timeline cells need enough width so "00:00" fits comfortably
+const HORIZONTAL_SCALE_MAP = {
+  60: 3.0, // 60 min -> 180px cell
+  30: 3.6, // 30 min -> 108px cell
+  20: 4.5, // 20 min -> 90px cell
+  10: 7.0, // 10 min -> 70px cell
+  5: 12.0, // 5 min -> 60px cell
+};
+
+function getEffectiveMinuteScale() {
+  if (currentLayout === "horizontal") {
+    return HORIZONTAL_SCALE_MAP[currentStepMin] || currentMinuteHeight * 2;
+  }
+  return currentMinuteHeight;
+}
+
+const viewSelect = document.getElementById("viewSelect");
+if (viewSelect) {
+  viewSelect.onchange = async (e) => {
+    currentStepMin = parseInt(e.target.value, 10);
+    currentMinuteHeight = VIEW_HEIGHT_MAP[currentStepMin] || 2;
+    await invoke("set_setting", {
+      key: "view_step_min",
+      value: String(currentStepMin),
+    });
+    await invoke("set_setting", {
+      key: "view_minute_height",
+      value: String(currentMinuteHeight),
+    });
+    renderEPG();
+  };
+}
+
+document.getElementById("saveTmdbKeyBtn").onclick = saveTmdbKey;
+document.getElementById("clearTmdbKeyBtn").onclick = clearTmdbKey;
+document.getElementById("testTmdbKeyBtn").onclick = testTmdbKey;
+document.getElementById("clearTmdbCacheBtn").onclick = clearTmdbCache;
+document.getElementById("toggleTmdbKeyBtn").onclick = () => {
+  const input = document.getElementById("tmdbApiKeyInput");
+  input.type = input.type === "password" ? "text" : "password";
+};
+
+let epgScrollRaf = null;
+function scheduleEPGScrollUpdate() {
+  if (epgScrollRaf) return;
+  epgScrollRaf = requestAnimationFrame(() => {
+    epgScrollRaf = null;
+    renderNowLine();
+  });
+}
+
+const layoutToggleBtn = document.getElementById("layoutToggleBtn");
+if (layoutToggleBtn) {
+  layoutToggleBtn.onclick = async () => {
+    currentLayout = currentLayout === "horizontal" ? "vertical" : "horizontal";
+    await invoke("set_setting", {
+      key: "view_layout",
+      value: currentLayout,
+    });
+    updateLayoutButtonUi();
+    renderEPG();
+  };
+}
+
+const epgViewportEl = document.getElementById("epgViewport");
+if (epgViewportEl) {
+  epgViewportEl.addEventListener("scroll", scheduleEPGScrollUpdate, {
+    passive: true,
+  });
+}
+
+// --- EPG Viewport drag-to-pan (minden irány, kivéve csatorna header) ---
+(function setupViewportPan() {
+  const viewport = document.getElementById("epgViewport");
+  let isPanning = false;
+  let hasDragged = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let panScrollLeft = 0;
+  let panScrollTop = 0;
+  let panPointerId = null;
+
+  viewport.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+
+    // Ha csatorna headert vagy kedvenc csillagot fogunk meg, ne indítsunk pannolást
+    if (
+      e.target.closest(".channel-header-item") ||
+      e.target.closest(".channel-row-header") ||
+      e.target.closest(".fav-star")
+    ) {
+      return;
+    }
+
+    isPanning = false;
+    hasDragged = false;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panScrollLeft = viewport.scrollLeft;
+    panScrollTop = viewport.scrollTop;
+    panPointerId = e.pointerId;
+  });
+
+  viewport.addEventListener("pointermove", (e) => {
+    if (panPointerId === null || e.pointerId !== panPointerId) return;
+    if (e.buttons === 0) {
+      endPan(e);
+      return;
+    }
+
+    const dx = e.clientX - panStartX;
+    const dy = e.clientY - panStartY;
+
+    if (!hasDragged && Math.hypot(dx, dy) > 5) {
+      hasDragged = true;
+      isPanning = true;
+      try {
+        viewport.setPointerCapture(panPointerId);
+      } catch (err) {}
+      viewport.style.cursor = "grabbing";
+      viewport.style.userSelect = "none";
+    }
+
+    if (isPanning) {
+      viewport.scrollLeft = panScrollLeft - dx;
+      viewport.scrollTop = panScrollTop - dy;
+    }
+  });
+
+  const endPan = (e) => {
+    if (
+      panPointerId === null ||
+      (e.pointerId !== undefined && e.pointerId !== panPointerId)
+    ) {
+      return;
+    }
+
+    if (hasDragged) {
+      try {
+        viewport.releasePointerCapture(panPointerId);
+      } catch (err) {}
+      viewport.style.cursor = "";
+      viewport.style.userSelect = "";
+    }
+
+    isPanning = false;
+    panPointerId = null;
+
+    if (hasDragged) {
+      setTimeout(() => {
+        hasDragged = false;
+      }, 100);
+    }
+  };
+
+  viewport.addEventListener("pointerup", endPan);
+  viewport.addEventListener("pointercancel", endPan);
+
+  // Kattintás blokkolása KIZÁRÓLAG akkor, ha valós húzás (drag) történt
+  viewport.addEventListener(
+    "click",
+    (e) => {
+      if (hasDragged) {
+        e.stopPropagation();
+        e.preventDefault();
+        hasDragged = false;
+      }
+    },
+    true,
+  );
+})();
+// --- EPG Viewport drag-to-pan vége ---
+
+document.getElementById("nowBtn").onclick = () => {
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  if (selectedDateStr !== todayStr) {
+    selectedDateStr = todayStr;
+    document.getElementById("dateSelect").value = selectedDateStr;
+    renderEPG();
+  }
+  scrollToNow();
+};
+
+setInterval(() => {
+  renderNowLine();
+}, 60000);
+
+window.addEventListener("DOMContentLoaded", init);
