@@ -1776,12 +1776,14 @@ input[type="text"] {
   z-index: 120;
   box-sizing: border-box;
   margin-right: 0;
+  margin-bottom: calc(-1 * var(--timeline-header-height));
   display: flex;
   align-items: center;
   padding: 0 10px;
   font-size: 11px;
   font-weight: bold;
   color: #a0aec0;
+  flex-shrink: 0;
 }
 
 /* Sticky top timeline row */
@@ -1798,6 +1800,7 @@ input[type="text"] {
   box-sizing: border-box;
   width: calc(1440 * var(--minute-scale));
   min-width: calc(1440 * var(--minute-scale));
+  flex-shrink: 0;
 }
 
 .epg-grid.layout-horizontal .timeline-slot {
