@@ -56,8 +56,10 @@
         title="Váltás vízszintes nézetre"
         data-i18n-title="title_layout_toggle"
       >
-        <span id="layoutToggleIcon">⇄</span>
-        <span id="layoutToggleLabel" data-i18n="btn_layout_horizontal">VÍZSZINTES</span>
+        <span id="layoutToggleIcon">☷</span>
+        <span id="layoutToggleLabel" data-i18n="btn_layout_horizontal"
+          >Vízszintes</span
+        >
       </button>
 
       <div class="search-box">
@@ -340,13 +342,23 @@
           <div class="settings-content-area">
             <!-- 1. FORRÁSOK TAB -->
             <div class="settings-tab-pane active" id="tabPaneSources">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 10px;">
-                <h3 data-i18n="sources_heading" style="margin: 0">EPG Források Kezelése</h3>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  margin-bottom: 12px;
+                  gap: 10px;
+                "
+              >
+                <h3 data-i18n="sources_heading" style="margin: 0">
+                  EPG Források Kezelése
+                </h3>
                 <button
                   class="btn btn-green"
                   id="updateAllSourcesBtn"
                   data-i18n="btn_update_all"
-                  style="padding: 6px 14px; font-weight: bold; flex-shrink: 0;"
+                  style="padding: 6px 14px; font-weight: bold; flex-shrink: 0"
                 >
                   ÖSSZES FRISSÍTÉSE
                 </button>
@@ -763,7 +775,11 @@
                       style="display: none"
                     />
                   </label>
-                  <span id="channelDataStatus" class="export-import-status" style="display: none"></span>
+                  <span
+                    id="channelDataStatus"
+                    class="export-import-status"
+                    style="display: none"
+                  ></span>
                 </div>
               </div>
 
@@ -830,7 +846,11 @@
                       style="display: none"
                     />
                   </label>
-                  <span id="settingsDataStatus" class="export-import-status" style="display: none"></span>
+                  <span
+                    id="settingsDataStatus"
+                    class="export-import-status"
+                    style="display: none"
+                  ></span>
                 </div>
               </div>
 
@@ -900,18 +920,35 @@
     </div>
 
     <!-- CSATORNA SZERKESZTÉSE MODAL -->
-    <div class="modal-overlay" id="channelEditModalOverlay" style="z-index: 250">
+    <div
+      class="modal-overlay"
+      id="channelEditModalOverlay"
+      style="z-index: 250"
+    >
       <div class="channel-edit-dialog">
         <div class="channel-edit-header">
           <div class="channel-edit-title-group">
-            <span class="channel-edit-title" id="channelEditModalTitle" data-i18n="channel_edit_title">Csatorna szerkesztése</span>
-            <span class="channel-edit-orig-title" id="channelEditOrigTitle"></span>
+            <span
+              class="channel-edit-title"
+              id="channelEditModalTitle"
+              data-i18n="channel_edit_title"
+              >Csatorna szerkesztése</span
+            >
+            <span
+              class="channel-edit-orig-title"
+              id="channelEditOrigTitle"
+            ></span>
           </div>
           <button class="modal-close" id="channelEditCloseBtn">&times;</button>
         </div>
         <div class="channel-edit-body">
           <div class="channel-edit-field">
-            <label class="channel-edit-label" for="channelEditNameInput" data-i18n="channel_name_label">Saját név:</label>
+            <label
+              class="channel-edit-label"
+              for="channelEditNameInput"
+              data-i18n="channel_name_label"
+              >Saját név:</label
+            >
             <input
               type="text"
               id="channelEditNameInput"
@@ -922,7 +959,12 @@
             />
           </div>
           <div class="channel-edit-field">
-            <label class="channel-edit-label" for="channelEditLogoInput" data-i18n="channel_logo_label">Logo URL:</label>
+            <label
+              class="channel-edit-label"
+              for="channelEditLogoInput"
+              data-i18n="channel_logo_label"
+              >Logo URL:</label
+            >
             <input
               type="text"
               id="channelEditLogoInput"
@@ -937,14 +979,26 @@
           </div>
         </div>
         <div class="channel-edit-actions">
-          <button class="btn btn-red" id="channelEditResetBtn" data-i18n="btn_rename_reset">
+          <button
+            class="btn btn-red"
+            id="channelEditResetBtn"
+            data-i18n="btn_rename_reset"
+          >
             Alaphelyzet
           </button>
           <div class="channel-edit-actions-right">
-            <button class="btn btn-blue" id="channelEditCancelBtn" data-i18n="btn_cancel">
+            <button
+              class="btn btn-blue"
+              id="channelEditCancelBtn"
+              data-i18n="btn_cancel"
+            >
               Mégse
             </button>
-            <button class="btn btn-green" id="channelEditSaveBtn" data-i18n="btn_rename_save">
+            <button
+              class="btn btn-green"
+              id="channelEditSaveBtn"
+              data-i18n="btn_rename_save"
+            >
               Mentés
             </button>
           </div>
@@ -986,10 +1040,12 @@
           btn_update_all: "ÖSSZES FRISSÍTÉSE",
           btn_update_all_progress: "Frissítés",
           no_sources_to_update: "Nincsenek frissíthető források!",
-          status_update_all_done_errors: "Frissítés befejezve, de hibák történtek ({count}/{total} sikeres).",
+          status_update_all_done_errors:
+            "Frissítés befejezve, de hibák történtek ({count}/{total} sikeres).",
           channel_edit_title: "Csatorna szerkesztése",
           original_channel_name: "Eredeti név",
-          channel_logo_preview_hint: "Előnézet (a logó automatikusan megjelenik)",
+          channel_logo_preview_hint:
+            "Előnézet (a logó automatikusan megjelenik)",
           status_exporting: "Exportálás...",
           status_importing: "Importálás...",
           alert_export_success: "Sikeres exportálás!",
@@ -1179,7 +1235,8 @@
           btn_update_all: "UPDATE ALL",
           btn_update_all_progress: "Updating",
           no_sources_to_update: "No sources to update!",
-          status_update_all_done_errors: "Update completed with some errors ({count}/{total} successful).",
+          status_update_all_done_errors:
+            "Update completed with some errors ({count}/{total} successful).",
           channel_edit_title: "Edit Channel",
           original_channel_name: "Original name",
           channel_logo_preview_hint: "Preview (logo updates automatically)",
@@ -1550,7 +1607,10 @@
           currentStepMin = parseInt(settings.view_step_min);
         if (settings.view_minute_height)
           currentMinuteHeight = parseFloat(settings.view_minute_height);
-        if (settings.view_layout === "horizontal" || settings.view_layout === "vertical")
+        if (
+          settings.view_layout === "horizontal" ||
+          settings.view_layout === "vertical"
+        )
           currentLayout = settings.view_layout;
 
         updateLayoutButtonUi();
@@ -1603,14 +1663,14 @@
 
         if (currentLayout === "horizontal") {
           btn.classList.add("horizontal-active");
-          if (icon) icon.textContent = "⥮";
+          if (icon) icon.textContent = "☷";
           if (label) {
             label.textContent = t("btn_layout_vertical");
           }
           btn.title = t("title_layout_toggle_vert");
         } else {
           btn.classList.remove("horizontal-active");
-          if (icon) icon.textContent = "⇄";
+          if (icon) icon.textContent = "☷";
           if (label) {
             label.textContent = t("btn_layout_horizontal");
           }
@@ -1676,9 +1736,18 @@
               : t("never_updated");
 
           const isUpdatingAll = isUpdatingAllSources;
-          const allCount = s.channelCount !== undefined && s.channelCount !== null ? s.channelCount : 0;
-          const favCount = s.favoriteCount !== undefined && s.favoriteCount !== null ? s.favoriteCount : 0;
-          const hidCount = s.hiddenCount !== undefined && s.hiddenCount !== null ? s.hiddenCount : 0;
+          const allCount =
+            s.channelCount !== undefined && s.channelCount !== null
+              ? s.channelCount
+              : 0;
+          const favCount =
+            s.favoriteCount !== undefined && s.favoriteCount !== null
+              ? s.favoriteCount
+              : 0;
+          const hidCount =
+            s.hiddenCount !== undefined && s.hiddenCount !== null
+              ? s.hiddenCount
+              : 0;
 
           const item = document.createElement("div");
           item.className = "source-item";
@@ -1925,9 +1994,12 @@
           const s = sources[i];
           const progressLabel = `${t("btn_update_all_progress")} (${i + 1}/${sources.length}): ${s.name}...`;
           if (btn) btn.innerText = progressLabel;
-          document.getElementById("status").innerText = t("status_downloading", {
-            name: s.name,
-          });
+          document.getElementById("status").innerText = t(
+            "status_downloading",
+            {
+              name: s.name,
+            },
+          );
 
           downloadingSources.add(s.id);
           loadSourcesDropdown();
@@ -1948,13 +2020,20 @@
 
         if (btn) btn.innerText = originalText;
         if (hasErrors) {
-          document.getElementById("status").innerText = t("status_download_error");
+          document.getElementById("status").innerText = t(
+            "status_download_error",
+          );
           await showAlert(
             t("alert_error_title"),
-            t("status_update_all_done_errors", { count: updatedCount, total: sources.length }),
+            t("status_update_all_done_errors", {
+              count: updatedCount,
+              total: sources.length,
+            }),
           );
         } else {
-          document.getElementById("status").innerText = t("status_download_success");
+          document.getElementById("status").innerText = t(
+            "status_download_success",
+          );
         }
 
         if (currentSourceId) {
@@ -2507,7 +2586,8 @@
                   logoUrl: result.logo,
                 });
                 channel.customName = result.name || null;
-                channel.name = result.name || channel.originalName || channel.name;
+                channel.name =
+                  result.name || channel.originalName || channel.name;
                 channel.customIcon = result.logo || null;
                 channel.cachedIcon = null;
                 if (result.logo) {
@@ -2575,7 +2655,9 @@
           wrapper.appendChild(headerItem);
 
           const grid = document.createElement("div");
-          grid.className = isHorizontal ? "channel-row-programmes" : "programme-grid";
+          grid.className = isHorizontal
+            ? "channel-row-programmes"
+            : "programme-grid";
 
           channelProgs.forEach((prog) => {
             // Use wall-clock minutes instead of elapsed time to avoid
@@ -3042,7 +3124,9 @@
         const clearBtn = document.getElementById("modalFixClearBtn");
         const statusEl = document.getElementById("modalFixStatus");
         const resultsEl = document.getElementById("modalFixResultsList");
-        const modalContent = document.querySelector("#modalOverlay .modal-content");
+        const modalContent = document.querySelector(
+          "#modalOverlay .modal-content",
+        );
         if (modalContent) modalContent.classList.add("has-fix-open");
 
         overlay.style.display = "flex";
@@ -3062,7 +3146,9 @@
       function closeFixOverlay() {
         const overlay = document.getElementById("modalFixOverlay");
         if (overlay) overlay.style.display = "none";
-        const modalContent = document.querySelector("#modalOverlay .modal-content");
+        const modalContent = document.querySelector(
+          "#modalOverlay .modal-content",
+        );
         if (modalContent) modalContent.classList.remove("has-fix-open");
         if (fixSearchDebounce) {
           clearTimeout(fixSearchDebounce);
@@ -3385,7 +3471,9 @@
       }
 
       function renderNowLine(dayStart) {
-        const oldLines = document.querySelectorAll(".now-line, .now-line-vertical");
+        const oldLines = document.querySelectorAll(
+          ".now-line, .now-line-vertical",
+        );
         oldLines.forEach((l) => l.remove());
 
         const now = new Date();
@@ -3864,7 +3952,8 @@
               const liveCh = epgData.channels.find((c) => c.id === ch.id);
               if (liveCh) {
                 liveCh.customName = ch.customName;
-                liveCh.name = ch.customName || liveCh.originalName || liveCh.name;
+                liveCh.name =
+                  ch.customName || liveCh.originalName || liveCh.name;
                 liveCh.customIcon = ch.customIcon;
                 liveCh.cachedIcon = null;
                 if (newLogo) {
@@ -3882,26 +3971,43 @@
             // Frissítsük közvetlenül a DOM elemet újrarajzolás nélkül, így megmarad a fókusz és a görgetési pozíció
             const nameSpan = item.querySelector(".channel-order-name");
             if (nameSpan) {
-              nameSpan.textContent = ch.customName || ch.originalName || ch.name;
+              nameSpan.textContent =
+                ch.customName || ch.originalName || ch.name;
               nameSpan.title = ch.customName || ch.originalName || ch.name;
             }
-            const logoPreview = item.querySelector(".channel-order-logo-preview");
+            const logoPreview = item.querySelector(
+              ".channel-order-logo-preview",
+            );
             const effectiveLogo = ch.customIcon || ch.icon || "";
             if (logoPreview) {
               logoPreview.innerHTML = effectiveLogo
                 ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
                 : '<span style="font-size:10px; color:#555;">TV</span>';
             }
-            const actionsWrap = item.querySelector(".channel-edit-fields-actions");
+            const actionsWrap = item.querySelector(
+              ".channel-edit-fields-actions",
+            );
             if (actionsWrap) {
               actionsWrap.innerHTML = `
                 <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
                 ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
               `;
-              const newSaveBtn = actionsWrap.querySelector(".btn-channel-data-save");
-              if (newSaveBtn) newSaveBtn.onclick = (e) => { e.stopPropagation(); saveBoth(); };
-              const newResetBtn = actionsWrap.querySelector(".btn-channel-data-reset");
-              if (newResetBtn) newResetBtn.onclick = (e) => { e.stopPropagation(); resetBoth(); };
+              const newSaveBtn = actionsWrap.querySelector(
+                ".btn-channel-data-save",
+              );
+              if (newSaveBtn)
+                newSaveBtn.onclick = (e) => {
+                  e.stopPropagation();
+                  saveBoth();
+                };
+              const newResetBtn = actionsWrap.querySelector(
+                ".btn-channel-data-reset",
+              );
+              if (newResetBtn)
+                newResetBtn.onclick = (e) => {
+                  e.stopPropagation();
+                  resetBoth();
+                };
             }
           };
 
@@ -3938,28 +4044,46 @@
               nameSpan.textContent = ch.originalName || ch.name;
               nameSpan.title = ch.originalName || ch.name;
             }
-            const logoPreview = item.querySelector(".channel-order-logo-preview");
+            const logoPreview = item.querySelector(
+              ".channel-order-logo-preview",
+            );
             const effectiveLogo = ch.icon || "";
             if (logoPreview) {
               logoPreview.innerHTML = effectiveLogo
                 ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
                 : '<span style="font-size:10px; color:#555;">TV</span>';
             }
-            const actionsWrap = item.querySelector(".channel-edit-fields-actions");
+            const actionsWrap = item.querySelector(
+              ".channel-edit-fields-actions",
+            );
             if (actionsWrap) {
               actionsWrap.innerHTML = `
                 <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
               `;
-              const newSaveBtn = actionsWrap.querySelector(".btn-channel-data-save");
-              if (newSaveBtn) newSaveBtn.onclick = (e) => { e.stopPropagation(); saveBoth(); };
+              const newSaveBtn = actionsWrap.querySelector(
+                ".btn-channel-data-save",
+              );
+              if (newSaveBtn)
+                newSaveBtn.onclick = (e) => {
+                  e.stopPropagation();
+                  saveBoth();
+                };
             }
           };
 
           const saveBtn = item.querySelector(".btn-channel-data-save");
-          if (saveBtn) saveBtn.onclick = (e) => { e.stopPropagation(); saveBoth(); };
+          if (saveBtn)
+            saveBtn.onclick = (e) => {
+              e.stopPropagation();
+              saveBoth();
+            };
 
           const resetBtn = item.querySelector(".btn-channel-data-reset");
-          if (resetBtn) resetBtn.onclick = (e) => { e.stopPropagation(); resetBoth(); };
+          if (resetBtn)
+            resetBtn.onclick = (e) => {
+              e.stopPropagation();
+              resetBoth();
+            };
 
           renameInput.onkeydown = (e) => {
             if (e.key === "Enter") {
@@ -4040,7 +4164,11 @@
 
       document.getElementById("exportSettingsBtn").onclick = async () => {
         try {
-          setExportImportStatus("settingsDataStatus", t("status_exporting"), "loading");
+          setExportImportStatus(
+            "settingsDataStatus",
+            t("status_exporting"),
+            "loading",
+          );
           const backup = await invoke("export_settings");
           const json = JSON.stringify(backup, null, 2);
           const blob = new Blob([json], { type: "application/json" });
@@ -4052,9 +4180,17 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-          setExportImportStatus("settingsDataStatus", t("alert_export_success"), "success");
+          setExportImportStatus(
+            "settingsDataStatus",
+            t("alert_export_success"),
+            "success",
+          );
         } catch (err) {
-          setExportImportStatus("settingsDataStatus", t("alert_export_error"), "error");
+          setExportImportStatus(
+            "settingsDataStatus",
+            t("alert_export_error"),
+            "error",
+          );
           await showAlert(
             t("alert_error_title"),
             t("alert_export_error") + ": " + err,
@@ -4066,11 +4202,19 @@
         const file = e.target.files[0];
         if (!file) return;
         try {
-          setExportImportStatus("settingsDataStatus", t("status_importing"), "loading");
+          setExportImportStatus(
+            "settingsDataStatus",
+            t("status_importing"),
+            "loading",
+          );
           const text = await file.text();
           const backup = JSON.parse(text);
           await invoke("import_settings", { backup });
-          setExportImportStatus("settingsDataStatus", t("alert_import_success"), "success");
+          setExportImportStatus(
+            "settingsDataStatus",
+            t("alert_import_success"),
+            "success",
+          );
           await showAlert(t("alert_success_title"), t("alert_import_success"));
           await refreshSourcesFromDb();
           favorites = await invoke("get_favorites");
@@ -4078,7 +4222,11 @@
           renderFavoritesList();
           await renderChannelOrderList();
         } catch (err) {
-          setExportImportStatus("settingsDataStatus", t("alert_import_error"), "error");
+          setExportImportStatus(
+            "settingsDataStatus",
+            t("alert_import_error"),
+            "error",
+          );
           await showAlert(
             t("alert_error_title"),
             t("alert_import_error") + ": " + err,
@@ -4187,7 +4335,11 @@
 
       document.getElementById("exportChannelDataBtn").onclick = async () => {
         try {
-          setExportImportStatus("channelDataStatus", t("status_exporting"), "loading");
+          setExportImportStatus(
+            "channelDataStatus",
+            t("status_exporting"),
+            "loading",
+          );
           const exportData = await invoke("export_channel_data");
           const channels = exportData.channels || [];
 
@@ -4237,9 +4389,17 @@
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-          setExportImportStatus("channelDataStatus", t("alert_export_success"), "success");
+          setExportImportStatus(
+            "channelDataStatus",
+            t("alert_export_success"),
+            "success",
+          );
         } catch (err) {
-          setExportImportStatus("channelDataStatus", t("alert_channel_export_error"), "error");
+          setExportImportStatus(
+            "channelDataStatus",
+            t("alert_channel_export_error"),
+            "error",
+          );
           await showAlert(
             t("alert_error_title"),
             t("alert_channel_export_error") + ": " + err,
@@ -4253,7 +4413,11 @@
         const file = e.target.files[0];
         if (!file) return;
         try {
-          setExportImportStatus("channelDataStatus", t("status_importing"), "loading");
+          setExportImportStatus(
+            "channelDataStatus",
+            t("status_importing"),
+            "loading",
+          );
           const text = await file.text();
           let channels = [];
 
@@ -4320,7 +4484,11 @@
               channels,
             },
           });
-          setExportImportStatus("channelDataStatus", t("alert_channel_import_success"), "success");
+          setExportImportStatus(
+            "channelDataStatus",
+            t("alert_channel_import_success"),
+            "success",
+          );
           await showAlert(
             t("alert_success_title"),
             t("alert_channel_import_success"),
@@ -4329,7 +4497,11 @@
           await fetchEPG();
           await renderChannelOrderList();
         } catch (err) {
-          setExportImportStatus("channelDataStatus", t("alert_channel_import_error"), "error");
+          setExportImportStatus(
+            "channelDataStatus",
+            t("alert_channel_import_error"),
+            "error",
+          );
           await showAlert(
             t("alert_error_title"),
             t("alert_channel_import_error") + ": " + err,
@@ -4475,7 +4647,9 @@
 
       function getEffectiveMinuteScale() {
         if (currentLayout === "horizontal") {
-          return HORIZONTAL_SCALE_MAP[currentStepMin] || (currentMinuteHeight * 2);
+          return (
+            HORIZONTAL_SCALE_MAP[currentStepMin] || currentMinuteHeight * 2
+          );
         }
         return currentMinuteHeight;
       }
@@ -4518,7 +4692,8 @@
       const layoutToggleBtn = document.getElementById("layoutToggleBtn");
       if (layoutToggleBtn) {
         layoutToggleBtn.onclick = async () => {
-          currentLayout = currentLayout === "horizontal" ? "vertical" : "horizontal";
+          currentLayout =
+            currentLayout === "horizontal" ? "vertical" : "horizontal";
           await invoke("set_setting", {
             key: "view_layout",
             value: currentLayout,
