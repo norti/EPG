@@ -342,23 +342,14 @@
           <div class="settings-content-area">
             <!-- 1. FORRÁSOK TAB -->
             <div class="settings-tab-pane active" id="tabPaneSources">
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  margin-bottom: 12px;
-                  gap: 10px;
-                "
-              >
-                <h3 data-i18n="sources_heading" style="margin: 0">
+              <div class="sources-header-row">
+                <h3 data-i18n="sources_heading">
                   EPG Források Kezelése
                 </h3>
                 <button
                   class="btn btn-green"
                   id="updateAllSourcesBtn"
                   data-i18n="btn_update_all"
-                  style="padding: 6px 14px; font-weight: bold; flex-shrink: 0"
                 >
                   ÖSSZES FRISSÍTÉSE
                 </button>
@@ -370,18 +361,16 @@
                   id="sourceNameInput"
                   placeholder="Forrás neve"
                   data-i18n-placeholder="source_name_placeholder"
-                  style="flex: 1; min-width: 140px"
                 />
                 <input
                   type="text"
                   id="sourceUrlInput"
                   placeholder="EPG URL (.xml vagy .gz)"
                   data-i18n-placeholder="source_url_placeholder"
-                  style="flex: 2; min-width: 200px"
                 />
 
                 <!-- Ország/Nyelv Választó (ISO 3166 / Nyelvi kód) -->
-                <select id="sourceCountrySelect" style="width: 130px">
+                <select id="sourceCountrySelect">
                   <option value="HU">HU - Magyar</option>
                   <option value="EN">EN - English</option>
                   <option value="DE">DE - Deutsch</option>
@@ -403,7 +392,6 @@
                   id="sourceOffsetInput"
                   placeholder="Offset (óra)"
                   title="Manuális eltolás órában (+/-)"
-                  style="width: 90px"
                   value="0"
                   min="-12"
                   max="12"
@@ -420,7 +408,6 @@
               <div
                 id="sourcesList"
                 class="custom-scroll"
-                style="flex: 1; overflow-y: auto"
               ></div>
             </div>
 
@@ -430,7 +417,6 @@
               <div
                 id="favListContent"
                 class="custom-scroll"
-                style="flex: 1; overflow-y: auto"
               ></div>
             </div>
 
@@ -439,53 +425,33 @@
               <h3 data-i18n="channels_heading">
                 Csatornák Kezelése és Sorrendje
               </h3>
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  gap: 10px;
-                  margin-bottom: 12px;
-                "
-              >
+              <div class="channels-source-row">
                 <label
-                  style="font-size: 13px; color: #8e94a8"
+                  class="settings-label"
                   data-i18n="select_source"
                   >Forrás:</label
                 >
                 <select
                   id="channelOrderSourceSelect"
-                  style="flex: 1; max-width: 320px"
                 ></select>
                 <button
                   class="btn btn-blue"
                   id="resetChannelOrderBtn"
                   data-i18n="btn_reset_channel_order"
-                  style="margin-left: auto"
                 >
                   Eredeti sorrend visszaállítása
                 </button>
               </div>
 
-              <!-- Kereső és szűrő sáv -->
-              <div
-                style="
-                  display: flex;
-                  align-items: center;
-                  gap: 8px;
-                  margin-bottom: 10px;
-                  flex-wrap: wrap;
-                "
-              >
+              <div class="channels-search-bar">
                 <input
                   type="text"
                   id="channelOrderSearchInput"
                   placeholder="Keresés a csatornák között..."
                   data-i18n-placeholder="channels_search_placeholder"
-                  style="flex: 1; min-width: 180px; padding: 6px 10px"
                 />
                 <div
                   class="channel-filter-tabs"
-                  style="display: flex; gap: 4px"
                 >
                   <button
                     class="btn btn-filter-channel active"
@@ -523,12 +489,7 @@
               </div>
 
               <p
-                style="
-                  font-size: 12px;
-                  color: #718096;
-                  margin-top: 0;
-                  margin-bottom: 12px;
-                "
+                class="channels-drag-hint"
                 data-i18n="channels_drag_hint"
               >
                 Húzza a csatornákat vagy használja a nyilakat a kívánt sorrend
@@ -537,22 +498,13 @@
               <div
                 id="channelOrderList"
                 class="custom-scroll"
-                style="flex: 1; overflow-y: auto"
               ></div>
             </div>
 
             <!-- 4. TMDB TAB -->
             <div class="settings-tab-pane" id="tabPaneTmdb">
-              <div
-                style="
-                  display: flex;
-                  align-items: flex-start;
-                  justify-content: space-between;
-                  gap: 12px;
-                  margin-bottom: 10px;
-                "
-              >
-                <h3 data-i18n="tmdb_heading" style="margin: 0">
+              <div class="tmdb-header-row">
+                <h3 data-i18n="tmdb_heading">
                   TMDB (The Movie Database) Integráció
                 </h3>
                 <img
@@ -561,17 +513,10 @@
                   src="https://www.themoviedb.org/assets/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg"
                   alt="TMDB"
                   title="https://www.themoviedb.org"
-                  style="cursor: pointer"
                 />
               </div>
               <p
-                style="
-                  font-size: 13px;
-                  color: #a0aec0;
-                  line-height: 1.5;
-                  margin-top: 0;
-                  margin-bottom: 14px;
-                "
+                class="tmdb-desc-text"
                 data-i18n="tmdb_desc"
               >
                 Adja meg a TMDB API kulcsát vagy Read Access Tokenjét a műsorok
@@ -579,38 +524,25 @@
                 megjelenítéséhez.
               </p>
 
-              <div
-                style="
-                  background: #191b24;
-                  border: 1px solid #282a3c;
-                  border-radius: 8px;
-                  padding: 18px;
-                  margin-bottom: 16px;
-                  display: flex;
-                  flex-direction: column;
-                  gap: 14px;
-                "
-              >
-                <div style="display: flex; flex-direction: column; gap: 6px">
+              <div class="tmdb-key-card">
+                <div class="tmdb-key-field">
                   <label
                     for="tmdbApiKeyInput"
-                    style="font-size: 13px; font-weight: bold; color: #e2e8f0"
+                    class="tmdb-key-label"
                     data-i18n="tmdb_api_key_label"
                     >TMDB API kulcs / Bearer Token:</label
                   >
-                  <div style="display: flex; gap: 8px; align-items: center">
+                  <div class="tmdb-key-input-row">
                     <input
                       type="password"
                       id="tmdbApiKeyInput"
                       placeholder="Adja meg a TMDB API kulcsát..."
                       data-i18n-placeholder="tmdb_api_key_placeholder"
-                      style="flex: 1; min-width: 200px"
                     />
                     <button
                       class="btn btn-blue"
                       id="toggleTmdbKeyBtn"
                       type="button"
-                      style="padding: 6px 12px; font-size: 14px"
                       title="Megjelenítés / Elrejtés"
                     >
                       👁
@@ -618,39 +550,18 @@
                   </div>
                 </div>
 
-                <div
-                  style="
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    font-size: 13px;
-                  "
-                >
-                  <span style="color: #a0aec0" data-i18n="tmdb_status_label"
+                <div class="tmdb-status-row">
+                  <span class="tmdb-status-label" data-i18n="tmdb_status_label"
                     >Állapot:</span
                   >
                   <span
                     id="tmdbKeyStatusBadge"
-                    style="
-                      padding: 3px 10px;
-                      border-radius: 4px;
-                      font-weight: bold;
-                      font-size: 12px;
-                      background: #4a5568;
-                      color: #fff;
-                    "
+
                     >-</span
                   >
                 </div>
 
-                <div
-                  style="
-                    display: flex;
-                    gap: 10px;
-                    flex-wrap: wrap;
-                    margin-top: 4px;
-                  "
-                >
+                <div class="tmdb-key-actions">
                   <button
                     class="btn btn-green"
                     id="saveTmdbKeyBtn"
@@ -675,25 +586,15 @@
                 </div>
               </div>
 
-              <div
-                style="
-                  border-top: 1px solid #282a3c;
-                  padding-top: 14px;
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  gap: 15px;
-                  flex-wrap: wrap;
-                "
-              >
+              <div class="tmdb-cache-section">
                 <div>
                   <div
-                    style="font-weight: bold; font-size: 13px; color: #e2e8f0"
+                    class="tmdb-cache-title"
                     data-i18n="tmdb_btn_clear_cache"
                   >
                     TMDB gyorsítótár kiürítése
                   </div>
-                  <div style="font-size: 12px; color: #718096; margin-top: 2px">
+                  <div class="tmdb-cache-desc">
                     Törli az összes korábban mentett TMDB találatot az SQLite
                     adatbázisból.
                   </div>
@@ -713,47 +614,22 @@
               <h3 data-i18n="export_heading">Exportálás és Importálás</h3>
 
               <!-- Szekció 1: Csatornaadatok export/import -->
-              <div
-                style="
-                  background: #141520;
-                  border: 1px solid #282a3c;
-                  border-radius: 8px;
-                  padding: 16px;
-                  margin-bottom: 16px;
-                "
-              >
+              <div class="export-section-card">
                 <div
-                  style="
-                    font-weight: bold;
-                    font-size: 14px;
-                    color: #e2e8f0;
-                    margin-bottom: 6px;
-                  "
+                  class="export-section-title"
                   data-i18n="export_channels_section_title"
                 >
                   Csatornaadatok exportálása / importálása
                 </div>
                 <div
-                  style="
-                    font-size: 12px;
-                    color: #8e94a8;
-                    margin-bottom: 14px;
-                    line-height: 1.5;
-                  "
+                  class="export-section-desc"
                   data-i18n="export_channels_desc"
                 >
                   Csatornák egyéni beállításainak (sorrend, kedvenc, rejtés,
                   egyéni név, logó) exportálása és importálása CSV fájlba
                   források szerint.
                 </div>
-                <div
-                  style="
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    flex-wrap: wrap;
-                  "
-                >
+                <div class="export-section-actions">
                   <button
                     class="btn btn-blue"
                     id="exportChannelDataBtn"
@@ -762,9 +638,8 @@
                     CSATORNAADATOK EXPORTÁLÁSA
                   </button>
                   <label
-                    class="btn btn-blue"
+                    class="btn btn-blue export-import-label"
                     id="importChannelDataLabel"
-                    style="cursor: pointer"
                     data-i18n="btn_import_channel_data"
                   >
                     CSATORNAADATOK IMPORTÁLÁSA
@@ -784,47 +659,22 @@
               </div>
 
               <!-- Szekció 2: Alkalmazás beállítások export/import -->
-              <div
-                style="
-                  background: #141520;
-                  border: 1px solid #282a3c;
-                  border-radius: 8px;
-                  padding: 16px;
-                  margin-bottom: 16px;
-                "
-              >
+              <div class="export-section-card">
                 <div
-                  style="
-                    font-weight: bold;
-                    font-size: 14px;
-                    color: #e2e8f0;
-                    margin-bottom: 6px;
-                  "
+                  class="export-section-title"
                   data-i18n="export_settings_section_title"
                 >
                   Alkalmazás beállítások exportálása / importálása
                 </div>
                 <div
-                  style="
-                    font-size: 12px;
-                    color: #8e94a8;
-                    margin-bottom: 14px;
-                    line-height: 1.5;
-                  "
+                  class="export-section-desc"
                   data-i18n="export_settings_desc"
                 >
                   Minden alkalmazásbeállítás (források, kedvenc műsorok,
                   csatornabeállítások és preferenciák) teljes mentése és
                   visszaállítása.
                 </div>
-                <div
-                  style="
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    flex-wrap: wrap;
-                  "
-                >
+                <div class="export-section-actions">
                   <button
                     class="btn btn-blue"
                     id="exportSettingsBtn"
@@ -833,9 +683,8 @@
                     BEÁLLÍTÁSOK EXPORTÁLÁSA
                   </button>
                   <label
-                    class="btn btn-blue"
+                    class="btn btn-blue export-import-label"
                     id="importSettingsLabel"
-                    style="cursor: pointer"
                     data-i18n="btn_import_settings"
                   >
                     BEÁLLÍTÁSOK IMPORTÁLÁSA
@@ -855,32 +704,15 @@
               </div>
 
               <!-- Szekció 3: Adatbázis törlése (Danger Zone) -->
-              <div
-                style="
-                  background: #141520;
-                  border: 1px solid #4a2020;
-                  border-radius: 8px;
-                  padding: 16px;
-                "
-              >
+              <div class="export-section-card--danger">
                 <div
-                  style="
-                    font-weight: bold;
-                    font-size: 14px;
-                    color: #fc8181;
-                    margin-bottom: 6px;
-                  "
+                  class="export-section-title--danger"
                   data-i18n="danger_zone_title"
                 >
                   Veszélyes zóna
                 </div>
                 <div
-                  style="
-                    font-size: 12px;
-                    color: #8e94a8;
-                    margin-bottom: 14px;
-                    line-height: 1.5;
-                  "
+                  class="export-section-desc"
                   data-i18n="danger_zone_desc"
                 >
                   A teljes helyi EPG adatbázis törlése. A műsoradatok törlődnek,
@@ -903,7 +735,7 @@
     </div>
 
     <!-- MEGERŐSÍTŐ MODAL -->
-    <div class="modal-overlay" id="customConfirmOverlay" style="z-index: 300">
+    <div class="modal-overlay" id="customConfirmOverlay">
       <div class="custom-dialog-card">
         <div class="custom-dialog-header">
           <span class="custom-dialog-title" id="customConfirmTitle"></span>
@@ -923,7 +755,6 @@
     <div
       class="modal-overlay"
       id="channelEditModalOverlay"
-      style="z-index: 250"
     >
       <div class="channel-edit-dialog">
         <div class="channel-edit-header">
@@ -975,7 +806,7 @@
             />
           </div>
           <div class="channel-edit-logo-preview" id="channelEditLogoPreview">
-            <span style="font-size: 11px; color: #718096">TV</span>
+            <span class="logo-preview-placeholder">TV</span>
           </div>
         </div>
         <div class="channel-edit-actions">
