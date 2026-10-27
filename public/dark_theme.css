@@ -2211,4 +2211,269 @@ input[type="text"] {
   gap: 8px;
 }
 
+/* ── Migrated inline styles ────────────────────────────────────────────────── */
 
+/* Modal z-index overrides */
+#customConfirmOverlay {
+  z-index: 300;
+}
+
+#channelEditModalOverlay {
+  z-index: 250;
+}
+
+/* Settings tab shared */
+.settings-tab-pane h3 {
+  margin: 0;
+}
+
+/* Sources tab */
+.sources-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 10px;
+}
+
+#updateAllSourcesBtn {
+  padding: 6px 14px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+#sourceNameInput {
+  flex: 1;
+  min-width: 140px;
+}
+
+#sourceUrlInput {
+  flex: 2;
+  min-width: 200px;
+}
+
+#sourceCountrySelect {
+  width: 130px;
+}
+
+#sourceOffsetInput {
+  width: 90px;
+}
+
+#sourcesList,
+#favListContent,
+#channelOrderList {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Channels tab */
+.channels-source-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-label {
+  font-size: 13px;
+  color: #8e94a8;
+}
+
+#channelOrderSourceSelect {
+  flex: 1;
+  max-width: 320px;
+}
+
+#resetChannelOrderBtn {
+  margin-left: auto;
+}
+
+.channels-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+#channelOrderSearchInput {
+  flex: 1;
+  min-width: 180px;
+  padding: 6px 10px;
+}
+
+.channel-filter-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.channels-drag-hint {
+  font-size: 12px;
+  color: #718096;
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+/* TMDB tab */
+.tmdb-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+#tmdbLogoLink {
+  cursor: pointer;
+}
+
+.tmdb-desc-text {
+  font-size: 13px;
+  color: #a0aec0;
+  line-height: 1.5;
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
+.tmdb-key-card {
+  background: #191b24;
+  border: 1px solid #282a3c;
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tmdb-key-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tmdb-key-label {
+  font-size: 13px;
+  font-weight: bold;
+  color: #e2e8f0;
+}
+
+.tmdb-key-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+#tmdbApiKeyInput {
+  flex: 1;
+  min-width: 200px;
+}
+
+#toggleTmdbKeyBtn {
+  padding: 6px 12px;
+  font-size: 14px;
+}
+
+.tmdb-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.tmdb-status-label {
+  color: #a0aec0;
+}
+
+#tmdbKeyStatusBadge {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 12px;
+  background: #4a5568;
+  color: #fff;
+}
+
+.tmdb-key-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.tmdb-cache-section {
+  border-top: 1px solid #282a3c;
+  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.tmdb-cache-title {
+  font-weight: bold;
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.tmdb-cache-desc {
+  font-size: 12px;
+  color: #718096;
+  margin-top: 2px;
+}
+
+/* Export / Import tab */
+.export-section-card {
+  background: #141520;
+  border: 1px solid #282a3c;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.export-section-card--danger {
+  background: #141520;
+  border: 1px solid #4a2020;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.export-section-title {
+  font-weight: bold;
+  font-size: 14px;
+  color: #e2e8f0;
+  margin-bottom: 6px;
+}
+
+.export-section-title--danger {
+  font-weight: bold;
+  font-size: 14px;
+  color: #fc8181;
+  margin-bottom: 6px;
+}
+
+.export-section-desc {
+  font-size: 12px;
+  color: #8e94a8;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.export-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.export-import-label {
+  cursor: pointer;
+}
+
+/* Channel edit logo preview placeholder */
+.logo-preview-placeholder {
+  font-size: 11px;
+  color: #718096;
+}
