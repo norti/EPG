@@ -1,8 +1,8 @@
-name: Automatic EPG Grabber - web.magentatv.de
+name: Automatic update - web.magentatv.de
 
 on:
   schedule:
-    # Minden szombat, hétfő és csütörtök hajnalban fut le (kb. 1 óra futási idővel)
+    # Minden szombat, hétfő és csütörtök hajnalban fut le
     - cron: "11 23 * * 3,5,0"
   workflow_dispatch: # Kézi indítási lehetőség a GitHub felületéről
 

@@ -1,4 +1,4 @@
-name: Automatic EPG Grabber - tvheute.at
+name: Automatic update - tvheute.at
 
 on:
   schedule:
