@@ -1,4 +1,4 @@
-name: Automatic EPG Grabber - port.hu
+name: Automatic update - port.hu
 
 on:
   schedule:
