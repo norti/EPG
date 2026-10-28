@@ -6,7 +6,7 @@
 
 [![Automatic update - port.hu](https://github.com/norti/EPG/actions/workflows/epg-porthu.yml/badge.svg)](https://github.com/norti/EPG/actions/workflows/epg-porthu.yml)
 
-[![Automatic update - musor.tv](https://github.com/norti/EPG/actions/workflows/epg-musortv.yml/badge.svg)](https://github.com/norti/EPG/actions/workflows/epg-musortv_RYZEN.yml)
+[![Automatic update - musor.tv](https://github.com/norti/EPG/actions/workflows/epg-musortv_RYZEN.yml/badge.svg)](https://github.com/norti/EPG/actions/workflows/epg-musortv_RYZEN.yml)
 
 Under development...
 
