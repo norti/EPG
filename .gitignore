@@ -17,6 +17,7 @@ ToDo.txt
 TODO/
 .addons/
 implementation_plan.md
+.antigravityignore
 
 # OS által generált fájlok
 .DS_Store
