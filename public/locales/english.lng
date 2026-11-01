@@ -177,5 +177,11 @@
   "danger_zone_desc": "Clear the entire local EPG database. Downloaded programmes will be deleted, but configured sources will remain.",
   "alert_channel_export_error": "Error exporting channel data!",
   "alert_channel_import_success": "Channel data imported successfully!",
-  "alert_channel_import_error": "Error importing channel data!"
+  "alert_channel_import_error": "Error importing channel data!",
+  "all_programs_badge": "All programs",
+  "all_programs_badge_title": "Show all programmes across all days",
+  "grid_home_btn_title": "Reset view",
+  "grid_home_btn_label": "Reset view",
+  "grid_back_btn_title": "Back to channels",
+  "grid_back_btn_label": "Back"
 }

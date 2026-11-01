@@ -8,6 +8,10 @@
   </head>
   <body>
     <header>
+      <div class="active-channel-badge" id="activeChannelBadge" style="display: none">
+        <img class="active-channel-logo" id="activeChannelLogo" src="" alt="" style="display: none" />
+        <span class="active-channel-name" id="activeChannelName"></span>
+      </div>
       <button
         class="btn"
         id="allFavChannelsBtn"
@@ -90,7 +94,17 @@
 
     <div class="epg-viewport" id="epgViewport">
       <div class="epg-grid" id="epgGrid">
-        <div class="grid-corner"></div>
+        <div class="grid-corner" id="gridCorner">
+          <button
+            class="grid-home-btn"
+            id="gridHomeBtn"
+            title="Nézet visszaállítása"
+            data-i18n-title="grid_home_btn_title"
+          >
+            <span class="grid-home-icon">⌂</span>
+            <span class="grid-home-label" style="display: none"></span>
+          </button>
+        </div>
         <div class="time-column" id="timeColumn"></div>
         <div class="channels-container" id="channelsContainer"></div>
       </div>
