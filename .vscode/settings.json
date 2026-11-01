@@ -1,3 +1,4 @@
 {
+  "css.styleSheets": ["public/dark_theme.css"],
   "graph-it-live.branchWatch.enabled": true
 }
