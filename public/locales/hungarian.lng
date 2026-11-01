@@ -177,5 +177,11 @@
   "danger_zone_desc": "A teljes helyi EPG adatbázis törlése. A műsoradatok törlődnek, de a források megmaradnak.",
   "alert_channel_export_error": "Hiba történt a csatornaadatok exportálásakor!",
   "alert_channel_import_success": "A csatornaadatok sikeresen importálva lettek!",
-  "alert_channel_import_error": "Hiba történt a csatornaadatok importálásakor!"
+  "alert_channel_import_error": "Hiba történt a csatornaadatok importálásakor!",
+  "all_programs_badge": "Napi műsor",
+  "all_programs_badge_title": "Csatorna összes műsora több napra",
+  "grid_home_btn_title": "Nézet visszaállítása",
+  "grid_home_btn_label": "Nézet alaphelyzet",
+  "grid_back_btn_title": "Vissza a csatornákhoz",
+  "grid_back_btn_label": "Vissza"
 }
