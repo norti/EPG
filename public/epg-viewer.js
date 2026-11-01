@@ -520,7 +520,6 @@ function openChannelEditModal(channel) {
       cleanup({
         action: "reset",
         name: "",
-        logo: "",
       });
     };
 
@@ -1807,15 +1806,8 @@ function renderEPG() {
             channelId: targetChId,
             name: "",
           });
-          await invoke("set_channel_logo", {
-            sourceId: targetSrc,
-            channelId: targetChId,
-            logoUrl: "",
-          });
           channel.customName = null;
           channel.name = channel.originalName || channel.name;
-          channel.customIcon = null;
-          channel.cachedIcon = null;
         } else if (result.action === "save") {
           await invoke("rename_channel", {
             sourceId: targetSrc,
@@ -2642,10 +2634,7 @@ async function testTmdbKey() {
   if (!key) {
     statusBadge.textContent = t("tmdb_status_not_configured");
     statusBadge.style.background = "#4a5568";
-    return await showAlert(
-      t("alert_warning_title"),
-      t("tmdb_api_key_placeholder"),
-    );
+    return;
   }
   statusBadge.textContent = "...";
   try {
@@ -2653,16 +2642,14 @@ async function testTmdbKey() {
     if (isValid) {
       statusBadge.textContent = t("tmdb_status_valid");
       statusBadge.style.background = "#28a745";
-      await showAlert(t("alert_success_title"), t("tmdb_test_success"));
     } else {
       statusBadge.textContent = t("tmdb_status_invalid");
       statusBadge.style.background = "#e53e3e";
-      await showAlert(t("alert_error_title"), t("tmdb_test_fail"));
     }
   } catch (e) {
+    console.error("Hiba a TMDB kulcs tesztelésekor:", e);
     statusBadge.textContent = t("tmdb_status_invalid");
     statusBadge.style.background = "#e53e3e";
-    await showAlert(t("alert_error_title"), `${t("tmdb_test_fail")}\n(${e})`);
   }
 }
 
