@@ -22,6 +22,11 @@
         ★ Kedvenc csatornák
       </button>
       <select id="sourceSelect"></select>
+      <select
+        id="headerSortSelect"
+        title="Csatornák sorrendje"
+        data-i18n-title="header_sort_title"
+      ></select>
       <div class="date-nav-group">
         <button
           class="btn btn-date-arrow"
@@ -448,12 +453,71 @@
                 <select
                   id="channelOrderSourceSelect"
                 ></select>
+                <div class="channel-sort-actions">
+                  <button
+                    class="btn btn-blue"
+                    id="sortChannelsAzBtn"
+                    title="Rendezés A-Z szerint"
+                    data-i18n-title="btn_sort_az_title"
+                    data-i18n="btn_sort_az"
+                  >
+                    A-Z
+                  </button>
+                  <button
+                    class="btn btn-blue"
+                    id="sortChannelsSourceAzBtn"
+                    title="Rendezés forrás szerint, majd A-Z"
+                    data-i18n-title="btn_sort_source_az_title"
+                    data-i18n="btn_sort_source_az"
+                    style="display: none;"
+                  >
+                    Forrás + A-Z
+                  </button>
+                  <button
+                    class="btn btn-blue"
+                    id="resetChannelOrderBtn"
+                    data-i18n="btn_reset_channel_order"
+                  >
+                    Eredeti sorrend visszaállítása
+                  </button>
+                </div>
+              </div>
+
+              <div class="channels-presets-row" id="channelsPresetsRow">
+                <label
+                  class="settings-label"
+                  data-i18n="sort_preset_label"
+                  >Egyéni sorrend:</label
+                >
+                <select id="channelSortPresetSelect">
+                  <option value="" data-i18n="sort_preset_default">-- Egyéni sorrend kiválasztása --</option>
+                </select>
+                <button
+                  class="btn btn-green"
+                  id="saveChannelSortPresetBtn"
+                  title="Jelenlegi sorrend mentése új sablonként"
+                  data-i18n-title="btn_save_preset_title"
+                  data-i18n="btn_save_preset"
+                >
+                  + Mentés
+                </button>
                 <button
                   class="btn btn-blue"
-                  id="resetChannelOrderBtn"
-                  data-i18n="btn_reset_channel_order"
+                  id="renameChannelSortPresetBtn"
+                  title="Kiválasztott sablon átnevezése"
+                  data-i18n-title="btn_rename_preset_title"
+                  disabled
                 >
-                  Eredeti sorrend visszaállítása
+                  ✎
+                </button>
+                <button
+                  class="btn btn-red"
+                  id="deleteChannelSortPresetBtn"
+                  title="Kiválasztott sablon törlése"
+                  data-i18n-title="btn_delete_preset_title"
+                  disabled
+                >
+                  🗑
                 </button>
               </div>
 
@@ -761,6 +825,28 @@
             Mégse
           </button>
           <button class="btn btn-red" id="customConfirmOkBtn">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PROMPT MODAL -->
+    <div class="modal-overlay" id="customPromptOverlay">
+      <div class="custom-dialog-card">
+        <div class="custom-dialog-header">
+          <span class="custom-dialog-title" id="customPromptTitle"></span>
+          <button class="modal-close" id="customPromptClose">&times;</button>
+        </div>
+        <div class="custom-dialog-body">
+          <p id="customPromptMessage" style="margin: 0 0 10px 0; color: var(--text-dim); font-size: 13px;"></p>
+          <input type="text" id="customPromptInput" style="width: 100%; box-sizing: border-box;" />
+        </div>
+        <div class="custom-dialog-actions">
+          <button class="btn btn-blue" id="customPromptCancelBtn" data-i18n="btn_cancel">
+            Mégse
+          </button>
+          <button class="btn btn-green" id="customPromptOkBtn" data-i18n="btn_ok">
+            OK
+          </button>
         </div>
       </div>
     </div>

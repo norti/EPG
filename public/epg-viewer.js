@@ -195,6 +195,27 @@ const I18N_FALLBACK = {
     grid_home_btn_label: "Alaphelyzet",
     grid_back_btn_title: "Vissza a csatornákhoz",
     grid_back_btn_label: "Vissza",
+    btn_sort_az: "A-Z",
+    btn_sort_az_title: "Rendezés A-Z szerint",
+    btn_sort_source_az: "Forrás + A-Z",
+    btn_sort_source_az_title: "Rendezés forrás szerint, majd A-Z",
+    sort_preset_label: "Egyéni sorrend:",
+    sort_preset_default: "-- Egyéni sorrend kiválasztása --",
+    btn_save_preset: "+ Mentés",
+    btn_save_preset_title: "Jelenlegi sorrend mentése új sablonként",
+    btn_rename_preset_title: "Kiválasztott sablon átnevezése",
+    btn_delete_preset_title: "Kiválasztott sablon törlése",
+    prompt_save_preset_title: "Egyéni sorrend mentése",
+    prompt_save_preset_msg: "Adja meg az új egyéni sorrend nevét:",
+    prompt_rename_preset_title: "Sablon átnevezése",
+    prompt_rename_preset_msg: "Adja meg a sablon új nevét:",
+    confirm_delete_preset_title: "Sablon törlése",
+    confirm_delete_preset_msg: "Biztosan törölni szeretné ezt a sablont: \"{name}\"?",
+    header_sort_title: "Csatornák sorrendje",
+    sort_option_default: "Alapértelmezett sorrend",
+    sort_option_az: "Név szerint (A-Z)",
+    sort_option_source_az: "Forrás szerint, majd A-Z",
+    sort_presets_group: "Egyéni sorrendek",
   },
   english: {
     app_title: "EPG Viewer",
@@ -385,6 +406,27 @@ const I18N_FALLBACK = {
     grid_home_btn_label: "Reset view",
     grid_back_btn_title: "Back to channels",
     grid_back_btn_label: "Back",
+    btn_sort_az: "A-Z",
+    btn_sort_az_title: "Sort alphabetically A-Z",
+    btn_sort_source_az: "Source + A-Z",
+    btn_sort_source_az_title: "Sort by source, then A-Z",
+    sort_preset_label: "Custom sort preset:",
+    sort_preset_default: "-- Select custom preset --",
+    btn_save_preset: "+ Save",
+    btn_save_preset_title: "Save current order as preset",
+    btn_rename_preset_title: "Rename selected preset",
+    btn_delete_preset_title: "Delete selected preset",
+    prompt_save_preset_title: "Save Custom Sort Preset",
+    prompt_save_preset_msg: "Enter a name for the custom sort preset:",
+    prompt_rename_preset_title: "Rename Sort Preset",
+    prompt_rename_preset_msg: "Enter new name for the preset:",
+    confirm_delete_preset_title: "Delete Preset",
+    confirm_delete_preset_msg: "Are you sure you want to delete preset \"{name}\"?",
+    header_sort_title: "Channel sorting",
+    sort_option_default: "Default order",
+    sort_option_az: "Name (A-Z)",
+    sort_option_source_az: "By source, then A-Z",
+    sort_presets_group: "Custom Presets",
   },
 };
 
@@ -459,6 +501,45 @@ function showAlert(title, message) {
     closeBtn.onclick = () => cleanup();
 
     overlay.classList.add("active");
+  });
+}
+
+function showPrompt(title, message, defaultValue = "") {
+  return new Promise((resolve) => {
+    document.getElementById("customPromptTitle").innerText = title;
+    document.getElementById("customPromptMessage").innerText = message;
+    const overlay = document.getElementById("customPromptOverlay");
+    const input = document.getElementById("customPromptInput");
+    const okBtn = document.getElementById("customPromptOkBtn");
+    const cancelBtn = document.getElementById("customPromptCancelBtn");
+    const closeBtn = document.getElementById("customPromptClose");
+
+    input.value = defaultValue;
+    okBtn.innerText = t("btn_ok");
+    cancelBtn.innerText = t("btn_cancel");
+
+    const cleanup = (val) => {
+      overlay.classList.remove("active");
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      closeBtn.onclick = null;
+      input.onkeydown = null;
+      resolve(val);
+    };
+
+    okBtn.onclick = () => cleanup(input.value.trim());
+    cancelBtn.onclick = () => cleanup(null);
+    closeBtn.onclick = () => cleanup(null);
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") cleanup(input.value.trim());
+      if (e.key === "Escape") cleanup(null);
+    };
+
+    overlay.classList.add("active");
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 60);
   });
 }
 
@@ -926,6 +1007,148 @@ function formatDateLabel(dateStr) {
   return `${dayName} - ${date.getFullYear()}. ${months[date.getMonth()]} ${dayNum}.`;
 }
 
+let currentSourcePresets = [];
+
+async function updateHeaderSortDropdown() {
+  const select = document.getElementById("headerSortSelect");
+  if (!select) return;
+  select.innerHTML = "";
+
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "default";
+  defaultOpt.textContent = t("sort_option_default");
+  select.appendChild(defaultOpt);
+
+  const azOpt = document.createElement("option");
+  azOpt.value = "az";
+  azOpt.textContent = t("sort_option_az");
+  select.appendChild(azOpt);
+
+  if (currentSourceId === "__ALL_FAVORITES__") {
+    const srcAzOpt = document.createElement("option");
+    srcAzOpt.value = "source_az";
+    srcAzOpt.textContent = t("sort_option_source_az");
+    select.appendChild(srcAzOpt);
+  }
+
+  if (currentSourceId) {
+    try {
+      currentSourcePresets = await invoke("get_sort_presets", {
+        sourceId: currentSourceId,
+      });
+      if (currentSourcePresets.length > 0) {
+        const optgroup = document.createElement("optgroup");
+        optgroup.label = t("sort_presets_group");
+        currentSourcePresets.forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = `preset_${p.id}`;
+          opt.textContent = p.name;
+          optgroup.appendChild(opt);
+        });
+        select.appendChild(optgroup);
+      }
+    } catch (e) {
+      console.error("Failed to load presets for header dropdown:", e);
+    }
+  }
+
+  const savedMode =
+    (settings && settings[`sort_mode_${currentSourceId}`]) || "default";
+  if (Array.from(select.options).some((o) => o.value === savedMode)) {
+    select.value = savedMode;
+  } else {
+    select.value = "default";
+  }
+
+  select.onchange = async () => {
+    const mode = select.value;
+    if (settings) {
+      settings[`sort_mode_${currentSourceId}`] = mode;
+    }
+    await invoke("set_setting", {
+      key: `sort_mode_${currentSourceId}`,
+      value: mode,
+    });
+    applyActiveSortToEpgChannels();
+    renderEPG();
+  };
+}
+
+function applyActiveSortToEpgChannels() {
+  if (!epgData || !epgData.channels || epgData.channels.length === 0) return;
+  if (!epgData.rawChannels) {
+    epgData.rawChannels = [...epgData.channels];
+  }
+
+  const headerSelect = document.getElementById("headerSortSelect");
+  const mode = headerSelect
+    ? headerSelect.value
+    : (settings && settings[`sort_mode_${currentSourceId}`]) || "default";
+
+  if (mode === "az") {
+    epgData.channels = [...epgData.rawChannels].sort((a, b) => {
+      if (
+        currentSourceId !== "__ALL_FAVORITES__" &&
+        a.isFavorite !== b.isFavorite
+      ) {
+        return a.isFavorite ? -1 : 1;
+      }
+      const nameA = a.name || a.originalName || "";
+      const nameB = b.name || b.originalName || "";
+      return nameA.localeCompare(
+        nameB,
+        currentLang === "hungarian" ? "hu" : "en",
+        {
+          sensitivity: "base",
+          numeric: true,
+        },
+      );
+    });
+  } else if (mode === "source_az" && currentSourceId === "__ALL_FAVORITES__") {
+    epgData.channels = [...epgData.rawChannels].sort((a, b) => {
+      const srcA = a.sourceName || a.countryCode || a.sourceId || "";
+      const srcB = b.sourceName || b.countryCode || b.sourceId || "";
+      const srcCmp = srcA.localeCompare(
+        srcB,
+        currentLang === "hungarian" ? "hu" : "en",
+        {
+          sensitivity: "base",
+          numeric: true,
+        },
+      );
+      if (srcCmp !== 0) return srcCmp;
+      const nameA = a.name || a.originalName || "";
+      const nameB = b.name || b.originalName || "";
+      return nameA.localeCompare(
+        nameB,
+        currentLang === "hungarian" ? "hu" : "en",
+        {
+          sensitivity: "base",
+          numeric: true,
+        },
+      );
+    });
+  } else if (mode.startsWith("preset_")) {
+    const presetId = parseInt(mode.replace("preset_", ""), 10);
+    const preset = currentSourcePresets.find((p) => p.id === presetId);
+    if (preset && preset.channelOrder) {
+      const order = preset.channelOrder;
+      epgData.channels = [...epgData.rawChannels].sort((a, b) => {
+        const idxA = order.indexOf(a.id);
+        const idxB = order.indexOf(b.id);
+        if (idxA === -1 && idxB === -1) return 0;
+        if (idxA === -1) return 1;
+        if (idxB === -1) return -1;
+        return idxA - idxB;
+      });
+    } else {
+      epgData.channels = [...epgData.rawChannels];
+    }
+  } else {
+    epgData.channels = [...epgData.rawChannels];
+  }
+}
+
 async function fetchEPG() {
   if (!currentSourceId) {
     renderEmptySourcesState();
@@ -940,6 +1163,7 @@ async function fetchEPG() {
     if (currentSourceId === "__ALL_FAVORITES__") {
       if (!epgData.channels || epgData.channels.length === 0) {
         document.getElementById("status").innerText = t("status_ready");
+        await updateHeaderSortDropdown();
         renderEmptyFavoritesState();
         return;
       }
@@ -949,6 +1173,10 @@ async function fetchEPG() {
         sourceId: currentSourceId,
       });
     }
+
+    epgData.rawChannels = [...(epgData.channels || [])];
+    await updateHeaderSortDropdown();
+    applyActiveSortToEpgChannels();
 
     const currentSrcObj = sources.find((s) => s.id === currentSourceId);
     const defaultOffset = currentSrcObj ? currentSrcObj.timeOffset || 0 : 0;
@@ -2811,6 +3039,8 @@ function switchSettingsTab(tabName) {
     renderFavoritesList();
   } else if (tabName === "channels") {
     document.getElementById("tabPaneChannels").classList.add("active");
+    loadChannelOrderSourcesDropdown();
+    loadChannelSortPresetsDropdown();
     renderChannelOrderList();
   } else if (tabName === "tmdb") {
     document.getElementById("tabPaneTmdb").classList.add("active");
@@ -2894,21 +3124,365 @@ function renderFavoritesList() {
   }
 }
 
+let currentSettingsPresets = [];
+
+function updateSortUiForSource() {
+  const select = document.getElementById("channelOrderSourceSelect");
+  const targetSourceId = select ? select.value : currentSourceId;
+  const sourceAzBtn = document.getElementById("sortChannelsSourceAzBtn");
+  if (sourceAzBtn) {
+    sourceAzBtn.style.display =
+      targetSourceId === "__ALL_FAVORITES__" ? "inline-block" : "none";
+  }
+}
+
+async function loadChannelSortPresetsDropdown() {
+  const sourceSelect = document.getElementById("channelOrderSourceSelect");
+  const targetSourceId = sourceSelect ? sourceSelect.value : currentSourceId;
+  const presetSelect = document.getElementById("channelSortPresetSelect");
+  const renameBtn = document.getElementById("renameChannelSortPresetBtn");
+  const deleteBtn = document.getElementById("deleteChannelSortPresetBtn");
+  if (!presetSelect) return;
+
+  presetSelect.innerHTML = `<option value="">${t("sort_preset_default")}</option>`;
+  if (renameBtn) renameBtn.disabled = true;
+  if (deleteBtn) deleteBtn.disabled = true;
+
+  if (!targetSourceId) return;
+
+  try {
+    currentSettingsPresets = await invoke("get_sort_presets", {
+      sourceId: targetSourceId,
+    });
+    currentSettingsPresets.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name;
+      presetSelect.appendChild(opt);
+    });
+  } catch (err) {
+    console.error("Failed to load sort presets:", err);
+  }
+}
+
 function loadChannelOrderSourcesDropdown() {
   const select = document.getElementById("channelOrderSourceSelect");
+  if (!select) return;
+  const prevVal = select.value;
   select.innerHTML = "";
+  if (sources.length > 0) {
+    const allFavOpt = document.createElement("option");
+    allFavOpt.value = "__ALL_FAVORITES__";
+    allFavOpt.textContent = t("all_favorites_source");
+    select.appendChild(allFavOpt);
+  }
   sources.forEach((s) => {
     const opt = document.createElement("option");
     opt.value = s.id;
     opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
     select.appendChild(opt);
   });
-  if (currentSourceId && currentSourceId !== "__ALL_FAVORITES__") {
+  if (prevVal && Array.from(select.options).some((o) => o.value === prevVal)) {
+    select.value = prevVal;
+  } else if (currentSourceId) {
     select.value = currentSourceId;
   } else if (sources.length > 0) {
-    select.value = sources[0].id;
+    select.value = "__ALL_FAVORITES__";
   }
-  select.onchange = () => renderChannelOrderList();
+  select.onchange = () => {
+    updateSortUiForSource();
+    loadChannelSortPresetsDropdown();
+    renderChannelOrderList();
+  };
+  updateSortUiForSource();
+}
+
+const presetSelectEl = document.getElementById("channelSortPresetSelect");
+if (presetSelectEl) {
+  presetSelectEl.onchange = async () => {
+    const presetId = parseInt(presetSelectEl.value, 10);
+    const renameBtn = document.getElementById("renameChannelSortPresetBtn");
+    const deleteBtn = document.getElementById("deleteChannelSortPresetBtn");
+    if (renameBtn) renameBtn.disabled = !presetSelectEl.value;
+    if (deleteBtn) deleteBtn.disabled = !presetSelectEl.value;
+
+    if (!presetId) return;
+    const preset = currentSettingsPresets.find((p) => p.id === presetId);
+    if (!preset || !preset.channelOrder) return;
+
+    const container = document.getElementById("channelOrderList");
+    if (!container) return;
+    const items = Array.from(container.querySelectorAll(".channel-order-item"));
+    const order = preset.channelOrder;
+
+    items.sort((a, b) => {
+      const idA = a.dataset.channelId;
+      const idB = b.dataset.channelId;
+      const idxA = order.indexOf(idA);
+      const idxB = order.indexOf(idB);
+      if (idxA === -1 && idxB === -1) return 0;
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+
+    items.forEach((item, idx) => {
+      const idxEl = item.querySelector(".order-index");
+      if (idxEl) idxEl.innerText = idx + 1;
+      container.appendChild(item);
+    });
+
+    const select = document.getElementById("channelOrderSourceSelect");
+    const targetSourceId = select ? select.value : currentSourceId;
+    const newOrder = items.map((el) => el.dataset.channelId);
+
+    await invoke("save_channel_order", {
+      sourceId: targetSourceId,
+      order: newOrder,
+    });
+
+    if (targetSourceId === currentSourceId) {
+      if (epgData.rawChannels) {
+        epgData.rawChannels.sort((a, b) => {
+          if (
+            currentSourceId !== "__ALL_FAVORITES__" &&
+            a.isFavorite !== b.isFavorite
+          ) {
+            return a.isFavorite ? -1 : 1;
+          }
+          return newOrder.indexOf(a.id) - newOrder.indexOf(b.id);
+        });
+      }
+      applyActiveSortToEpgChannels();
+      renderEPG();
+    }
+  };
+}
+
+const savePresetBtn = document.getElementById("saveChannelSortPresetBtn");
+if (savePresetBtn) {
+  savePresetBtn.onclick = async () => {
+    const sourceSelect = document.getElementById("channelOrderSourceSelect");
+    const targetSourceId = sourceSelect ? sourceSelect.value : currentSourceId;
+    if (!targetSourceId) return;
+
+    const container = document.getElementById("channelOrderList");
+    const items = container
+      ? Array.from(container.querySelectorAll(".channel-order-item"))
+      : [];
+    if (items.length === 0) return;
+
+    const name = await showPrompt(
+      t("prompt_save_preset_title"),
+      t("prompt_save_preset_msg"),
+    );
+    if (!name) return;
+
+    const order = items.map((el) => el.dataset.channelId);
+    try {
+      const newPreset = await invoke("save_sort_preset", {
+        sourceId: targetSourceId,
+        name,
+        order,
+      });
+      await loadChannelSortPresetsDropdown();
+      const presetSelect = document.getElementById("channelSortPresetSelect");
+      if (presetSelect) {
+        presetSelect.value = newPreset.id;
+        const renameBtn = document.getElementById("renameChannelSortPresetBtn");
+        const deleteBtn = document.getElementById("deleteChannelSortPresetBtn");
+        if (renameBtn) renameBtn.disabled = false;
+        if (deleteBtn) deleteBtn.disabled = false;
+      }
+      if (targetSourceId === currentSourceId) {
+        await updateHeaderSortDropdown();
+      }
+    } catch (err) {
+      await showAlert(t("alert_error_title"), String(err));
+    }
+  };
+}
+
+const renamePresetBtn = document.getElementById("renameChannelSortPresetBtn");
+if (renamePresetBtn) {
+  renamePresetBtn.onclick = async () => {
+    const presetSelect = document.getElementById("channelSortPresetSelect");
+    const presetId = parseInt(presetSelect.value, 10);
+    if (!presetId) return;
+    const preset = currentSettingsPresets.find((p) => p.id === presetId);
+    if (!preset) return;
+
+    const newName = await showPrompt(
+      t("prompt_rename_preset_title"),
+      t("prompt_rename_preset_msg"),
+      preset.name,
+    );
+    if (!newName || newName === preset.name) return;
+
+    try {
+      await invoke("rename_sort_preset", {
+        presetId,
+        newName,
+      });
+      preset.name = newName;
+      await loadChannelSortPresetsDropdown();
+      if (presetSelect) presetSelect.value = presetId;
+      const targetSourceId = document.getElementById("channelOrderSourceSelect").value;
+      if (targetSourceId === currentSourceId) {
+        await updateHeaderSortDropdown();
+      }
+    } catch (err) {
+      await showAlert(t("alert_error_title"), String(err));
+    }
+  };
+}
+
+const deletePresetBtn = document.getElementById("deleteChannelSortPresetBtn");
+if (deletePresetBtn) {
+  deletePresetBtn.onclick = async () => {
+    const presetSelect = document.getElementById("channelSortPresetSelect");
+    const presetId = parseInt(presetSelect.value, 10);
+    if (!presetId) return;
+    const preset = currentSettingsPresets.find((p) => p.id === presetId);
+    if (!preset) return;
+
+    const confirmed = await showConfirm(
+      t("confirm_delete_preset_title"),
+      t("confirm_delete_preset_msg", { name: preset.name }),
+    );
+    if (!confirmed) return;
+
+    try {
+      await invoke("delete_sort_preset", { presetId });
+      await loadChannelSortPresetsDropdown();
+      const targetSourceId = document.getElementById("channelOrderSourceSelect").value;
+      if (targetSourceId === currentSourceId) {
+        await updateHeaderSortDropdown();
+      }
+    } catch (err) {
+      await showAlert(t("alert_error_title"), String(err));
+    }
+  };
+}
+
+const sortAzBtn = document.getElementById("sortChannelsAzBtn");
+if (sortAzBtn) {
+  sortAzBtn.onclick = async () => {
+    const container = document.getElementById("channelOrderList");
+    if (!container) return;
+    const items = Array.from(container.querySelectorAll(".channel-order-item"));
+    if (items.length === 0) return;
+
+    items.sort((a, b) => {
+      const nameA = a.querySelector(".channel-order-name")?.textContent || "";
+      const nameB = b.querySelector(".channel-order-name")?.textContent || "";
+      return nameA.localeCompare(
+        nameB,
+        currentLang === "hungarian" ? "hu" : "en",
+        {
+          sensitivity: "base",
+          numeric: true,
+        },
+      );
+    });
+
+    items.forEach((item, idx) => {
+      const idxEl = item.querySelector(".order-index");
+      if (idxEl) idxEl.innerText = idx + 1;
+      container.appendChild(item);
+    });
+
+    const select = document.getElementById("channelOrderSourceSelect");
+    const targetSourceId = select ? select.value : currentSourceId;
+    const newOrder = items.map((el) => el.dataset.channelId);
+
+    await invoke("save_channel_order", {
+      sourceId: targetSourceId,
+      order: newOrder,
+    });
+
+    if (targetSourceId === currentSourceId) {
+      if (epgData.rawChannels) {
+        epgData.rawChannels.sort((a, b) => {
+          if (
+            currentSourceId !== "__ALL_FAVORITES__" &&
+            a.isFavorite !== b.isFavorite
+          ) {
+            return a.isFavorite ? -1 : 1;
+          }
+          return newOrder.indexOf(a.id) - newOrder.indexOf(b.id);
+        });
+      }
+      applyActiveSortToEpgChannels();
+      renderEPG();
+    }
+  };
+}
+
+const sortSourceAzBtn = document.getElementById("sortChannelsSourceAzBtn");
+if (sortSourceAzBtn) {
+  sortSourceAzBtn.onclick = async () => {
+    const container = document.getElementById("channelOrderList");
+    if (!container) return;
+    const items = Array.from(container.querySelectorAll(".channel-order-item"));
+    if (items.length === 0) return;
+
+    items.sort((a, b) => {
+      const srcA = a.dataset.sourceName || "";
+      const srcB = b.dataset.sourceName || "";
+      const srcCmp = srcA.localeCompare(
+        srcB,
+        currentLang === "hungarian" ? "hu" : "en",
+        {
+          sensitivity: "base",
+          numeric: true,
+        },
+      );
+      if (srcCmp !== 0) return srcCmp;
+
+      const nameA = a.querySelector(".channel-order-name")?.textContent || "";
+      const nameB = b.querySelector(".channel-order-name")?.textContent || "";
+      return nameA.localeCompare(
+        nameB,
+        currentLang === "hungarian" ? "hu" : "en",
+        {
+          sensitivity: "base",
+          numeric: true,
+        },
+      );
+    });
+
+    items.forEach((item, idx) => {
+      const idxEl = item.querySelector(".order-index");
+      if (idxEl) idxEl.innerText = idx + 1;
+      container.appendChild(item);
+    });
+
+    const select = document.getElementById("channelOrderSourceSelect");
+    const targetSourceId = select ? select.value : currentSourceId;
+    const newOrder = items.map((el) => el.dataset.channelId);
+
+    await invoke("save_channel_order", {
+      sourceId: targetSourceId,
+      order: newOrder,
+    });
+
+    if (targetSourceId === currentSourceId) {
+      if (epgData.rawChannels) {
+        epgData.rawChannels.sort((a, b) => {
+          if (
+            currentSourceId !== "__ALL_FAVORITES__" &&
+            a.isFavorite !== b.isFavorite
+          ) {
+            return a.isFavorite ? -1 : 1;
+          }
+          return newOrder.indexOf(a.id) - newOrder.indexOf(b.id);
+        });
+      }
+      applyActiveSortToEpgChannels();
+      renderEPG();
+    }
+  };
 }
 
 function setupChannelOrderPointerDrag(item, handle, container, updateAndSave) {
@@ -3011,17 +3585,14 @@ async function renderChannelOrderList() {
   }
 
   let sourceChannels = [];
-  if (
-    targetSourceId === currentSourceId &&
-    currentSourceId !== "__ALL_FAVORITES__" &&
-    epgData.channels.length > 0
-  ) {
-    sourceChannels = [...epgData.channels];
-  } else {
+  try {
     const res = await invoke("get_epg_data", {
       sourceId: targetSourceId,
     });
     sourceChannels = res.channels || [];
+  } catch (err) {
+    console.error("Failed to load channels for order list:", err);
+    sourceChannels = [];
   }
 
   if (sourceChannels.length === 0) {
@@ -3071,24 +3642,43 @@ async function renderChannelOrderList() {
     });
 
     if (targetSourceId === currentSourceId) {
-      epgData.channels.sort((a, b) => {
-        if (a.isFavorite !== b.isFavorite) {
-          return a.isFavorite ? -1 : 1;
-        }
-        return newOrder.indexOf(a.id) - newOrder.indexOf(b.id);
-      });
+      if (epgData.rawChannels) {
+        epgData.rawChannels.sort((a, b) => {
+          if (
+            currentSourceId !== "__ALL_FAVORITES__" &&
+            a.isFavorite !== b.isFavorite
+          ) {
+            return a.isFavorite ? -1 : 1;
+          }
+          return newOrder.indexOf(a.id) - newOrder.indexOf(b.id);
+        });
+      }
+      applyActiveSortToEpgChannels();
       renderEPG();
     }
   };
 
   filteredChannels.forEach((ch, idx) => {
+    const actualSourceId =
+      ch.sourceId ||
+      (ch.id.includes("::") ? ch.id.split("::")[0] : targetSourceId);
+    const actualChannelId = ch.id.includes("::")
+      ? ch.id.split("::").slice(1).join("::")
+      : ch.id;
+
     const item = document.createElement("div");
     const isFav = !!ch.isFavorite;
     const isHidden = !!ch.isHidden;
     item.className = `channel-order-item ${isFav ? "is-fav" : ""} ${isHidden ? "is-hidden" : ""}`;
     item.dataset.channelId = ch.id;
+    item.dataset.sourceId = actualSourceId;
+    item.dataset.sourceName = ch.sourceName || ch.countryCode || actualSourceId;
 
     const effectiveLogo = ch.customIcon || ch.icon || "";
+    const sourceBadgeHtml =
+      targetSourceId === "__ALL_FAVORITES__" || ch.sourceName
+        ? `<span class="channel-order-source-badge" title="${ch.sourceName || ch.countryCode || actualSourceId}">${ch.sourceName || ch.countryCode || actualSourceId}</span>`
+        : "";
 
     item.innerHTML = `
             <div class="channel-item-main">
@@ -3098,7 +3688,8 @@ async function renderChannelOrderList() {
                 ${effectiveLogo ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : '<span style="font-size:10px; color:#555;">TV</span>'}
               </div>
               <span class="channel-order-name" title="${ch.name}">${ch.name}</span>
-              <span class="channel-tag">ID: ${ch.id}</span>
+              ${sourceBadgeHtml}
+              <span class="channel-tag">ID: ${actualChannelId}</span>
               ${isHidden ? `<span class="badge-hidden">${t("channel_hidden_badge")}</span>` : ""}
               <button class="btn-channel-fav ${isFav ? "active" : ""}" title="${isFav ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
               <button class="btn-channel-hide ${isHidden ? "is-hidden" : ""}" title="${isHidden ? t("channel_unhide_toggle") : t("channel_hide_toggle")}">
@@ -3129,19 +3720,28 @@ async function renderChannelOrderList() {
     item.querySelector(".btn-channel-fav").onclick = async (e) => {
       e.stopPropagation();
       const newFav = await invoke("toggle_channel_favorite", {
-        sourceId: targetSourceId,
-        channelId: ch.id,
+        sourceId: actualSourceId,
+        channelId: actualChannelId,
       });
       ch.isFavorite = newFav;
-      if (targetSourceId === currentSourceId) {
-        const liveCh = epgData.channels.find((c) => c.id === ch.id);
-        if (liveCh) liveCh.isFavorite = newFav;
-        epgData.channels.sort((a, b) => {
-          if (a.isFavorite !== b.isFavorite) {
-            return a.isFavorite ? -1 : 1;
+      if (targetSourceId === "__ALL_FAVORITES__" && !newFav) {
+        sourceChannels = sourceChannels.filter((c) => c.id !== ch.id);
+      }
+      if (currentSourceId === targetSourceId) {
+        if (currentSourceId === "__ALL_FAVORITES__" && !newFav) {
+          if (epgData.rawChannels) {
+            epgData.rawChannels = epgData.rawChannels.filter((c) => c.id !== ch.id);
           }
-          return 0;
-        });
+          epgData.channels = epgData.channels.filter((c) => c.id !== ch.id);
+        } else {
+          const liveCh = epgData.channels.find((c) => c.id === ch.id);
+          if (liveCh) liveCh.isFavorite = newFav;
+          if (epgData.rawChannels) {
+            const rawCh = epgData.rawChannels.find((c) => c.id === ch.id);
+            if (rawCh) rawCh.isFavorite = newFav;
+          }
+        }
+        applyActiveSortToEpgChannels();
         renderEPG();
       }
       renderChannelOrderList();
@@ -3151,13 +3751,18 @@ async function renderChannelOrderList() {
     item.querySelector(".btn-channel-hide").onclick = async (e) => {
       e.stopPropagation();
       const newHidden = await invoke("toggle_channel_hidden", {
-        sourceId: targetSourceId,
-        channelId: ch.id,
+        sourceId: actualSourceId,
+        channelId: actualChannelId,
       });
       ch.isHidden = newHidden;
       if (targetSourceId === currentSourceId) {
         const liveCh = epgData.channels.find((c) => c.id === ch.id);
         if (liveCh) liveCh.isHidden = newHidden;
+        if (epgData.rawChannels) {
+          const rawCh = epgData.rawChannels.find((c) => c.id === ch.id);
+          if (rawCh) rawCh.isHidden = newHidden;
+        }
+        applyActiveSortToEpgChannels();
         renderEPG();
       }
       renderChannelOrderList();
@@ -3172,13 +3777,13 @@ async function renderChannelOrderList() {
       const newLogo = logoInput.value.trim();
 
       await invoke("rename_channel", {
-        sourceId: targetSourceId,
-        channelId: ch.id,
+        sourceId: actualSourceId,
+        channelId: actualChannelId,
         name: newName,
       });
       await invoke("set_channel_logo", {
-        sourceId: targetSourceId,
-        channelId: ch.id,
+        sourceId: actualSourceId,
+        channelId: actualChannelId,
         logoUrl: newLogo,
       });
 
@@ -3201,6 +3806,16 @@ async function renderChannelOrderList() {
               .catch(() => {});
           }
         }
+        if (epgData.rawChannels) {
+          const rawCh = epgData.rawChannels.find((c) => c.id === ch.id);
+          if (rawCh) {
+            rawCh.customName = ch.customName;
+            rawCh.name = ch.customName || rawCh.originalName || rawCh.name;
+            rawCh.customIcon = ch.customIcon;
+            rawCh.cachedIcon = null;
+          }
+        }
+        applyActiveSortToEpgChannels();
         renderEPG();
       }
 
@@ -3242,13 +3857,13 @@ async function renderChannelOrderList() {
 
     const resetBoth = async () => {
       await invoke("rename_channel", {
-        sourceId: targetSourceId,
-        channelId: ch.id,
+        sourceId: actualSourceId,
+        channelId: actualChannelId,
         name: "",
       });
       await invoke("set_channel_logo", {
-        sourceId: targetSourceId,
-        channelId: ch.id,
+        sourceId: actualSourceId,
+        channelId: actualChannelId,
         logoUrl: "",
       });
 
@@ -3263,6 +3878,16 @@ async function renderChannelOrderList() {
           liveCh.customIcon = null;
           liveCh.cachedIcon = null;
         }
+        if (epgData.rawChannels) {
+          const rawCh = epgData.rawChannels.find((c) => c.id === ch.id);
+          if (rawCh) {
+            rawCh.customName = null;
+            rawCh.name = rawCh.originalName || rawCh.name;
+            rawCh.customIcon = null;
+            rawCh.cachedIcon = null;
+          }
+        }
+        applyActiveSortToEpgChannels();
         renderEPG();
       }
 
@@ -3733,9 +4358,7 @@ document.getElementById("settingsBtn").onclick = () => {
 
 document.getElementById("settingsClose").onclick = () => {
   document.getElementById("settingsOverlay").classList.remove("active");
-  if (currentSourceId === "__ALL_FAVORITES__") {
-    fetchEPG();
-  }
+  fetchEPG();
 };
 
 document.getElementById("modalClose").onclick = () => {

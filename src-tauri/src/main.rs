@@ -104,6 +104,15 @@ fn init_db() -> Connection {
             PRIMARY KEY (source_id, channel_id)
         );
 
+        CREATE TABLE IF NOT EXISTS channel_sort_presets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            channel_order TEXT NOT NULL,
+            created_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sort_presets_src ON channel_sort_presets (source_id);
+
         CREATE TABLE IF NOT EXISTS channel_user_settings (
             source_id TEXT,
             channel_id TEXT,
@@ -401,6 +410,7 @@ async fn delete_source(source_id: String) -> Result<(), String> {
     tx.execute("DELETE FROM channels WHERE source_id = ?1", params![source_id]).ok();
     tx.execute("DELETE FROM programmes WHERE source_id = ?1", params![source_id]).ok();
     tx.execute("DELETE FROM channel_orders WHERE source_id = ?1", params![source_id]).ok();
+    tx.execute("DELETE FROM channel_sort_presets WHERE source_id = ?1", params![source_id]).ok();
     tx.execute("DELETE FROM channel_user_settings WHERE source_id = ?1", params![source_id]).ok();
 
     tx.commit().map_err(|e| format!("Törlési mentési hiba: {}", e))?;
@@ -494,6 +504,76 @@ async fn save_channel_order(source_id: String, order: Vec<String>) -> Result<(),
         ).ok();
     }
     tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SortPreset {
+    id: i64,
+    name: String,
+    source_id: String,
+    channel_order: Vec<String>,
+    created_at: Option<String>,
+}
+
+#[tauri::command]
+async fn get_sort_presets(source_id: String) -> Result<Vec<SortPreset>, String> {
+    let conn = init_db();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, source_id, channel_order, created_at FROM channel_sort_presets WHERE source_id = ?1 ORDER BY id ASC"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map(params![source_id], |row| {
+        let order_str: String = row.get(3)?;
+        let channel_order: Vec<String> = serde_json::from_str(&order_str).unwrap_or_default();
+        Ok(SortPreset {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            source_id: row.get(2)?,
+            channel_order,
+            created_at: row.get(4)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    let mut presets = Vec::new();
+    for p in rows {
+        if let Ok(item) = p { presets.push(item); }
+    }
+    Ok(presets)
+}
+
+#[tauri::command]
+async fn save_sort_preset(source_id: String, name: String, order: Vec<String>) -> Result<SortPreset, String> {
+    let conn = init_db();
+    let order_json = serde_json::to_string(&order).map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT INTO channel_sort_presets (name, source_id, channel_order, created_at) VALUES (?1, ?2, ?3, datetime('now', 'localtime'))",
+        params![name, source_id, order_json],
+    ).map_err(|e| e.to_string())?;
+    let id = conn.last_insert_rowid();
+    let created_at: Option<String> = conn.query_row("SELECT created_at FROM channel_sort_presets WHERE id = ?1", params![id], |r| r.get(0)).ok();
+    Ok(SortPreset {
+        id,
+        name,
+        source_id,
+        channel_order: order,
+        created_at,
+    })
+}
+
+#[tauri::command]
+async fn rename_sort_preset(preset_id: i64, new_name: String) -> Result<(), String> {
+    let conn = init_db();
+    conn.execute(
+        "UPDATE channel_sort_presets SET name = ?1 WHERE id = ?2",
+        params![new_name, preset_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn delete_sort_preset(preset_id: i64) -> Result<(), String> {
+    let conn = init_db();
+    conn.execute("DELETE FROM channel_sort_presets WHERE id = ?1", params![preset_id]).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -694,6 +774,8 @@ struct BackupData {
     favorites: Vec<String>,
     channel_user_settings: Vec<ChannelUserSettingExport>,
     channel_orders: Vec<ChannelOrderExport>,
+    #[serde(default)]
+    channel_sort_presets: Vec<SortPreset>,
     settings: HashMap<String, String>,
 }
 
@@ -896,6 +978,24 @@ async fn export_settings() -> Result<BackupData, String> {
         if let Ok(c) = co { channel_orders.push(c); }
     }
 
+    // Channel sort presets
+    let mut stmt = conn.prepare("SELECT id, name, source_id, channel_order, created_at FROM channel_sort_presets").map_err(|e| e.to_string())?;
+    let csp_iter = stmt.query_map([], |row| {
+        let order_str: String = row.get(3)?;
+        let channel_order: Vec<String> = serde_json::from_str(&order_str).unwrap_or_default();
+        Ok(SortPreset {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            source_id: row.get(2)?,
+            channel_order,
+            created_at: row.get(4)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    let mut channel_sort_presets = Vec::new();
+    for csp in csp_iter {
+        if let Ok(p) = csp { channel_sort_presets.push(p); }
+    }
+
     // Settings
     let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
     let s_iter = stmt.query_map([], |row| {
@@ -915,6 +1015,7 @@ async fn export_settings() -> Result<BackupData, String> {
         favorites,
         channel_user_settings,
         channel_orders,
+        channel_sort_presets,
         settings,
     })
 }
@@ -972,6 +1073,18 @@ async fn import_settings(backup: BackupData) -> Result<(), String> {
                 position = excluded.position",
             params![co.source_id, co.channel_id, co.position],
         ).ok();
+    }
+
+    // Channel sort presets
+    if !backup.channel_sort_presets.is_empty() {
+        tx.execute("DELETE FROM channel_sort_presets", []).ok();
+        for csp in backup.channel_sort_presets {
+            let order_json = serde_json::to_string(&csp.channel_order).unwrap_or_else(|_| "[]".to_string());
+            tx.execute(
+                "INSERT INTO channel_sort_presets (id, name, source_id, channel_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![csp.id, csp.name, csp.source_id, order_json, csp.created_at],
+            ).ok();
+        }
     }
 
     // Settings
@@ -1161,6 +1274,119 @@ fn clean_title(title: &str) -> String {
     }
 }
 
+// Extract a 4-digit year from parentheses/brackets in a raw EPG title, e.g. "Film (2018)" → Some(2018).
+// Called BEFORE clean_title() so the year is not yet stripped.
+fn extract_year_hint(raw_title: &str) -> Option<u32> {
+    regex::Regex::new(r"[\(\[]\s*((?:19|20)\d{2})\s*[\)\]]")
+        .ok()?
+        .captures(raw_title)?
+        .get(1)?
+        .as_str()
+        .parse()
+        .ok()
+}
+
+// Lowercase + keep only alphanumeric chars and spaces, then collapse whitespace.
+fn normalise_for_match(s: &str) -> String {
+    let mapped: String = s
+        .chars()
+        .flat_map(|c| {
+            if c.is_alphanumeric() {
+                // to_lowercase() handles Unicode (ÁáÉéŐő etc.) correctly
+                c.to_lowercase().collect::<String>().chars().collect::<Vec<_>>()
+            } else {
+                vec![' ']
+            }
+        })
+        .collect();
+    mapped.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+// Score how well a TMDB candidate title matches the cleaned query.
+// Returns a value in roughly [0.0, 1.5]; higher is better.
+fn tmdb_title_score(
+    query: &str,
+    cand_title: &str,
+    cand_orig: Option<&str>,
+    year_hint: Option<u32>,
+    cand_year: Option<u32>,
+) -> f64 {
+    let nq = normalise_for_match(query);
+    let nc = normalise_for_match(cand_title);
+    let no = cand_orig.map(|o| normalise_for_match(o));
+
+    let jaccard = |a: &str, b: &str| -> f64 {
+        if a.is_empty() && b.is_empty() { return 1.0; }
+        if a.is_empty() || b.is_empty() { return 0.0; }
+        let ta: std::collections::HashSet<&str> = a.split_whitespace().collect();
+        let tb: std::collections::HashSet<&str> = b.split_whitespace().collect();
+        let inter = ta.intersection(&tb).count() as f64;
+        let denom = ta.len().max(tb.len()) as f64;
+        inter / denom
+    };
+
+    let mut score = jaccard(&nq, &nc);
+    if let Some(ref no_str) = no {
+        score = score.max(jaccard(&nq, no_str));
+    }
+
+    // Bonus: exact substring match (query inside title or vice versa)
+    if !nq.is_empty() && !nc.is_empty() && (nc.contains(nq.as_str()) || nq.contains(nc.as_str())) {
+        score += 0.2;
+    } else if let Some(ref no_str) = no {
+        if !nq.is_empty() && !no_str.is_empty() && (no_str.contains(nq.as_str()) || nq.contains(no_str.as_str())) {
+            score += 0.2;
+        }
+    }
+
+    // Year hint bonus/penalty for franchise disambiguation
+    if let Some(hint) = year_hint {
+        if let Some(cy) = cand_year {
+            if cy == hint {
+                score += 0.5;
+            } else {
+                score -= 0.3;
+            }
+        }
+        // No penalty when candidate has no year (don't penalise old uncatalogued entries)
+    }
+
+    score
+}
+
+// Pick the best movie/tv candidate from a list by title similarity.
+// Tie-breaks by original TMDB relevance order (position).
+fn best_tmdb_match(
+    candidates: Vec<TmdbRawItem>,
+    clean_query: &str,
+    year_hint: Option<u32>,
+) -> Option<TmdbRawItem> {
+    let scored: Vec<(usize, f64, TmdbRawItem)> = candidates
+        .into_iter()
+        .enumerate()
+        .filter(|(_, item)| matches!(item.media_type.as_deref(), Some("movie") | Some("tv")))
+        .map(|(pos, item)| {
+            let cand_title = item.title.as_deref()
+                .or(item.name.as_deref())
+                .unwrap_or("");
+            let cand_orig = item.original_title.as_deref()
+                .or(item.original_name.as_deref());
+            let cand_year: Option<u32> = item.release_date.as_deref()
+                .or(item.first_air_date.as_deref())
+                .and_then(|d| d.get(..4))
+                .and_then(|y| y.parse().ok());
+            let s = tmdb_title_score(clean_query, cand_title, cand_orig, year_hint, cand_year);
+            (pos, s, item)
+        })
+        .collect();
+
+    // Best score wins; tie-break by lowest position (TMDB relevance order)
+    scored.into_iter().max_by(|a, b| {
+        a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+            .then(b.0.cmp(&a.0)) // lower position wins on tie
+    }).map(|(_, _, item)| item)
+}
+
 #[tauri::command]
 async fn get_tmdb_api_key() -> Result<Option<String>, String> {
     let conn = init_db();
@@ -1225,6 +1451,8 @@ async fn test_tmdb_api_key(api_key: String) -> Result<bool, String> {
 
 #[tauri::command]
 async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<TmdbDetails>, String> {
+    // Extract year hint from raw title BEFORE cleaning strips it (used for scoring later)
+    let year_hint = extract_year_hint(&title);
     let clean = clean_title(&title);
     if clean.is_empty() {
         return Ok(None);
@@ -1327,17 +1555,14 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     let search_json: Result<TmdbSearchResponse, _> = serde_json::from_str(&text);
     let search_res = search_json.ok().and_then(|r| r.results).unwrap_or_default();
 
-    let mut matched_item = search_res.into_iter().find(|i| {
-        matches!(i.media_type.as_deref(), Some("movie") | Some("tv"))
-    });
+    // Pick best-matching movie/tv candidate instead of blindly taking the first result
+    let mut matched_item = best_tmdb_match(search_res, &clean, year_hint);
 
     if matched_item.is_none() && target_lang != "en-US" {
         if let Ok(fallback_resp) = execute_search(&clean, "en-US").send().await {
             if let Ok(fallback_text) = fallback_resp.text().await {
                 if let Ok(fallback_json) = serde_json::from_str::<TmdbSearchResponse>(&fallback_text) {
-                    matched_item = fallback_json.results.unwrap_or_default().into_iter().find(|i| {
-                        matches!(i.media_type.as_deref(), Some("movie") | Some("tv"))
-                    });
+                    matched_item = best_tmdb_match(fallback_json.results.unwrap_or_default(), &clean, year_hint);
                 }
             }
         }
@@ -1972,6 +2197,10 @@ fn main() {
             set_favorites,
             get_channel_order,
             save_channel_order,
+            get_sort_presets,
+            save_sort_preset,
+            rename_sort_preset,
+            delete_sort_preset,
             toggle_channel_favorite,
             toggle_channel_hidden,
             set_channel_logo,
