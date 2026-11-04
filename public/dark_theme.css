@@ -2612,12 +2612,17 @@ input[type="text"] {
   overflow-y: auto;
 }
 
+#headerSortSelect {
+  max-width: 190px;
+}
+
 /* Channels tab */
 .channels-source-row {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .settings-label {
@@ -2627,11 +2632,37 @@ input[type="text"] {
 
 #channelOrderSourceSelect {
   flex: 1;
-  max-width: 320px;
+  max-width: 280px;
 }
 
-#resetChannelOrderBtn {
+.channel-sort-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
   margin-left: auto;
+}
+
+.channels-presets-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+#channelSortPresetSelect {
+  flex: 1;
+  max-width: 280px;
+}
+
+.channel-order-source-badge {
+  font-size: 10px;
+  background: var(--accent-green-bg);
+  color: var(--accent-green);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--accent-green-border);
+  white-space: nowrap;
 }
 
 .channels-search-bar {
