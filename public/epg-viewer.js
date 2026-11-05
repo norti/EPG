@@ -216,6 +216,9 @@ const I18N_FALLBACK = {
     sort_option_az: "Név szerint (A-Z)",
     sort_option_source_az: "Forrás szerint, majd A-Z",
     sort_presets_group: "Egyéni sorrendek",
+    btn_sort_sources_az: "A-Z",
+    btn_sort_sources_az_title: "Források rendezése A-Z szerint",
+    sources_drag_hint: "Húzza a forrásokat vagy használja a nyilakat a sorrend megváltoztatásához",
   },
   english: {
     app_title: "EPG Viewer",
@@ -427,6 +430,9 @@ const I18N_FALLBACK = {
     sort_option_az: "Name (A-Z)",
     sort_option_source_az: "By source, then A-Z",
     sort_presets_group: "Custom Presets",
+    btn_sort_sources_az: "A-Z",
+    btn_sort_sources_az_title: "Sort sources alphabetically A-Z",
+    sources_drag_hint: "Drag sources or use arrows to reorder them",
   },
 };
 
@@ -861,7 +867,35 @@ function loadSourcesDropdown() {
     sourceSelect.appendChild(allFavOpt);
   }
 
-  sources.forEach((s) => {
+  const saveSourceOrder = async () => {
+    const items = Array.from(sourcesList.querySelectorAll(".source-item"));
+    const newOrder = items.map((el) => el.dataset.sourceId);
+    // Update the in-memory sources array to match new order
+    newOrder.forEach((id, idx) => {
+      const src = sources.find((s) => s.id === id);
+      if (src) src._sortPos = idx;
+    });
+    sources.sort((a, b) => (a._sortPos ?? 0) - (b._sortPos ?? 0));
+    // Reload dropdown option order
+    Array.from(sourceSelect.options).forEach((opt) => {
+      if (opt.value !== "__ALL_FAVORITES__") opt.remove();
+    });
+    sources.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
+      sourceSelect.appendChild(opt);
+    });
+    sourceSelect.value = currentSourceId;
+    // Renumber order-index badges
+    items.forEach((el, i) => {
+      const badge = el.querySelector(".source-order-index");
+      if (badge) badge.textContent = i + 1;
+    });
+    await invoke("save_source_order", { order: newOrder });
+  };
+
+  sources.forEach((s, idx) => {
     const opt = document.createElement("option");
     opt.value = s.id;
     opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
@@ -890,7 +924,10 @@ function loadSourcesDropdown() {
 
     const item = document.createElement("div");
     item.className = "source-item";
+    item.dataset.sourceId = s.id;
     item.innerHTML = `
+                    <span class="source-drag-handle" title="${t("sources_drag_hint")}">☰</span>
+                    <span class="source-order-index" style="font-size:11px;font-weight:bold;background:#1a2535;color:#a0aec0;padding:2px 7px;border-radius:4px;min-width:20px;text-align:center;flex-shrink:0;">${idx + 1}</span>
                     <div class="source-info">
                         <strong>${s.name} <span style="font-size:11px; color:#48bb78; background:#1a2f20; padding:1px 5px; border-radius:3px;">${s.countryCode || "HU"}</span> <span style="font-size:11px; color:#a0aec0;">(Offset: ${s.timeOffset >= 0 ? "+" : ""}${s.timeOffset || 0}h)</span></strong>
                         <small>${s.url}</small>
@@ -901,12 +938,70 @@ function loadSourcesDropdown() {
                             <span class="source-stat-badge source-stat-hid">${t("source_stat_hid")}: ${hidCount}</span>
                         </div>
                     </div>
+                    <div class="source-reorder-btns">
+                        <button class="btn-order-arrow btn-up" title="Feljebb">▲</button>
+                        <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
+                    </div>
                     <div class="source-actions">
                         <button class="btn btn-green" onclick="downloadSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
                         <button class="btn btn-blue" onclick="editSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_edit")}</button>
                         <button class="btn btn-red" onclick="deleteSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_delete")}</button>
                     </div>
                 `;
+
+    // ▲ Up arrow
+    item.querySelector(".btn-up").onclick = async () => {
+      const prev = item.previousElementSibling;
+      if (prev && prev.classList.contains("source-item")) {
+        sourcesList.insertBefore(item, prev);
+        await saveSourceOrder();
+      }
+    };
+
+    // ▼ Down arrow
+    item.querySelector(".btn-down").onclick = async () => {
+      const next = item.nextElementSibling;
+      if (next && next.classList.contains("source-item")) {
+        sourcesList.insertBefore(next, item);
+        await saveSourceOrder();
+      }
+    };
+
+    // Drag-and-drop (reuse channel order drag pattern)
+    const handle = item.querySelector(".source-drag-handle");
+    handle.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      item.classList.add("dragging");
+      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+
+      const onPointerMove = (moveEvent) => {
+        const targetEl = document
+          .elementFromPoint(moveEvent.clientX, moveEvent.clientY)
+          ?.closest(".source-item");
+        if (targetEl && targetEl !== item && targetEl.parentElement === sourcesList) {
+          const rect = targetEl.getBoundingClientRect();
+          if (moveEvent.clientY < rect.top + rect.height / 2) {
+            sourcesList.insertBefore(item, targetEl);
+          } else {
+            sourcesList.insertBefore(item, targetEl.nextSibling);
+          }
+        }
+      };
+
+      const onPointerUp = async (upEvent) => {
+        document.removeEventListener("pointermove", onPointerMove);
+        document.removeEventListener("pointerup", onPointerUp);
+        document.removeEventListener("pointercancel", onPointerUp);
+        try { handle.releasePointerCapture(upEvent.pointerId); } catch (_) {}
+        item.classList.remove("dragging");
+        await saveSourceOrder();
+      };
+
+      document.addEventListener("pointermove", onPointerMove);
+      document.addEventListener("pointerup", onPointerUp);
+      document.addEventListener("pointercancel", onPointerUp);
+    });
+
     sourcesList.appendChild(item);
   });
 
@@ -945,6 +1040,45 @@ function loadSourcesDropdown() {
         value: currentSourceId,
       });
       fetchEPG();
+    };
+  }
+
+  // A-Z sort button
+  const sortAzBtn = document.getElementById("sortSourcesAzBtn");
+  if (sortAzBtn) {
+    sortAzBtn.onclick = async () => {
+      const items = Array.from(sourcesList.querySelectorAll(".source-item"));
+      if (items.length === 0) return;
+      items.sort((a, b) => {
+        const srcA = sources.find((s) => s.id === a.dataset.sourceId)?.name || "";
+        const srcB = sources.find((s) => s.id === b.dataset.sourceId)?.name || "";
+        return srcA.localeCompare(srcB, currentLang === "hungarian" ? "hu" : "en", {
+          sensitivity: "base",
+          numeric: true,
+        });
+      });
+      items.forEach((el, i) => {
+        const badge = el.querySelector(".source-order-index");
+        if (badge) badge.textContent = i + 1;
+        sourcesList.appendChild(el);
+      });
+      const newOrder = items.map((el) => el.dataset.sourceId);
+      newOrder.forEach((id, idx) => {
+        const src = sources.find((s) => s.id === id);
+        if (src) src._sortPos = idx;
+      });
+      sources.sort((a, b) => (a._sortPos ?? 0) - (b._sortPos ?? 0));
+      Array.from(sourceSelect.options).forEach((opt) => {
+        if (opt.value !== "__ALL_FAVORITES__") opt.remove();
+      });
+      sources.forEach((s) => {
+        const opt = document.createElement("option");
+        opt.value = s.id;
+        opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
+        sourceSelect.appendChild(opt);
+      });
+      sourceSelect.value = currentSourceId;
+      await invoke("save_source_order", { order: newOrder });
     };
   }
 }

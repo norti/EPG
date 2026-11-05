@@ -1785,9 +1785,12 @@ input[type="text"] {
   border-radius: 8px;
   margin-bottom: 10px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
-  gap: 15px;
+  gap: 10px;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 .source-info {
   flex: 1;
@@ -1809,6 +1812,33 @@ input[type="text"] {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+}
+.source-item .source-drag-handle {
+  color: var(--drag-handle-color);
+  font-size: 18px;
+  cursor: grab;
+  padding: 2px 6px;
+  touch-action: none;
+  flex-shrink: 0;
+}
+.source-item .source-drag-handle:active {
+  cursor: grabbing;
+}
+.source-item.dragging {
+  opacity: 0.45;
+  background: var(--accent-green-drag);
+  border-color: var(--accent-green-active);
+}
+.source-reorder-btns {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.sources-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .fav-day-group {

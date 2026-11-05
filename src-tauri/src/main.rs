@@ -160,6 +160,7 @@ fn init_db() -> Connection {
     // Meglévő adatbázis sémakorrekció, ha hiányoznának az új oszlopok
     let _ = conn.execute("ALTER TABLE sources ADD COLUMN country_code TEXT", []);
     let _ = conn.execute("ALTER TABLE sources ADD COLUMN time_offset INTEGER", []);
+    let _ = conn.execute("ALTER TABLE sources ADD COLUMN sort_position INTEGER", []);
     let _ = conn.execute("ALTER TABLE channel_user_settings ADD COLUMN custom_name TEXT", []);
     let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN hu_title TEXT", []);
     let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN en_title TEXT", []);
@@ -361,7 +362,7 @@ async fn get_sources() -> Result<Vec<Source>, String> {
                 (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_favorite = 1) AS fav_count,
                 (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_hidden = 1) AS hid_count
          FROM sources s
-         ORDER BY s.rowid ASC"
+         ORDER BY COALESCE(s.sort_position, s.rowid) ASC"
     ).map_err(|e| e.to_string())?;
 
     let rows = stmt.query_map([], |row| {
@@ -420,6 +421,20 @@ async fn delete_source(source_id: String) -> Result<(), String> {
 #[tauri::command]
 async fn delete_source_data(source_id: String) -> Result<(), String> {
     delete_source(source_id).await
+}
+
+#[tauri::command]
+async fn save_source_order(order: Vec<String>) -> Result<(), String> {
+    let mut conn = init_db();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for (pos, src_id) in order.iter().enumerate() {
+        tx.execute(
+            "UPDATE sources SET sort_position = ?1 WHERE id = ?2",
+            params![pos as i64, src_id],
+        ).ok();
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -2190,6 +2205,7 @@ fn main() {
             save_source,
             delete_source,
             delete_source_data,
+            save_source_order,
             clear_entire_database,
             update_source_epg,
             get_favorites,
