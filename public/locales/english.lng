@@ -204,5 +204,8 @@
   "sort_option_default": "Default order",
   "sort_option_az": "Name (A-Z)",
   "sort_option_source_az": "By source, then A-Z",
-  "sort_presets_group": "Custom Presets"
+  "sort_presets_group": "Custom Presets",
+  "btn_sort_sources_az": "A-Z",
+  "btn_sort_sources_az_title": "Sort sources alphabetically A-Z",
+  "sources_drag_hint": "Drag sources or use arrows to reorder them"
 }

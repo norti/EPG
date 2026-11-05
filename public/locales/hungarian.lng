@@ -204,5 +204,8 @@
   "sort_option_default": "Alapértelmezett sorrend",
   "sort_option_az": "Név szerint (A-Z)",
   "sort_option_source_az": "Forrás szerint, majd A-Z",
-  "sort_presets_group": "Egyéni sorrendek"
+  "sort_presets_group": "Egyéni sorrendek",
+  "btn_sort_sources_az": "A-Z",
+  "btn_sort_sources_az_title": "Források rendezése A-Z szerint",
+  "sources_drag_hint": "Húzza a forrásokat vagy használja a nyilakat a sorrend megváltoztatásához"
 }
