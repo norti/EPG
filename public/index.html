@@ -374,75 +374,97 @@
                 <h3 data-i18n="sources_heading">
                   EPG Források Kezelése
                 </h3>
-                <button
-                  class="btn btn-green"
-                  id="updateAllSourcesBtn"
-                  data-i18n="btn_update_all"
-                >
-                  ÖSSZES FRISSÍTÉSE
-                </button>
+                <div class="sources-header-actions">
+                  <button
+                    class="btn btn-blue"
+                    id="sortSourcesAzBtn"
+                    title="Források rendezése A-Z szerint"
+                    data-i18n-title="btn_sort_sources_az_title"
+                    data-i18n="btn_sort_sources_az"
+                  >
+                    A-Z
+                  </button>
+                  <button
+                    class="btn btn-green"
+                    id="updateAllSourcesBtn"
+                    data-i18n="btn_update_all"
+                  >
+                    ÖSSZES FRISSÍTÉSE
+                  </button>
+                </div>
               </div>
-              <div class="source-input-row">
-                <input type="hidden" id="editSourceId" />
-                <input
-                  type="text"
-                  id="sourceNameInput"
-                  placeholder="Forrás neve"
-                  data-i18n-placeholder="source_name_placeholder"
-                />
-                <input
-                  type="text"
-                  id="sourceUrlInput"
-                  placeholder="EPG URL (.xml vagy .gz)"
-                  data-i18n-placeholder="source_url_placeholder"
-                />
+              <div class="source-input-box">
+                <div class="source-input-row">
+                  <input type="hidden" id="editSourceId" />
+                  <input
+                    type="text"
+                    id="sourceNameInput"
+                    placeholder="Forrás neve"
+                    data-i18n-placeholder="source_name_placeholder"
+                  />
+                  <input
+                    type="text"
+                    id="sourceUrlInput"
+                    placeholder="EPG URL (.xml vagy .gz)"
+                    data-i18n-placeholder="source_url_placeholder"
+                  />
+                </div>
 
-                <!-- Ország/Nyelv Választó (ISO 3166 / Nyelvi kód) -->
-                <select id="sourceCountrySelect">
-                  <option value="HU">HU - Magyar</option>
-                  <option value="EN">EN - English</option>
-                  <option value="DE">DE - Deutsch</option>
-                  <option value="FR">FR - Français</option>
-                  <option value="ES">ES - Español</option>
-                  <option value="IT">IT - Italiano</option>
-                  <option value="SK">SK - Slovenčina</option>
-                  <option value="RO">RO - Română</option>
-                  <option value="PL">PL - Polski</option>
-                  <option value="PT">PT - Português</option>
-                  <option value="CZ">CZ - Čeština</option>
-                  <option value="US">US - English (US)</option>
-                  <option value="UK">UK - English (UK)</option>
-                </select>
+                <div class="source-options-row">
+                  <!-- Ország/Nyelv Választó (ISO 3166 / Nyelvi kód) -->
+                  <div class="source-field-group">
+                    <label
+                      class="settings-label"
+                      for="sourceCountrySelect"
+                      data-i18n="source_lang_code"
+                      >Nyelvkód:</label
+                    >
+                    <select id="sourceCountrySelect">
+                      <option value="HU">HU - Magyar</option>
+                      <option value="EN">EN - English</option>
+                      <option value="DE">DE - Deutsch</option>
+                      <option value="FR">FR - Français</option>
+                      <option value="ES">ES - Español</option>
+                      <option value="IT">IT - Italiano</option>
+                      <option value="SK">SK - Slovenčina</option>
+                      <option value="RO">RO - Română</option>
+                      <option value="PL">PL - Polski</option>
+                      <option value="PT">PT - Português</option>
+                      <option value="CZ">CZ - Čeština</option>
+                      <option value="US">US - English (US)</option>
+                      <option value="UK">UK - English (UK)</option>
+                    </select>
+                  </div>
 
-                <!-- Manuális időeltolás (Offset) -->
-                <input
-                  type="number"
-                  id="sourceOffsetInput"
-                  placeholder="Offset (óra)"
-                  title="Manuális eltolás órában (+/-)"
-                  value="0"
-                  min="-12"
-                  max="12"
-                />
+                  <!-- Manuális időeltolás (Offset) -->
+                  <div class="source-field-group">
+                    <label
+                      class="settings-label"
+                      for="sourceOffsetInput"
+                      data-i18n="source_offset"
+                      >Eltérés:</label
+                    >
+                    <input
+                      type="number"
+                      id="sourceOffsetInput"
+                      placeholder="0"
+                      title="Manuális eltolás órában (+/-)"
+                      data-i18n-title="source_offset_title"
+                      value="0"
+                      min="-12"
+                      max="12"
+                    />
+                    <span class="source-offset-hint" data-i18n="source_offset_unit">óra</span>
+                  </div>
 
-                <button
-                  class="btn btn-green"
-                  id="saveSourceBtn"
-                  data-i18n="btn_save_source"
-                >
-                  MENTÉS
-                </button>
-              </div>
-              <div class="sources-sort-row">
-                <button
-                  class="btn btn-blue"
-                  id="sortSourcesAzBtn"
-                  title="Források rendezése A-Z szerint"
-                  data-i18n-title="btn_sort_sources_az_title"
-                  data-i18n="btn_sort_sources_az"
-                >
-                  A-Z
-                </button>
+                  <button
+                    class="btn btn-green"
+                    id="saveSourceBtn"
+                    data-i18n="btn_save_source"
+                  >
+                    MENTÉS
+                  </button>
+                </div>
               </div>
               <div
                 id="sourcesList"

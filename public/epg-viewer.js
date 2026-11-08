@@ -440,26 +440,30 @@ function loadSourcesDropdown() {
     item.className = "source-item";
     item.dataset.sourceId = s.id;
     item.innerHTML = `
-                    <span class="source-drag-handle" title="${t("sources_drag_hint")}">☰</span>
-                    <span class="source-order-index" style="font-size:11px;font-weight:bold;background:#1a2535;color:#a0aec0;padding:2px 7px;border-radius:4px;min-width:20px;text-align:center;flex-shrink:0;">${idx + 1}</span>
-                    <div class="source-info">
-                        <strong>${s.name} <span style="font-size:11px; color:#48bb78; background:#1a2f20; padding:1px 5px; border-radius:3px;">${s.countryCode || "HU"}</span> <span style="font-size:11px; color:#a0aec0;">(Offset: ${s.timeOffset >= 0 ? "+" : ""}${s.timeOffset || 0}h)</span></strong>
-                        <small>${s.url}</small>
-                        <small style="color: #4299e1; margin-top: 3px;">${t("last_updated")} ${lastDate}</small>
-                        <div class="source-stats-row">
-                            <span class="source-stat-badge source-stat-all">${t("source_stat_all")}: ${allCount}</span>
-                            <span class="source-stat-badge source-stat-fav">${t("source_stat_fav")}: ${favCount}</span>
-                            <span class="source-stat-badge source-stat-hid">${t("source_stat_hid")}: ${hidCount}</span>
+                    <div class="source-row-header">
+                        <div class="source-title-group">
+                            <span class="source-drag-handle" title="${t("sources_drag_hint")}">☰</span>
+                            <span class="source-order-index">${idx + 1}</span>
+                            <strong class="source-name">${s.name} <span class="source-country-badge">${s.countryCode || "HU"}</span> <span class="source-offset-badge">(Offset: ${s.timeOffset >= 0 ? "+" : ""}${s.timeOffset || 0}h)</span></strong>
+                        </div>
+                        <div class="source-header-actions">
+                            <div class="source-reorder-btns">
+                                <button class="btn-order-arrow btn-up" title="Feljebb">▲</button>
+                                <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
+                            </div>
+                            <div class="source-actions">
+                                <button class="btn btn-green" onclick="downloadSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
+                                <button class="btn btn-blue" onclick="editSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_edit")}</button>
+                                <button class="btn btn-red" onclick="deleteSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_delete")}</button>
+                            </div>
                         </div>
                     </div>
-                    <div class="source-reorder-btns">
-                        <button class="btn-order-arrow btn-up" title="Feljebb">▲</button>
-                        <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
-                    </div>
-                    <div class="source-actions">
-                        <button class="btn btn-green" onclick="downloadSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
-                        <button class="btn btn-blue" onclick="editSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_edit")}</button>
-                        <button class="btn btn-red" onclick="deleteSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_delete")}</button>
+                    <div class="source-url" title="${s.url}">${s.url}</div>
+                    <div class="source-update-info">${t("last_updated")} ${lastDate}</div>
+                    <div class="source-stats-row">
+                        <span class="source-stat-badge source-stat-all">${t("source_stat_all")}: ${allCount}</span>
+                        <span class="source-stat-badge source-stat-fav">${t("source_stat_fav")}: ${favCount}</span>
+                        <span class="source-stat-badge source-stat-hid">${t("source_stat_hid")}: ${hidCount}</span>
                     </div>
                 `;
 
