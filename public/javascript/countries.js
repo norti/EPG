@@ -2834,14 +2834,14 @@
         const opt = document.createElement('option');
         opt.value = c.code;
 
-        const flagPrefix = includeFlags && c.flag ? ${c.flag}  : '';
+        const flagPrefix = includeFlags && c.flag ? `${c.flag}  ` : '';
 
         if (format === 'search') {
-          opt.textContent = ${flagPrefix} ();
+          opt.textContent = `${flagPrefix}${c.nameEn} (${c.code})`;
         } else if (format === 'iso') {
-          opt.textContent = ${flagPrefix} [] - ;
+          opt.textContent = `${flagPrefix}${c.nameEn} [${c.isoCode}] - ${c.nativeName}`;
         } else {
-          opt.textContent = ${flagPrefix} -  ();
+          opt.textContent = `${flagPrefix}${c.nameEn} - ${c.nativeName} (${c.code})`;
         }
 
         if (c.code === normalizedCurrent) {
