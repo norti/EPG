@@ -48,6 +48,17 @@ struct EpgResponse {
     programmes: Vec<Programme>,
 }
 
+const EMBEDDED_ENGLISH_LNG: &str = include_str!("../../public/languages/english.lng");
+const EMBEDDED_HUNGARIAN_LNG: &str = include_str!("../../public/languages/hungarian.lng");
+
+fn get_embedded_language(lang: &str) -> Option<&'static str> {
+    match lang.to_lowercase().as_str() {
+        "english" | "en" => Some(EMBEDDED_ENGLISH_LNG),
+        "hungarian" | "hu" => Some(EMBEDDED_HUNGARIAN_LNG),
+        _ => None,
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Source {
@@ -129,6 +140,12 @@ fn init_db() -> Connection {
             value TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS app_languages (
+            lang TEXT PRIMARY KEY,
+            content TEXT,
+            updated_at TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS logo_cache (
             url TEXT PRIMARY KEY,
             data TEXT,
@@ -175,6 +192,21 @@ fn init_db() -> Connection {
     conn.execute("DELETE FROM channels WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
     conn.execute("DELETE FROM programmes WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
     conn.execute("DELETE FROM channel_orders WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
+
+    // Kezdeti nyelvi sablonok feltöltése, ha üres lenne
+    let lang_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM app_languages", [], |r| r.get(0))
+        .unwrap_or(0);
+    if lang_count == 0 {
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO app_languages (lang, content, updated_at) VALUES ('english', ?1, datetime('now', 'localtime'))",
+            params![EMBEDDED_ENGLISH_LNG],
+        );
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO app_languages (lang, content, updated_at) VALUES ('hungarian', ?1, datetime('now', 'localtime'))",
+            params![EMBEDDED_HUNGARIAN_LNG],
+        );
+    }
 
     conn
 }
@@ -1138,6 +1170,119 @@ async fn set_setting(key: String, value: String) -> Result<(), String> {
         params![key, value],
     ).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+async fn get_language_content(lang: String) -> Result<String, String> {
+    let conn = init_db();
+    let normalized = lang.to_lowercase();
+    let mut stmt = conn
+        .prepare("SELECT content FROM app_languages WHERE lang = ?1")
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt
+        .query(params![normalized])
+        .map_err(|e| e.to_string())?;
+
+    if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let content: String = row.get(0).map_err(|e| e.to_string())?;
+        if !content.trim().is_empty() {
+            return Ok(content);
+        }
+    }
+
+    if let Some(embedded) = get_embedded_language(&normalized) {
+        return Ok(embedded.to_string());
+    }
+
+    Ok(EMBEDDED_ENGLISH_LNG.to_string())
+}
+
+#[tauri::command]
+async fn save_language_content(lang: String, content: String) -> Result<(), String> {
+    let conn = init_db();
+    let normalized = lang.to_lowercase();
+    conn.execute(
+        "INSERT INTO app_languages (lang, content, updated_at) VALUES (?1, ?2, datetime('now', 'localtime'))
+         ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        params![normalized, content],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn restore_languages_to_disk() -> Result<(), String> {
+    let conn = init_db();
+
+    conn.execute(
+        "INSERT INTO app_languages (lang, content, updated_at) VALUES ('english', ?1, datetime('now', 'localtime'))
+         ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        params![EMBEDDED_ENGLISH_LNG],
+    ).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO app_languages (lang, content, updated_at) VALUES ('hungarian', ?1, datetime('now', 'localtime'))
+         ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+        params![EMBEDDED_HUNGARIAN_LNG],
+    ).map_err(|e| e.to_string())?;
+
+    let mut candidate_dirs = Vec::new();
+    candidate_dirs.push(PathBuf::from("public/languages"));
+    candidate_dirs.push(PathBuf::from("../public/languages"));
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            candidate_dirs.push(parent.join("public/languages"));
+            candidate_dirs.push(parent.join("languages"));
+        }
+    }
+
+    for dir in candidate_dirs {
+        if dir.exists() || dir.parent().map(|p| p.exists()).unwrap_or(false) {
+            let _ = fs::create_dir_all(&dir);
+            let _ = fs::write(dir.join("english.lng"), EMBEDDED_ENGLISH_LNG);
+            let _ = fs::write(dir.join("hungarian.lng"), EMBEDDED_HUNGARIAN_LNG);
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn download_languages_from_github() -> Result<HashMap<String, String>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("EPG-Viewer/1.0")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let langs = ["english", "hungarian"];
+    let mut result = HashMap::new();
+    let conn = init_db();
+
+    for lang in &langs {
+        let url = format!(
+            "https://raw.githubusercontent.com/norti/EPG/main/public/languages/{}.lng",
+            lang
+        );
+        let resp = client.get(&url).send().await.map_err(|e| format!("Letöltési hiba ({url}): {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!("GitHub letöltés sikertelen ({url}): HTTP {}", resp.status()));
+        }
+        let text = resp.text().await.map_err(|e| format!("Válasz olvasási hiba ({url}): {e}"))?;
+        let _: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Érvénytelen JSON ({lang}.lng): {e}"))?;
+
+        conn.execute(
+            "INSERT INTO app_languages (lang, content, updated_at) VALUES (?1, ?2, datetime('now', 'localtime'))
+             ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+            params![lang, text],
+        ).map_err(|e| e.to_string())?;
+
+        let _ = fs::create_dir_all("public/languages");
+        let _ = fs::write(format!("public/languages/{}.lng", lang), &text);
+
+        result.insert(lang.to_string(), text);
+    }
+
+    Ok(result)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2229,6 +2374,10 @@ fn main() {
             import_channel_data,
             get_settings,
             set_setting,
+            get_language_content,
+            save_language_content,
+            restore_languages_to_disk,
+            download_languages_from_github,
             get_tmdb_details,
             get_tmdb_details_for_lang,
             get_tmdb_api_key,

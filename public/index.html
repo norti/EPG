@@ -329,6 +329,15 @@
                 <option value="hungarian">Magyar</option>
                 <option value="english">English</option>
               </select>
+              <button
+                class="btn btn-blue"
+                id="restoreLanguagesBtn"
+                data-i18n-title="btn_restore_languages"
+                title="Nyelvi fájlok visszaállítása"
+                style="padding: 4px 8px; font-size: 11px; margin-left: 6px;"
+              >
+                🔄
+              </button>
             </div>
           </div>
           <button class="modal-close" id="settingsClose">&times;</button>
@@ -632,6 +641,7 @@
                       class="btn btn-blue"
                       id="toggleTmdbKeyBtn"
                       type="button"
+                      data-i18n-title="tmdb_toggle_key_title"
                       title="Megjelenítés / Elrejtés"
                     >
                       👁
@@ -683,7 +693,7 @@
                   >
                     TMDB gyorsítótár kiürítése
                   </div>
-                  <div class="tmdb-cache-desc">
+                  <div class="tmdb-cache-desc" data-i18n="tmdb_cache_desc">
                     Törli az összes korábban mentett TMDB találatot az SQLite
                     adatbázisból.
                   </div>
@@ -832,10 +842,10 @@
         </div>
         <div class="custom-dialog-body" id="customConfirmMessage"></div>
         <div class="custom-dialog-actions">
-          <button class="btn btn-blue" id="customConfirmCancelBtn">
+          <button class="btn btn-blue" id="customConfirmCancelBtn" data-i18n="btn_cancel">
             Mégse
           </button>
-          <button class="btn btn-red" id="customConfirmOkBtn">OK</button>
+          <button class="btn btn-red" id="customConfirmOkBtn" data-i18n="btn_ok">OK</button>
         </div>
       </div>
     </div>
@@ -948,6 +958,7 @@
       </div>
     </div>
 
+    <script src="i18n.js"></script>
     <script src="epg-viewer.js"></script>
   </body>
 </html>
