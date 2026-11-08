@@ -126,13 +126,28 @@ function openLogoSearchModal(channelName, countryCode = "HU") {
     let initialQuery = (channelName || "")
       .replace(/@[A-Za-z0-9]+/g, "")
       .replace(/^(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL):\s*/i, "")
-      .replace(/\s*[\(\[]\s*(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL|ENG|HUN\/ENG)\s*[\)\]]/gi, "")
-      .replace(/\s*[\(\[]\s*(Telekom|Vodafone|Digi|Yettel|Direct\s*One|UPC|backup|test|\d+)\s*[\)\]]/gi, "")
-      .replace(/\s*[\(\[]\s*(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\s*[\)\]]/gi, "")
-      .replace(/\b(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\b/gi, "")
+      .replace(
+        /\s*[\(\[]\s*(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL|ENG|HUN\/ENG)\s*[\)\]]/gi,
+        "",
+      )
+      .replace(
+        /\s*[\(\[]\s*(Telekom|Vodafone|Digi|Yettel|Direct\s*One|UPC|backup|test|\d+)\s*[\)\]]/gi,
+        "",
+      )
+      .replace(
+        /\s*[\(\[]\s*(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\s*[\)\]]/gi,
+        "",
+      )
+      .replace(
+        /\b(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\b/gi,
+        "",
+      )
       .replace(/\s*[\(\[]\s*(pacific|east|west)\s*[\)\]]/gi, "")
       .replace(/\b(pacific|east|west)\b/gi, "")
-      .replace(/\.(hu|pt|us|uk|de|at|ro|sk|cz|pl|fr|it|es|nl|com|net|org|tv|ca|ch|se|no|dk|fi|eu|int)\b/gi, "")
+      .replace(
+        /\.(hu|pt|us|uk|de|at|ro|sk|cz|pl|fr|it|es|nl|com|net|org|tv|ca|ch|se|no|dk|fi|eu|int)\b/gi,
+        "",
+      )
       .trim();
 
     input.value = initialQuery || channelName || "";
@@ -174,7 +189,8 @@ function openLogoSearchModal(channelName, countryCode = "HU") {
 
           let badgeClass = "badge-tv-logo";
           if (item.sourceName === "iptv-org") badgeClass = "badge-iptv-org";
-          else if (item.sourceName.includes("Wikimedia")) badgeClass = "badge-wikimedia";
+          else if (item.sourceName.includes("Wikimedia"))
+            badgeClass = "badge-wikimedia";
 
           card.innerHTML = `
             <div class="logo-card-img-wrap">
@@ -255,7 +271,9 @@ function openChannelEditModal(channel) {
       if (displayUrl) {
         previewEl.innerHTML = `<img src="${displayUrl}" alt="" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\\'font-size:10px; color:#555;\\'>ERR</span>';" />`;
       } else {
-        const tvSvg = window.Icons ? window.Icons.get("device-tv", { size: 24 }) : "TV";
+        const tvSvg = window.Icons
+          ? window.Icons.get("device-tv", { size: 24 })
+          : "TV";
         previewEl.innerHTML = `<span class="logo-preview-placeholder">${tvSvg}</span>`;
       }
     };
@@ -266,10 +284,15 @@ function openChannelEditModal(channel) {
     if (searchBtn) {
       searchBtn.onclick = async (e) => {
         if (e) e.stopPropagation();
-        const queryName = nameInput.value.trim() || channel.customName || channel.originalName || channel.name;
+        const queryName =
+          nameInput.value.trim() ||
+          channel.customName ||
+          channel.originalName ||
+          channel.name;
         const actualSourceId = channel.sourceId || currentSourceId;
         const srcObj = sources.find((s) => s.id === actualSourceId);
-        const country = channel.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
+        const country =
+          channel.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
         const selectedUrl = await openLogoSearchModal(queryName, country);
         if (selectedUrl) {
           logoInput.value = selectedUrl;
@@ -635,13 +658,19 @@ function loadSourcesDropdown() {
     handle.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
       item.classList.add("dragging");
-      try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+      try {
+        handle.setPointerCapture(e.pointerId);
+      } catch (_) {}
 
       const onPointerMove = (moveEvent) => {
         const targetEl = document
           .elementFromPoint(moveEvent.clientX, moveEvent.clientY)
           ?.closest(".source-item");
-        if (targetEl && targetEl !== item && targetEl.parentElement === sourcesList) {
+        if (
+          targetEl &&
+          targetEl !== item &&
+          targetEl.parentElement === sourcesList
+        ) {
           const rect = targetEl.getBoundingClientRect();
           if (moveEvent.clientY < rect.top + rect.height / 2) {
             sourcesList.insertBefore(item, targetEl);
@@ -655,7 +684,9 @@ function loadSourcesDropdown() {
         document.removeEventListener("pointermove", onPointerMove);
         document.removeEventListener("pointerup", onPointerUp);
         document.removeEventListener("pointercancel", onPointerUp);
-        try { handle.releasePointerCapture(upEvent.pointerId); } catch (_) {}
+        try {
+          handle.releasePointerCapture(upEvent.pointerId);
+        } catch (_) {}
         item.classList.remove("dragging");
         await saveSourceOrder();
       };
@@ -713,12 +744,18 @@ function loadSourcesDropdown() {
       const items = Array.from(sourcesList.querySelectorAll(".source-item"));
       if (items.length === 0) return;
       items.sort((a, b) => {
-        const srcA = sources.find((s) => s.id === a.dataset.sourceId)?.name || "";
-        const srcB = sources.find((s) => s.id === b.dataset.sourceId)?.name || "";
-        return srcA.localeCompare(srcB, currentLang === "hungarian" ? "hu" : "en", {
-          sensitivity: "base",
-          numeric: true,
-        });
+        const srcA =
+          sources.find((s) => s.id === a.dataset.sourceId)?.name || "";
+        const srcB =
+          sources.find((s) => s.id === b.dataset.sourceId)?.name || "";
+        return srcA.localeCompare(
+          srcB,
+          currentLang === "hungarian" ? "hu" : "en",
+          {
+            sensitivity: "base",
+            numeric: true,
+          },
+        );
       });
       items.forEach((el, i) => {
         const badge = el.querySelector(".source-order-index");
@@ -1018,7 +1055,6 @@ async function fetchEPG() {
 
 window.downloadSource = async function (id) {
   const src = sources.find((s) => s.id === id);
-  if (!src) return;
   if (!src || downloadingSources.has(id)) return;
 
   downloadingSources.add(id);
@@ -2967,9 +3003,12 @@ async function loadChannelLogosTab() {
   }
 
   const updateStats = async () => {
-    const targetSource = select.value === "__ALL_SOURCES__" ? null : select.value;
+    const targetSource =
+      select.value === "__ALL_SOURCES__" ? null : select.value;
     try {
-      const stats = await invoke("get_channel_logo_stats", { sourceId: targetSource });
+      const stats = await invoke("get_channel_logo_stats", {
+        sourceId: targetSource,
+      });
       statsTotal.textContent = stats.totalChannels;
       statsWith.textContent = stats.withLogoCount;
       statsMissing.textContent = stats.missingLogoCount;
@@ -3001,7 +3040,8 @@ async function loadChannelLogosTab() {
       select.disabled = true;
     } else {
       autoMatchBtn.className = "btn btn-green";
-      autoMatchBtn.textContent = t("btn_auto_match_logos") || "⚡ Hiányzó logók automatikus keresése";
+      autoMatchBtn.textContent =
+        t("btn_auto_match_logos") || "⚡ Hiányzó logók automatikus keresése";
       select.disabled = false;
     }
   };
@@ -3014,11 +3054,14 @@ async function loadChannelLogosTab() {
       return;
     }
 
-    const targetSource = select.value === "__ALL_SOURCES__" ? null : select.value;
+    const targetSource =
+      select.value === "__ALL_SOURCES__" ? null : select.value;
 
     let missingChannels = [];
     try {
-      missingChannels = await invoke("get_missing_logo_channels", { sourceId: targetSource });
+      missingChannels = await invoke("get_missing_logo_channels", {
+        sourceId: targetSource,
+      });
     } catch (err) {
       alert("Hiba a csatornák lekérésekor: " + err);
       return;
@@ -3032,7 +3075,9 @@ async function loadChannelLogosTab() {
     setButtonRunningState(true);
     progressContainer.style.display = "block";
     progressFill.style.width = "0%";
-    statusText.textContent = t("logos_preloading") || "Adatforrások gyorstárazása (tv-logo, iptv-org)...";
+    statusText.textContent =
+      t("logos_preloading") ||
+      "Adatforrások gyorstárazása (tv-logo, iptv-org)...";
 
     // Rejtjük el az előnézeti rácsot a keresés idejére
     resultsContainer.style.display = "none";
@@ -3041,14 +3086,20 @@ async function loadChannelLogosTab() {
 
     // Aktuális számláló értékek beolvasása a valós idejű léptetéshez
     let currentWithLogo = parseInt(statsWith.textContent, 10) || 0;
-    let currentMissing = parseInt(statsMissing.textContent, 10) || missingChannels.length;
+    let currentMissing =
+      parseInt(statsMissing.textContent, 10) || missingChannels.length;
 
     // 1. LÉPÉS: Források fájllistájának / fanézetének előzetes gyorstárazása a kereséshez
     try {
-      const uniqueCountries = Array.from(new Set(missingChannels.map((c) => c.countryCode || "HU")));
+      const uniqueCountries = Array.from(
+        new Set(missingChannels.map((c) => c.countryCode || "HU")),
+      );
       await invoke("preload_logo_sources", { countryCodes: uniqueCountries });
     } catch (preloadErr) {
-      console.warn("Figyelmeztetés az adatforrások gyorstárazásakor:", preloadErr);
+      console.warn(
+        "Figyelmeztetés az adatforrások gyorstárazásakor:",
+        preloadErr,
+      );
     }
 
     let matchedList = [];
@@ -3056,7 +3107,9 @@ async function loadChannelLogosTab() {
     let failedCount = 0;
     let wasStopped = false;
 
-    const includeWikiCheck = document.getElementById("logoIncludeWikimediaCheck");
+    const includeWikiCheck = document.getElementById(
+      "logoIncludeWikimediaCheck",
+    );
     const includeWiki = includeWikiCheck ? includeWikiCheck.checked : true;
 
     // 2. LÉPÉS: 1. KÖR - Keresés a gyorstárazott GitHub forrásokban (tv-logo és iptv-org)
@@ -3070,7 +3123,10 @@ async function loadChannelLogosTab() {
       const percent = Math.round((i / missingChannels.length) * 100);
       progressFill.style.width = percent + "%";
 
-      const searchMsg = (t("logos_round1_msg") || "1. Kör (GitHub): [{current}/{total}] {channel} keresése...")
+      const searchMsg = (
+        t("logos_round1_msg") ||
+        "1. Kör (GitHub): [{current}/{total}] {channel} keresése..."
+      )
         .replace("{current}", i + 1)
         .replace("{total}", missingChannels.length)
         .replace("{channel}", ch.name);
@@ -3093,7 +3149,10 @@ async function loadChannelLogosTab() {
           statsWith.textContent = currentWithLogo;
           statsMissing.textContent = currentMissing;
 
-          const foundMsg = (t("logos_found_channel") || "[{current}/{total}] {channel} → Találat ({source})")
+          const foundMsg = (
+            t("logos_found_channel") ||
+            "[{current}/{total}] {channel} → Találat ({source})"
+          )
             .replace("{current}", i + 1)
             .replace("{total}", missingChannels.length)
             .replace("{channel}", ch.name)
@@ -3110,8 +3169,10 @@ async function loadChannelLogosTab() {
 
     // 2.b LÉPÉS: 2. KÖR - Online keresés a Wikimédián a GitHubon nem talált logókhoz
     if (round2Channels.length > 0 && includeWiki && isAutoMatchRunning) {
-      statusText.textContent = (t("logos_round2_start") || "2. Kör: Online keresés a Wikimédián a maradék {count} csatornához...")
-        .replace("{count}", round2Channels.length);
+      statusText.textContent = (
+        t("logos_round2_start") ||
+        "2. Kör: Online keresés a Wikimédián a maradék {count} csatornához..."
+      ).replace("{count}", round2Channels.length);
       progressFill.style.width = "0%";
 
       for (let k = 0; k < round2Channels.length; k++) {
@@ -3124,7 +3185,10 @@ async function loadChannelLogosTab() {
         const percent2 = Math.round((k / round2Channels.length) * 100);
         progressFill.style.width = percent2 + "%";
 
-        const searchMsg2 = (t("logos_round2_msg") || "2. Kör (Wikimedia): [{current}/{total}] {channel} keresése...")
+        const searchMsg2 = (
+          t("logos_round2_msg") ||
+          "2. Kör (Wikimedia): [{current}/{total}] {channel} keresése..."
+        )
           .replace("{current}", k + 1)
           .replace("{total}", round2Channels.length)
           .replace("{channel}", ch.name);
@@ -3146,7 +3210,10 @@ async function loadChannelLogosTab() {
             statsWith.textContent = currentWithLogo;
             statsMissing.textContent = currentMissing;
 
-            const foundMsg = (t("logos_found_channel") || "[{current}/{total}] {channel} → Találat ({source})")
+            const foundMsg = (
+              t("logos_found_channel") ||
+              "[{current}/{total}] {channel} → Találat ({source})"
+            )
               .replace("{current}", k + 1)
               .replace("{total}", round2Channels.length)
               .replace("{channel}", ch.name)
@@ -3156,7 +3223,11 @@ async function loadChannelLogosTab() {
             failedCount++;
           }
         } catch (err) {
-          console.error("Hiba a csatorna keresésekor (Wikimedia):", ch.name, err);
+          console.error(
+            "Hiba a csatorna keresésekor (Wikimedia):",
+            ch.name,
+            err,
+          );
           failedCount++;
         }
       }
@@ -3166,8 +3237,10 @@ async function loadChannelLogosTab() {
 
     // 3. LÉPÉS: Amint végzett a kereséssel, letölti és gyorstárazza a logókat
     if (matchedList.length > 0 && isAutoMatchRunning) {
-      statusText.textContent = (t("logos_search_phase_done") || "Keresés kész. {count} logó letöltése folyamatban...")
-        .replace("{count}", matchedList.length);
+      statusText.textContent = (
+        t("logos_search_phase_done") ||
+        "Keresés kész. {count} logó letöltése folyamatban..."
+      ).replace("{count}", matchedList.length);
       progressFill.style.width = "0%";
 
       for (let j = 0; j < matchedList.length; j++) {
@@ -3180,7 +3253,10 @@ async function loadChannelLogosTab() {
         const dlPercent = Math.round(((j + 1) / matchedList.length) * 100);
         progressFill.style.width = dlPercent + "%";
 
-        const dlMsg = (t("logos_downloading_progress") || "Logók letöltése: [{current}/{total}] {channel}...")
+        const dlMsg = (
+          t("logos_downloading_progress") ||
+          "Logók letöltése: [{current}/{total}] {channel}..."
+        )
           .replace("{current}", j + 1)
           .replace("{total}", matchedList.length)
           .replace("{channel}", item.channelName);
@@ -3239,16 +3315,24 @@ async function loadChannelLogosTab() {
 
     progressFill.style.width = "100%";
     if (wasStopped) {
-      statusText.textContent = (t("logos_status_stopped") || "Keresés megállítva. Megtalált logók: {count} db.")
-        .replace("{count}", matchedList.length);
+      statusText.textContent = (
+        t("logos_status_stopped") ||
+        "Keresés megállítva. Megtalált logók: {count} db."
+      ).replace("{count}", matchedList.length);
     } else {
       statusText.textContent = t("status_ready") || "Kész!";
     }
 
     setButtonRunningState(false);
 
-    resultsSummary.textContent = (t("logos_search_summary") || "Vizsgált hiányzó csatornák: {missing}. Sikeresen megtalálva: {matched}, sikertelen: {failed}.")
-      .replace("{missing}", wasStopped ? (matchedList.length + failedCount) : missingChannels.length)
+    resultsSummary.textContent = (
+      t("logos_search_summary") ||
+      "Vizsgált hiányzó csatornák: {missing}. Sikeresen megtalálva: {matched}, sikertelen: {failed}."
+    )
+      .replace(
+        "{missing}",
+        wasStopped ? matchedList.length + failedCount : missingChannels.length,
+      )
       .replace("{matched}", matchedList.length)
       .replace("{failed}", failedCount);
 
@@ -3465,7 +3549,9 @@ if (renamePresetBtn) {
       preset.name = newName;
       await loadChannelSortPresetsDropdown();
       if (presetSelect) presetSelect.value = presetId;
-      const targetSourceId = document.getElementById("channelOrderSourceSelect").value;
+      const targetSourceId = document.getElementById(
+        "channelOrderSourceSelect",
+      ).value;
       if (targetSourceId === currentSourceId) {
         await updateHeaderSortDropdown();
       }
@@ -3493,7 +3579,9 @@ if (deletePresetBtn) {
     try {
       await invoke("delete_sort_preset", { presetId });
       await loadChannelSortPresetsDropdown();
-      const targetSourceId = document.getElementById("channelOrderSourceSelect").value;
+      const targetSourceId = document.getElementById(
+        "channelOrderSourceSelect",
+      ).value;
       if (targetSourceId === currentSourceId) {
         await updateHeaderSortDropdown();
       }
@@ -3818,7 +3906,9 @@ async function renderChannelOrderList() {
         ? `<span class="channel-order-source-badge" title="${ch.sourceName || ch.countryCode || actualSourceId}">${ch.sourceName || ch.countryCode || actualSourceId}</span>`
         : "";
 
-    const tvPlaceholderSvg = window.Icons ? window.Icons.get("device-tv", { size: 18 }) : "TV";
+    const tvPlaceholderSvg = window.Icons
+      ? window.Icons.get("device-tv", { size: 18 })
+      : "TV";
     item.innerHTML = `
             <div class="channel-item-main">
               <span class="drag-handle" title="${t("channels_drag_hint")}">☰</span>
@@ -3872,7 +3962,9 @@ async function renderChannelOrderList() {
       if (currentSourceId === targetSourceId) {
         if (currentSourceId === "__ALL_FAVORITES__" && !newFav) {
           if (epgData.rawChannels) {
-            epgData.rawChannels = epgData.rawChannels.filter((c) => c.id !== ch.id);
+            epgData.rawChannels = epgData.rawChannels.filter(
+              (c) => c.id !== ch.id,
+            );
           }
           epgData.channels = epgData.channels.filter((c) => c.id !== ch.id);
         } else {
@@ -3918,9 +4010,14 @@ async function renderChannelOrderList() {
     if (logoSearchBtn) {
       logoSearchBtn.onclick = async (e) => {
         e.stopPropagation();
-        const queryName = renameInput.value.trim() || ch.customName || ch.originalName || ch.name;
+        const queryName =
+          renameInput.value.trim() ||
+          ch.customName ||
+          ch.originalName ||
+          ch.name;
         const srcObj = sources.find((s) => s.id === actualSourceId);
-        const country = ch.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
+        const country =
+          ch.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
         const selectedUrl = await openLogoSearchModal(queryName, country);
         if (selectedUrl) {
           logoInput.value = selectedUrl;
@@ -3985,7 +4082,9 @@ async function renderChannelOrderList() {
       const logoPreview = item.querySelector(".channel-order-logo-preview");
       const effectiveLogo = ch.customIcon || ch.icon || "";
       if (logoPreview) {
-        const tvPlaceholderSvg = window.Icons ? window.Icons.get("device-tv", { size: 18 }) : "TV";
+        const tvPlaceholderSvg = window.Icons
+          ? window.Icons.get("device-tv", { size: 18 })
+          : "TV";
         logoPreview.innerHTML = effectiveLogo
           ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
           : `<span class="logo-preview-placeholder">${tvPlaceholderSvg}</span>`;
@@ -4059,7 +4158,9 @@ async function renderChannelOrderList() {
       const logoPreview = item.querySelector(".channel-order-logo-preview");
       const effectiveLogo = ch.icon || "";
       if (logoPreview) {
-        const tvPlaceholderSvg = window.Icons ? window.Icons.get("device-tv", { size: 18 }) : "TV";
+        const tvPlaceholderSvg = window.Icons
+          ? window.Icons.get("device-tv", { size: 18 })
+          : "TV";
         logoPreview.innerHTML = effectiveLogo
           ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
           : `<span class="logo-preview-placeholder">${tvPlaceholderSvg}</span>`;
@@ -4618,10 +4719,10 @@ if (restoreLanguagesBtn) {
     restoreLanguagesBtn.disabled = false;
     await showAlert(
       res.success ? t("alert_success_title") : t("alert_error_title"),
-      res.message
+      res.message,
     );
   };
-};
+}
 
 document.getElementById("searchInput").oninput = () => {
   clearTimeout(searchTimeout);
