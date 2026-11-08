@@ -3,10 +3,12 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::RwLock;
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 use flate2::read::GzDecoder;
+use regex::Regex;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -152,6 +154,13 @@ fn init_db() -> Connection {
             created_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_logo_url ON logo_cache (url);
+
+        CREATE TABLE IF NOT EXISTS external_logo_cache (
+            source_key TEXT PRIMARY KEY,
+            content TEXT,
+            updated_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_ext_logo_key ON external_logo_cache (source_key);
 
         CREATE TABLE IF NOT EXISTS tmdb_cache (
             query_title TEXT NOT NULL,
@@ -327,8 +336,11 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
                 cus.custom_icon,
                 lc.data AS cached_icon,
                 COALESCE(cus.is_favorite, 0),
-                COALESCE(cus.is_hidden, 0)
+                COALESCE(cus.is_hidden, 0),
+                COALESCE(s.country_code, 'HU') AS country_code,
+                COALESCE(s.name, '') AS source_name
          FROM channels c 
+         JOIN sources s ON s.id = c.source_id
          LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
          LEFT JOIN channel_orders co ON co.source_id = c.source_id AND co.channel_id = c.id 
          LEFT JOIN logo_cache lc ON lc.url = COALESCE(NULLIF(cus.custom_icon, ''), c.icon)
@@ -343,6 +355,8 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
     let channel_iter = stmt.query_map(params![source_id], |row| {
         let is_fav: i32 = row.get(7)?;
         let is_hid: i32 = row.get(8)?;
+        let country_code: String = row.get(9)?;
+        let src_name: String = row.get(10)?;
         Ok(Channel {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -354,8 +368,8 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
             is_favorite: is_fav == 1,
             is_hidden: is_hid == 1,
             source_id: Some(source_id.clone()),
-            source_name: None,
-            country_code: None,
+            source_name: Some(src_name),
+            country_code: Some(country_code),
         })
     }).map_err(|e| e.to_string())?;
 
@@ -791,6 +805,1467 @@ async fn cache_logo(url: String) -> Result<String, String> {
     ).map_err(|e| e.to_string())?;
 
     Ok(data_uri)
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LogoSearchResult {
+    url: String,
+    thumb_url: String,
+    source_name: String,
+    format: String,
+    title: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MatchedChannelItem {
+    channel_id: String,
+    channel_name: String,
+    logo_url: String,
+    cached_data: Option<String>,
+    source_name: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AutoMatchSummary {
+    total_channels: usize,
+    with_logo_count: usize,
+    missing_logos: usize,
+    matched_count: usize,
+    failed_count: usize,
+    skipped_existing: usize,
+    matches: Vec<MatchedChannelItem>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ChannelLogoStats {
+    total_channels: usize,
+    with_logo_count: usize,
+    missing_logo_count: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+struct MissingChannelInfo {
+    id: String,
+    source_id: String,
+    name: String,
+    country_code: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TvLogoFileItem {
+    name: String,
+    download_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IptvOrgLogoItem {
+    channel: String,
+    url: String,
+    #[serde(default)]
+    format: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TvLogoTreeItem {
+    path: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TvLogoGitTreeResponse {
+    tree: Option<Vec<TvLogoTreeItem>>,
+}
+
+static TV_LOGO_TREE_CACHE: RwLock<Option<Vec<String>>> = RwLock::new(None);
+static IPTV_LOGOS_MEM_CACHE: RwLock<Option<Vec<IptvOrgLogoItem>>> = RwLock::new(None);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct IptvOrgChannel {
+    id: String,
+    name: String,
+    #[serde(default)]
+    alt_names: Vec<String>,
+    #[serde(default)]
+    country: Option<String>,
+    #[serde(default)]
+    logo: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MwQueryResponse {
+    query: Option<MwQuery>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MwQuery {
+    pages: Option<HashMap<String, MwPage>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MwPage {
+    title: String,
+    #[serde(default)]
+    index: Option<i64>,
+    imageinfo: Option<Vec<MwImageInfo>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MwImageInfo {
+    url: Option<String>,
+    thumburl: Option<String>,
+    mime: Option<String>,
+}
+
+fn clean_channel_name(raw_name: &str) -> String {
+    let re_at = Regex::new(r"@[A-Za-z0-9]+").unwrap();
+    let mut name = re_at.replace_all(raw_name, "").to_string();
+
+    let re_prefix = Regex::new(r"(?i)^(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL):\s*").unwrap();
+    name = re_prefix.replace(&name, "").to_string();
+
+    let re_lang = Regex::new(r"(?i)\s*[\(\[]\s*(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL|ENG|HUN/ENG)\s*[\)\]]").unwrap();
+    name = re_lang.replace_all(&name, "").to_string();
+
+    let re_provider = Regex::new(r"(?i)\s*[\(\[]\s*(Telekom|Vodafone|Digi|Yettel|Direct\s*One|UPC|backup|test|\d+)\s*[\)\]]").unwrap();
+    name = re_provider.replace_all(&name, "").to_string();
+
+    let re_quality_bracket = Regex::new(r"(?i)\s*[\(\[]\s*(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\s*[\)\]]").unwrap();
+    name = re_quality_bracket.replace_all(&name, "").to_string();
+
+    let re_quality_word = Regex::new(r"(?i)\b(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\b").unwrap();
+    name = re_quality_word.replace_all(&name, "").to_string();
+
+    let re_region_bracket = Regex::new(r"(?i)\s*[\(\[]\s*(pacific|east|west)\s*[\)\]]").unwrap();
+    name = re_region_bracket.replace_all(&name, "").to_string();
+
+    let re_region_word = Regex::new(r"(?i)\b(pacific|east|west)\b").unwrap();
+    name = re_region_word.replace_all(&name, "").to_string();
+
+    // Domain extensions: .hu, .pt, .us, .uk, .de, .at, .ro, etc.
+    let re_domains = Regex::new(r"(?i)\.(hu|pt|us|uk|de|at|ro|sk|cz|pl|fr|it|es|nl|com|net|org|tv|ca|ch|se|no|dk|fi|eu|int)\b").unwrap();
+    name = re_domains.replace_all(&name, "").to_string();
+
+    let re_spaces = Regex::new(r"\s+").unwrap();
+    name = re_spaces.replace_all(&name, " ").to_string();
+    name = name.trim().trim_matches(|c: char| c == '-' || c == '_' || c == ':' || c == '.' || c == '/' || c == '(' || c == ')').trim().to_string();
+
+    if name.is_empty() {
+        raw_name.trim().to_string()
+    } else {
+        name
+    }
+}
+
+fn slugify_channel_name(clean_name: &str) -> String {
+    let mut s = clean_name.to_lowercase();
+    s = s.replace('+', " plus ");
+    s = s.replace('&', " and ");
+
+    let mut normalized = String::new();
+    for c in s.chars() {
+        match c {
+            'á' | 'à' | 'ä' | 'â' | 'ã' | 'å' => normalized.push('a'),
+            'é' | 'è' | 'ë' | 'ê' => normalized.push('e'),
+            'í' | 'ì' | 'ï' | 'î' => normalized.push('i'),
+            'ó' | 'ö' | 'ő' | 'ò' | 'ô' | 'õ' | 'ø' => normalized.push('o'),
+            'ú' | 'ü' | 'ű' | 'ù' | 'û' => normalized.push('u'),
+            'ç' => normalized.push('c'),
+            'ñ' => normalized.push('n'),
+            'ß' => normalized.push_str("ss"),
+            _ => normalized.push(c),
+        }
+    }
+
+    let mut slug = String::new();
+    let mut last_was_hyphen = true;
+    for c in normalized.chars() {
+        if c.is_alphanumeric() {
+            slug.push(c);
+            last_was_hyphen = false;
+        } else if !last_was_hyphen {
+            slug.push('-');
+            last_was_hyphen = true;
+        }
+    }
+
+    slug.trim_matches('-').to_string()
+}
+
+fn map_country_code(country_code: &str) -> (&'static str, &'static str) {
+    match country_code.trim().to_uppercase().as_str() {
+        "HU" => ("hungary", "hu"),
+        "DE" => ("germany", "de"),
+        "AT" => ("austria", "at"),
+        "RO" => ("romania", "ro"),
+        "SK" => ("slovakia", "sk"),
+        "CZ" => ("czech-republic", "cz"),
+        "US" => ("united-states", "us"),
+        "GB" | "UK" | "EN" => ("united-kingdom", "uk"),
+        "PT" => ("portugal", "pt"),
+        "IT" => ("italy", "it"),
+        "FR" => ("france", "fr"),
+        "ES" => ("spain", "es"),
+        "PL" => ("poland", "pl"),
+        "NL" => ("netherlands", "nl"),
+        "HR" => ("croatia", "hr"),
+        "RS" => ("serbia", "rs"),
+        _ => ("hungary", "hu"),
+    }
+}
+
+#[allow(dead_code)]
+async fn fetch_tv_logo_index(country_dir: &str) -> Result<Vec<TvLogoFileItem>, String> {
+    let cache_key = format!("tv_logo_{}", country_dir);
+    let conn = init_db();
+
+    let cached: Option<String> = conn.query_row(
+        "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-24 hours')",
+        params![cache_key],
+        |row| row.get(0),
+    ).ok();
+
+    if let Some(json_str) = cached {
+        if let Ok(items) = serde_json::from_str::<Vec<TvLogoFileItem>>(&json_str) {
+            if !items.is_empty() {
+                return Ok(items);
+            }
+        }
+    }
+
+    let url = format!("https://api.github.com/repos/tv-logo/tv-logos/contents/countries/{}", country_dir);
+    let client = reqwest::Client::builder()
+        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get(&url).send().await;
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(text) = r.text().await {
+                if let Ok(items) = serde_json::from_str::<Vec<TvLogoFileItem>>(&text) {
+                    let _ = conn.execute(
+                        "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
+                         ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+                        params![cache_key, text],
+                    );
+                    return Ok(items);
+                }
+            }
+        }
+        _ => {
+            let fallback: Option<String> = conn.query_row(
+                "SELECT content FROM external_logo_cache WHERE source_key = ?1",
+                params![cache_key],
+                |row| row.get(0),
+            ).ok();
+            if let Some(json_str) = fallback {
+                if let Ok(items) = serde_json::from_str::<Vec<TvLogoFileItem>>(&json_str) {
+                    if !items.is_empty() {
+                        return Ok(items);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn match_tv_logo(items: &[TvLogoFileItem], country_dir: &str, country_code: &str, slug: &str) -> Option<LogoSearchResult> {
+    let target_exact = format!("{}-{}.png", slug, country_code);
+    let target_simple = format!("{}.png", slug);
+
+    for item in items {
+        if item.name.eq_ignore_ascii_case(&target_exact) {
+            let dl = item.download_url.clone().unwrap_or_else(|| {
+                format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/{}/{}", country_dir, item.name)
+            });
+            return Some(LogoSearchResult {
+                url: dl.clone(),
+                thumb_url: dl,
+                source_name: "tv-logo".to_string(),
+                format: "PNG".to_string(),
+                title: item.name.trim_end_matches(".png").to_string(),
+            });
+        }
+    }
+
+    for item in items {
+        if item.name.eq_ignore_ascii_case(&target_simple) {
+            let dl = item.download_url.clone().unwrap_or_else(|| {
+                format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/{}/{}", country_dir, item.name)
+            });
+            return Some(LogoSearchResult {
+                url: dl.clone(),
+                thumb_url: dl,
+                source_name: "tv-logo".to_string(),
+                format: "PNG".to_string(),
+                title: item.name.trim_end_matches(".png").to_string(),
+            });
+        }
+    }
+
+    for item in items {
+        let name_no_ext = item.name.trim_end_matches(".png");
+        let name_clean = if let Some(stripped) = name_no_ext.strip_suffix(&format!("-{}", country_code)) {
+            stripped
+        } else {
+            name_no_ext
+        };
+        if name_clean.eq_ignore_ascii_case(slug) {
+            let dl = item.download_url.clone().unwrap_or_else(|| {
+                format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/{}/{}", country_dir, item.name)
+            });
+            return Some(LogoSearchResult {
+                url: dl.clone(),
+                thumb_url: dl,
+                source_name: "tv-logo".to_string(),
+                format: "PNG".to_string(),
+                title: item.name.trim_end_matches(".png").to_string(),
+            });
+        }
+    }
+
+    None
+}
+
+#[allow(dead_code)]
+fn search_tv_logo_all(
+    items: &[TvLogoFileItem],
+    country_dir: &str,
+    country_code: &str,
+    slug: &str,
+    clean_name: &str,
+) -> Vec<LogoSearchResult> {
+    let mut results = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    if let Some(exact) = match_tv_logo(items, country_dir, country_code, slug) {
+        seen.insert(exact.url.clone());
+        results.push(exact);
+    }
+
+    let clean_lower = clean_name.to_lowercase();
+    for item in items {
+        let name_lower = item.name.to_lowercase();
+        let dl = item.download_url.clone().unwrap_or_else(|| {
+            format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/{}/{}", country_dir, item.name)
+        });
+        if !seen.contains(&dl) {
+            let matches = (slug.len() >= 3 && name_lower.contains(slug))
+                || (!clean_lower.is_empty() && name_lower.contains(&clean_lower));
+            if matches {
+                seen.insert(dl.clone());
+                results.push(LogoSearchResult {
+                    url: dl.clone(),
+                    thumb_url: dl,
+                    source_name: "tv-logo".to_string(),
+                    format: "PNG".to_string(),
+                    title: item.name.trim_end_matches(".png").to_string(),
+                });
+            }
+        }
+    }
+
+    results
+}
+
+async fn fetch_tv_logo_full_tree() -> Result<Vec<String>, String> {
+    let cache_key = "tv_logo_full_tree_paths";
+    let conn = init_db();
+
+    let cached: Option<String> = conn.query_row(
+        "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
+        params![cache_key],
+        |row| row.get(0),
+    ).ok();
+
+    if let Some(json_str) = cached {
+        if let Ok(paths) = serde_json::from_str::<Vec<String>>(&json_str) {
+            if !paths.is_empty() {
+                return Ok(paths);
+            }
+        }
+    }
+
+    let url = "https://api.github.com/repos/tv-logo/tv-logos/git/trees/main?recursive=1";
+    let client = reqwest::Client::builder()
+        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get(url).send().await;
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(text) = r.text().await {
+                if let Ok(tree_resp) = serde_json::from_str::<TvLogoGitTreeResponse>(&text) {
+                    if let Some(tree) = tree_resp.tree {
+                        let paths: Vec<String> = tree.into_iter()
+                            .map(|item| item.path)
+                            .filter(|p| p.starts_with("countries/") && p.ends_with(".png"))
+                            .collect();
+
+                        if let Ok(ser) = serde_json::to_string(&paths) {
+                            let _ = conn.execute(
+                                "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
+                                 ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+                                params![cache_key, ser],
+                            );
+                        }
+                        return Ok(paths);
+                    }
+                }
+            }
+        }
+        _ => {
+            let fallback: Option<String> = conn.query_row(
+                "SELECT content FROM external_logo_cache WHERE source_key = ?1",
+                params![cache_key],
+                |row| row.get(0),
+            ).ok();
+            if let Some(json_str) = fallback {
+                if let Ok(paths) = serde_json::from_str::<Vec<String>>(&json_str) {
+                    if !paths.is_empty() {
+                        return Ok(paths);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn match_tv_logo_from_tree(
+    paths: &[String],
+    country_dir: &str,
+    country_code: &str,
+    slug: &str,
+) -> Option<LogoSearchResult> {
+    let target_exact = format!("{}-{}.png", slug, country_code);
+    let target_simple = format!("{}.png", slug);
+    let country_prefix = format!("countries/{}/", country_dir);
+
+    // 1. Target country folder
+    for p in paths {
+        if p.starts_with(&country_prefix) {
+            let fname = &p[country_prefix.len()..];
+            if fname.eq_ignore_ascii_case(&target_exact) || fname.eq_ignore_ascii_case(&target_simple) {
+                let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+                return Some(LogoSearchResult {
+                    url: url.clone(),
+                    thumb_url: url,
+                    source_name: "tv-logo".to_string(),
+                    format: "PNG".to_string(),
+                    title: fname.trim_end_matches(".png").to_string(),
+                });
+            }
+        }
+    }
+
+    // 2. International folder
+    let int_prefix = "countries/international/";
+    let target_int = format!("{}-int.png", slug);
+    for p in paths {
+        if p.starts_with(int_prefix) {
+            let fname = &p[int_prefix.len()..];
+            if fname.eq_ignore_ascii_case(&target_int) || fname.eq_ignore_ascii_case(&target_simple) {
+                let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+                return Some(LogoSearchResult {
+                    url: url.clone(),
+                    thumb_url: url,
+                    source_name: "tv-logo (int)".to_string(),
+                    format: "PNG".to_string(),
+                    title: fname.trim_end_matches(".png").to_string(),
+                });
+            }
+        }
+    }
+
+    // 3. ANY country folder in the entire tree (without language restriction)
+    for p in paths {
+        let fname = p.rsplit('/').next().unwrap_or(p.as_str());
+        let name_no_ext = fname.trim_end_matches(".png");
+        let matches = if let Some(stripped) = name_no_ext.rsplit_once('-') {
+            stripped.0.eq_ignore_ascii_case(slug)
+        } else {
+            name_no_ext.eq_ignore_ascii_case(slug)
+        };
+        if matches {
+            let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+            return Some(LogoSearchResult {
+                url: url.clone(),
+                thumb_url: url,
+                source_name: "tv-logo (global)".to_string(),
+                format: "PNG".to_string(),
+                title: name_no_ext.to_string(),
+            });
+        }
+    }
+
+    None
+}
+
+fn search_tv_logo_from_tree(
+    paths: &[String],
+    country_dir: &str,
+    country_code: &str,
+    slug: &str,
+    clean_name: &str,
+) -> Vec<LogoSearchResult> {
+    let mut results = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    if let Some(exact) = match_tv_logo_from_tree(paths, country_dir, country_code, slug) {
+        seen.insert(exact.url.clone());
+        results.push(exact);
+    }
+
+    let clean_lower = clean_name.to_lowercase();
+    let country_prefix = format!("countries/{}/", country_dir);
+    let int_prefix = "countries/international/";
+
+    // 1. Target country
+    for p in paths {
+        if p.starts_with(&country_prefix) {
+            let fname = &p[country_prefix.len()..];
+            let name_lower = fname.to_lowercase();
+            if (slug.len() >= 3 && name_lower.contains(slug)) || (!clean_lower.is_empty() && name_lower.contains(&clean_lower)) {
+                let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+                if seen.insert(url.clone()) {
+                    results.push(LogoSearchResult {
+                        url: url.clone(),
+                        thumb_url: url,
+                        source_name: "tv-logo".to_string(),
+                        format: "PNG".to_string(),
+                        title: fname.trim_end_matches(".png").to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. International
+    for p in paths {
+        if p.starts_with(int_prefix) {
+            let fname = &p[int_prefix.len()..];
+            let name_lower = fname.to_lowercase();
+            if (slug.len() >= 3 && name_lower.contains(slug)) || (!clean_lower.is_empty() && name_lower.contains(&clean_lower)) {
+                let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+                if seen.insert(url.clone()) {
+                    results.push(LogoSearchResult {
+                        url: url.clone(),
+                        thumb_url: url,
+                        source_name: "tv-logo (int)".to_string(),
+                        format: "PNG".to_string(),
+                        title: fname.trim_end_matches(".png").to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // 3. Any country across the entire tree
+    for p in paths {
+        let fname = p.rsplit('/').next().unwrap_or(p.as_str());
+        let name_lower = fname.to_lowercase();
+        if (slug.len() >= 3 && name_lower.contains(slug)) || (!clean_lower.is_empty() && name_lower.contains(&clean_lower)) {
+            let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+            if seen.insert(url.clone()) {
+                results.push(LogoSearchResult {
+                    url: url.clone(),
+                    thumb_url: url,
+                    source_name: "tv-logo (global)".to_string(),
+                    format: "PNG".to_string(),
+                    title: fname.trim_end_matches(".png").to_string(),
+                });
+            }
+        }
+    }
+
+    results
+}
+
+#[allow(dead_code)]
+async fn fetch_iptv_org_channels(target_country: &str) -> Result<Vec<IptvOrgChannel>, String> {
+    let cache_key = format!("iptv_org_channels_{}", target_country.to_uppercase());
+    let conn = init_db();
+
+    let cached: Option<String> = conn.query_row(
+        "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
+        params![cache_key],
+        |row| row.get(0),
+    ).ok();
+
+    if let Some(json_str) = cached {
+        if let Ok(channels) = serde_json::from_str::<Vec<IptvOrgChannel>>(&json_str) {
+            if !channels.is_empty() {
+                return Ok(channels);
+            }
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get("https://iptv-org.github.io/api/channels.json").send().await;
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(text) = r.text().await {
+                if let Ok(all_channels) = serde_json::from_str::<Vec<IptvOrgChannel>>(&text) {
+                    let country_upper = target_country.to_uppercase();
+                    let filtered: Vec<IptvOrgChannel> = all_channels.into_iter()
+                        .filter(|c| c.country.as_deref().map(|cnt| cnt.eq_ignore_ascii_case(&country_upper)).unwrap_or(false))
+                        .collect();
+
+                    if let Ok(ser) = serde_json::to_string(&filtered) {
+                        let _ = conn.execute(
+                            "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
+                             ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+                            params![cache_key, ser],
+                        );
+                    }
+                    return Ok(filtered);
+                }
+            }
+        }
+        _ => {
+            let fallback: Option<String> = conn.query_row(
+                "SELECT content FROM external_logo_cache WHERE source_key = ?1",
+                params![cache_key],
+                |row| row.get(0),
+            ).ok();
+            if let Some(json_str) = fallback {
+                if let Ok(channels) = serde_json::from_str::<Vec<IptvOrgChannel>>(&json_str) {
+                    if !channels.is_empty() {
+                        return Ok(channels);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+async fn fetch_iptv_org_logos() -> Result<Vec<IptvOrgLogoItem>, String> {
+    let cache_key = "iptv_org_logos".to_string();
+    let conn = init_db();
+
+    let cached: Option<String> = conn.query_row(
+        "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
+        params![cache_key],
+        |row| row.get(0),
+    ).ok();
+
+    if let Some(json_str) = cached {
+        if let Ok(logos) = serde_json::from_str::<Vec<IptvOrgLogoItem>>(&json_str) {
+            if !logos.is_empty() {
+                return Ok(logos);
+            }
+        }
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get("https://iptv-org.github.io/api/logos.json").send().await;
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(text) = r.text().await {
+                if let Ok(logos) = serde_json::from_str::<Vec<IptvOrgLogoItem>>(&text) {
+                    let _ = conn.execute(
+                        "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
+                         ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+                        params![cache_key, text],
+                    );
+                    return Ok(logos);
+                }
+            }
+        }
+        _ => {
+            let fallback: Option<String> = conn.query_row(
+                "SELECT content FROM external_logo_cache WHERE source_key = ?1",
+                params![cache_key],
+                |row| row.get(0),
+            ).ok();
+            if let Some(json_str) = fallback {
+                if let Ok(logos) = serde_json::from_str::<Vec<IptvOrgLogoItem>>(&json_str) {
+                    if !logos.is_empty() {
+                        return Ok(logos);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Vec::new())
+}
+
+fn match_iptv_org_logos(
+    logos: &[IptvOrgLogoItem],
+    slug: &str,
+    country_code: &str,
+) -> Option<LogoSearchResult> {
+    let suffix = format!(".{}", country_code.to_lowercase());
+    let slug_alphanumeric: String = slug.chars().filter(|c| c.is_alphanumeric()).collect();
+
+    for item in logos {
+        let ch_lower = item.channel.to_lowercase();
+        if ch_lower.ends_with(&suffix) {
+            let base = ch_lower.trim_end_matches(&suffix);
+            let base_alphanumeric: String = base.chars().filter(|c| c.is_alphanumeric()).collect();
+            if base == slug || (!slug_alphanumeric.is_empty() && base_alphanumeric == slug_alphanumeric) {
+                let fmt = if item.url.ends_with(".svg") { "SVG" } else { "PNG" };
+                return Some(LogoSearchResult {
+                    url: item.url.clone(),
+                    thumb_url: item.url.clone(),
+                    source_name: "iptv-org".to_string(),
+                    format: fmt.to_string(),
+                    title: item.channel.clone(),
+                });
+            }
+        }
+    }
+    None
+}
+
+fn match_iptv_org_logos_any(
+    logos: &[IptvOrgLogoItem],
+    slug: &str,
+) -> Option<LogoSearchResult> {
+    let slug_alphanumeric: String = slug.chars().filter(|c| c.is_alphanumeric()).collect();
+    if slug_alphanumeric.is_empty() {
+        return None;
+    }
+
+    for item in logos {
+        let ch_lower = item.channel.to_lowercase();
+        let base = ch_lower.split('.').next().unwrap_or(&ch_lower);
+        let base_alphanumeric: String = base.chars().filter(|c| c.is_alphanumeric()).collect();
+        if base == slug || base_alphanumeric == slug_alphanumeric {
+            let fmt = if item.url.ends_with(".svg") { "SVG" } else { "PNG" };
+            return Some(LogoSearchResult {
+                url: item.url.clone(),
+                thumb_url: item.url.clone(),
+                source_name: "iptv-org".to_string(),
+                format: fmt.to_string(),
+                title: item.channel.clone(),
+            });
+        }
+    }
+    None
+}
+
+fn match_iptv_org(channels: &[IptvOrgChannel], slug: &str, clean_name: &str) -> Option<LogoSearchResult> {
+    for ch in channels {
+        let ch_slug = slugify_channel_name(&ch.name);
+        let mut matches = ch_slug == slug || ch.name.eq_ignore_ascii_case(clean_name);
+        if !matches {
+            for alt in &ch.alt_names {
+                if slugify_channel_name(alt) == slug || alt.eq_ignore_ascii_case(clean_name) {
+                    matches = true;
+                    break;
+                }
+            }
+        }
+        if matches {
+            if let Some(ref l) = ch.logo {
+                let l_trimmed = l.trim();
+                if !l_trimmed.is_empty() {
+                    let fmt = if l_trimmed.ends_with(".svg") { "SVG" } else { "PNG" };
+                    return Some(LogoSearchResult {
+                        url: l_trimmed.to_string(),
+                        thumb_url: l_trimmed.to_string(),
+                        source_name: "iptv-org".to_string(),
+                        format: fmt.to_string(),
+                        title: ch.name.clone(),
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
+#[allow(dead_code)]
+fn search_iptv_org_all(
+    channels: &[IptvOrgChannel],
+    slug: &str,
+    clean_name: &str,
+) -> Vec<LogoSearchResult> {
+    let mut results = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    if let Some(exact) = match_iptv_org(channels, slug, clean_name) {
+        seen.insert(exact.url.clone());
+        results.push(exact);
+    }
+
+    let clean_lower = clean_name.to_lowercase();
+    for ch in channels {
+        if let Some(ref l) = ch.logo {
+            let l_trimmed = l.trim();
+            if !l_trimmed.is_empty() && !seen.contains(l_trimmed) {
+                let ch_slug = slugify_channel_name(&ch.name);
+                let ch_lower = ch.name.to_lowercase();
+                let matches = (slug.len() >= 3 && ch_slug.contains(slug))
+                    || ch_lower.contains(&clean_lower)
+                    || ch.alt_names.iter().any(|a| a.to_lowercase().contains(&clean_lower));
+                if matches {
+                    seen.insert(l_trimmed.to_string());
+                    let fmt = if l_trimmed.ends_with(".svg") { "SVG" } else { "PNG" };
+                    results.push(LogoSearchResult {
+                        url: l_trimmed.to_string(),
+                        thumb_url: l_trimmed.to_string(),
+                        source_name: "iptv-org".to_string(),
+                        format: fmt.to_string(),
+                        title: ch.name.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    results
+}
+
+async fn search_wikimedia_commons(clean_name: &str, country_name: &str) -> Vec<LogoSearchResult> {
+    let client = match reqwest::Client::builder()
+        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+
+    let query = if country_name.trim().is_empty() {
+        format!("{} logo", clean_name.trim())
+    } else {
+        format!("{} {} logo", clean_name.trim(), country_name.trim())
+    };
+
+    let resp = client
+        .get("https://commons.wikimedia.org/w/api.php")
+        .query(&[
+            ("action", "query"),
+            ("generator", "search"),
+            ("gsrsearch", query.as_str()),
+            ("gsrnamespace", "6"),
+            ("prop", "imageinfo"),
+            ("iiprop", "url|mime"),
+            ("iiurlwidth", "200"),
+            ("format", "json"),
+        ])
+        .send()
+        .await;
+
+    let mut results = Vec::new();
+    if let Ok(r) = resp {
+        if r.status().is_success() {
+            if let Ok(text) = r.text().await {
+                if let Ok(data) = serde_json::from_str::<MwQueryResponse>(&text) {
+                    if let Some(q) = data.query {
+                        if let Some(pages) = q.pages {
+                            let mut sorted_pages: Vec<MwPage> = pages.into_values().collect();
+                            sorted_pages.sort_by_key(|p| p.index.unwrap_or(9999));
+
+                            for p in sorted_pages {
+                                if let Some(info_list) = p.imageinfo {
+                                    if let Some(info) = info_list.into_iter().next() {
+                                        if let Some(url) = info.url {
+                                            let thumb = info.thumburl.unwrap_or_else(|| url.clone());
+                                            let mime = info.mime.unwrap_or_default().to_lowercase();
+                                            if mime.contains("svg")
+                                                || mime.contains("png")
+                                                || mime.contains("jpeg")
+                                                || mime.contains("jpg")
+                                                || mime.contains("webp")
+                                            {
+                                                let fmt = if mime.contains("svg") || url.ends_with(".svg") {
+                                                    "SVG"
+                                                } else {
+                                                    "PNG"
+                                                };
+                                                let title = p
+                                                    .title
+                                                    .trim_start_matches("File:")
+                                                    .trim_start_matches("file:")
+                                                    .to_string();
+                                                results.push(LogoSearchResult {
+                                                    url,
+                                                    thumb_url: thumb,
+                                                    source_name: "Wikimedia Commons".to_string(),
+                                                    format: fmt.to_string(),
+                                                    title,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    results
+}
+
+#[allow(dead_code)]
+async fn match_single_channel_candidate(
+    clean: &str,
+    slug: &str,
+    country_code: &str,
+    tv_logo_cache: &mut HashMap<String, Vec<TvLogoFileItem>>,
+    iptv_logos_cache: &mut Option<Vec<IptvOrgLogoItem>>,
+) -> Option<(String, String)> {
+    let (country_dir, c_code) = map_country_code(country_code);
+
+    // 1. Forrás A: tv-logo (Country)
+    if !tv_logo_cache.contains_key(country_dir) {
+        if let Ok(items) = fetch_tv_logo_index(country_dir).await {
+            tv_logo_cache.insert(country_dir.to_string(), items);
+        }
+    }
+    if let Some(items) = tv_logo_cache.get(country_dir) {
+        if let Some(res) = match_tv_logo(items, country_dir, c_code, slug) {
+            return Some((res.url, "tv-logo".to_string()));
+        }
+    }
+
+    // 1b. Forrás A: tv-logo (Fallback: International)
+    if country_dir != "international" {
+        if !tv_logo_cache.contains_key("international") {
+            if let Ok(items) = fetch_tv_logo_index("international").await {
+                tv_logo_cache.insert("international".to_string(), items);
+            }
+        }
+        if let Some(items) = tv_logo_cache.get("international") {
+            if let Some(res) = match_tv_logo(items, "international", "int", slug) {
+                return Some((res.url, "tv-logo (int)".to_string()));
+            }
+        }
+    }
+
+    // 2. Forrás B: iptv-org (Country -> INT -> Global)
+    if iptv_logos_cache.is_none() {
+        if let Ok(logos) = fetch_iptv_org_logos().await {
+            *iptv_logos_cache = Some(logos);
+        }
+    }
+    if let Some(logos) = iptv_logos_cache.as_ref() {
+        // 2a. Target country
+        if let Some(res) = match_iptv_org_logos(logos, slug, c_code) {
+            return Some((res.url, "iptv-org".to_string()));
+        }
+        // 2b. International .int
+        if c_code != "INT" {
+            if let Some(res) = match_iptv_org_logos(logos, slug, "int") {
+                return Some((res.url, "iptv-org (int)".to_string()));
+            }
+        }
+        // 2c. Global / without language
+        if let Some(res) = match_iptv_org_logos_any(logos, slug) {
+            return Some((res.url, "iptv-org (global)".to_string()));
+        }
+    }
+
+    // 3. Forrás C: Wikimedia Commons (Country)
+    let wiki_results = search_wikimedia_commons(clean, country_dir).await;
+    for w in &wiki_results {
+        let title_lower = w.title.to_lowercase();
+        if title_lower.contains(slug) || title_lower.contains(&clean.to_lowercase()) {
+            return Some((w.url.clone(), "Wikimedia Commons".to_string()));
+        }
+    }
+
+    // 3b. Forrás C: Wikimedia Commons (Fallback: Without Country / Global)
+    let wiki_global = search_wikimedia_commons(clean, "").await;
+    for w in &wiki_global {
+        let title_lower = w.title.to_lowercase();
+        if title_lower.contains(slug) || title_lower.contains(&clean.to_lowercase()) {
+            return Some((w.url.clone(), "Wikimedia Commons (global)".to_string()));
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
+async fn clean_and_slugify_channel(name: String) -> Result<(String, String), String> {
+    let clean = clean_channel_name(&name);
+    let slug = slugify_channel_name(&clean);
+    Ok((clean, slug))
+}
+
+#[tauri::command]
+async fn get_missing_logo_channels(source_id: Option<String>) -> Result<Vec<MissingChannelInfo>, String> {
+    let conn = init_db();
+    let filter_source = match source_id.as_deref() {
+        Some(s) if !s.is_empty() && s != "__ALL_SOURCES__" => Some(s.to_string()),
+        _ => None,
+    };
+
+    let missing = if let Some(ref sid) = filter_source {
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.source_id, c.name, COALESCE(s.country_code, 'HU') as country_code
+             FROM channels c
+             JOIN sources s ON s.id = c.source_id
+             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+             WHERE c.source_id = ?1
+               AND (cus.custom_icon IS NULL OR cus.custom_icon = '')
+               AND (c.icon IS NULL OR c.icon = '')
+             ORDER BY c.name ASC",
+        ).map_err(|e| e.to_string())?;
+
+        let iter = stmt.query_map(params![sid], |row| {
+            Ok(MissingChannelInfo {
+                id: row.get(0)?,
+                source_id: row.get(1)?,
+                name: row.get(2)?,
+                country_code: row.get(3)?,
+            })
+        }).map_err(|e| e.to_string())?;
+
+        iter.filter_map(|r| r.ok()).collect()
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.source_id, c.name, COALESCE(s.country_code, 'HU') as country_code
+             FROM channels c
+             JOIN sources s ON s.id = c.source_id
+             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+             WHERE (cus.custom_icon IS NULL OR cus.custom_icon = '')
+               AND (c.icon IS NULL OR c.icon = '')
+             ORDER BY c.name ASC",
+        ).map_err(|e| e.to_string())?;
+
+        let iter = stmt.query_map([], |row| {
+            Ok(MissingChannelInfo {
+                id: row.get(0)?,
+                source_id: row.get(1)?,
+                name: row.get(2)?,
+                country_code: row.get(3)?,
+            })
+        }).map_err(|e| e.to_string())?;
+
+        iter.filter_map(|r| r.ok()).collect()
+    };
+
+    Ok(missing)
+}
+
+async fn ensure_tv_logo_tree_loaded() -> Result<(), String> {
+    let already_have = {
+        let r = TV_LOGO_TREE_CACHE.read().unwrap();
+        r.is_some()
+    };
+    if !already_have {
+        if let Ok(paths) = fetch_tv_logo_full_tree().await {
+            let mut w = TV_LOGO_TREE_CACHE.write().unwrap();
+            *w = Some(paths);
+        }
+    }
+    Ok(())
+}
+
+async fn ensure_iptv_logos_loaded() -> Result<(), String> {
+    let already_have = {
+        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
+        r.is_some()
+    };
+    if !already_have {
+        if let Ok(logos) = fetch_iptv_org_logos().await {
+            let mut w = IPTV_LOGOS_MEM_CACHE.write().unwrap();
+            *w = Some(logos);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn preload_logo_sources(_country_codes: Vec<String>) -> Result<(), String> {
+    let _ = ensure_tv_logo_tree_loaded().await;
+    let _ = ensure_iptv_logos_loaded().await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn find_channel_logo_github(
+    source_id: String,
+    channel_id: String,
+    channel_name: String,
+    country_code: String,
+) -> Result<Option<MatchedChannelItem>, String> {
+    let clean = clean_channel_name(&channel_name);
+    let slug = slugify_channel_name(&clean);
+    let (country_dir, c_code) = map_country_code(&country_code);
+
+    let mut candidate: Option<(String, String)> = None;
+
+    // 1. Forrás A: tv-logo full tree
+    let _ = ensure_tv_logo_tree_loaded().await;
+    {
+        let r = TV_LOGO_TREE_CACHE.read().unwrap();
+        if let Some(ref tree) = *r {
+            if let Some(res) = match_tv_logo_from_tree(tree, country_dir, c_code, &slug) {
+                candidate = Some((res.url, res.source_name));
+            }
+        }
+    }
+
+    // 2. Forrás B: iptv-org logos
+    if candidate.is_none() {
+        let _ = ensure_iptv_logos_loaded().await;
+        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
+        if let Some(ref iptv_logos) = *r {
+            if let Some(res) = match_iptv_org_logos(iptv_logos, &slug, c_code) {
+                candidate = Some((res.url, "iptv-org".to_string()));
+            } else if c_code != "INT" {
+                if let Some(res) = match_iptv_org_logos(iptv_logos, &slug, "int") {
+                    candidate = Some((res.url, "iptv-org (int)".to_string()));
+                } else if let Some(res) = match_iptv_org_logos_any(iptv_logos, &slug) {
+                    candidate = Some((res.url, "iptv-org (global)".to_string()));
+                }
+            } else if let Some(res) = match_iptv_org_logos_any(iptv_logos, &slug) {
+                candidate = Some((res.url, "iptv-org (global)".to_string()));
+            }
+        }
+    }
+
+    if let Some((logo_url, src_name)) = candidate {
+        let conn = init_db();
+        let _ = conn.execute(
+            "INSERT INTO channel_user_settings (source_id, channel_id, custom_icon) VALUES (?1, ?2, ?3)
+             ON CONFLICT(source_id, channel_id) DO UPDATE SET custom_icon = excluded.custom_icon",
+            params![source_id, channel_id, logo_url],
+        );
+
+        return Ok(Some(MatchedChannelItem {
+            channel_id,
+            channel_name,
+            logo_url,
+            cached_data: None,
+            source_name: src_name,
+        }));
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+async fn find_channel_logo_wikimedia(
+    source_id: String,
+    channel_id: String,
+    channel_name: String,
+    country_code: String,
+) -> Result<Option<MatchedChannelItem>, String> {
+    let clean = clean_channel_name(&channel_name);
+    let slug = slugify_channel_name(&clean);
+    let (country_dir, _) = map_country_code(&country_code);
+
+    let mut candidate: Option<(String, String)> = None;
+
+    // 3. Forrás C: Wikimedia Commons (Country)
+    let wiki_results = search_wikimedia_commons(&clean, country_dir).await;
+    for w in &wiki_results {
+        let title_lower = w.title.to_lowercase();
+        if title_lower.contains(&slug) || title_lower.contains(&clean.to_lowercase()) {
+            candidate = Some((w.url.clone(), "Wikimedia Commons".to_string()));
+            break;
+        }
+    }
+
+    // 3b. Forrás C: Wikimedia Commons (Fallback: Without Country / Global)
+    if candidate.is_none() {
+        let wiki_global = search_wikimedia_commons(&clean, "").await;
+        for w in &wiki_global {
+            let title_lower = w.title.to_lowercase();
+            if title_lower.contains(&slug) || title_lower.contains(&clean.to_lowercase()) {
+                candidate = Some((w.url.clone(), "Wikimedia Commons (global)".to_string()));
+                break;
+            }
+        }
+    }
+
+    if let Some((logo_url, src_name)) = candidate {
+        let conn = init_db();
+        let _ = conn.execute(
+            "INSERT INTO channel_user_settings (source_id, channel_id, custom_icon) VALUES (?1, ?2, ?3)
+             ON CONFLICT(source_id, channel_id) DO UPDATE SET custom_icon = excluded.custom_icon",
+            params![source_id, channel_id, logo_url],
+        );
+
+        return Ok(Some(MatchedChannelItem {
+            channel_id,
+            channel_name,
+            logo_url,
+            cached_data: None,
+            source_name: src_name,
+        }));
+    }
+
+    Ok(None)
+}
+
+#[tauri::command]
+async fn find_channel_logo_url(
+    source_id: String,
+    channel_id: String,
+    channel_name: String,
+    country_code: String,
+) -> Result<Option<MatchedChannelItem>, String> {
+    if let Some(item) = find_channel_logo_github(source_id.clone(), channel_id.clone(), channel_name.clone(), country_code.clone()).await? {
+        return Ok(Some(item));
+    }
+    find_channel_logo_wikimedia(source_id, channel_id, channel_name, country_code).await
+}
+
+#[tauri::command]
+async fn auto_match_channel_logo(
+    source_id: String,
+    channel_id: String,
+    channel_name: String,
+    country_code: String,
+) -> Result<Option<MatchedChannelItem>, String> {
+    if let Some(mut item) = find_channel_logo_url(source_id, channel_id, channel_name, country_code).await? {
+        if let Ok(data) = cache_logo(item.logo_url.clone()).await {
+            item.cached_data = Some(data);
+            return Ok(Some(item));
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+async fn get_channel_logo_stats(source_id: Option<String>) -> Result<ChannelLogoStats, String> {
+    let conn = init_db();
+    let query = if let Some(ref sid) = source_id {
+        if sid.is_empty() || sid == "__ALL_SOURCES__" {
+            "SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END) as with_logo
+             FROM channels c
+             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id".to_string()
+        } else {
+            format!(
+                "SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END) as with_logo
+                 FROM channels c
+                 LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+                 WHERE c.source_id = '{}'",
+                sid.replace('\'', "''")
+            )
+        }
+    } else {
+        "SELECT 
+            COUNT(*) as total,
+            SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END) as with_logo
+         FROM channels c
+         LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id".to_string()
+    };
+
+    let (total, with_logo): (i64, i64) = conn.query_row(&query, [], |r| {
+        let tot: i64 = r.get(0).unwrap_or(0);
+        let wl: i64 = r.get(1).unwrap_or(0);
+        Ok((tot, wl))
+    }).unwrap_or((0, 0));
+
+    let total_usize = total.max(0) as usize;
+    let with_logo_usize = with_logo.max(0) as usize;
+    let missing = total_usize.saturating_sub(with_logo_usize);
+
+    Ok(ChannelLogoStats {
+        total_channels: total_usize,
+        with_logo_count: with_logo_usize,
+        missing_logo_count: missing,
+    })
+}
+
+#[tauri::command]
+async fn search_channel_logos(query: String, country_code: String) -> Result<Vec<LogoSearchResult>, String> {
+    let clean = clean_channel_name(&query);
+    let slug = slugify_channel_name(&clean);
+    let (country_dir, c_code) = map_country_code(&country_code);
+
+    let mut all_results = Vec::new();
+    let mut seen_urls = std::collections::HashSet::new();
+
+    // Ensure tv-logo tree is loaded
+    let tv_tree = {
+        let r = TV_LOGO_TREE_CACHE.read().unwrap();
+        r.clone()
+    };
+    let tv_tree = match tv_tree {
+        Some(t) => t,
+        None => {
+            let t = fetch_tv_logo_full_tree().await.unwrap_or_default();
+            let mut w = TV_LOGO_TREE_CACHE.write().unwrap();
+            *w = Some(t.clone());
+            t
+        }
+    };
+
+    // 1. Forrás A: tv-logo (from full tree: Country, International, Any country in tree)
+    let tv_matches = search_tv_logo_from_tree(&tv_tree, country_dir, c_code, &slug, &clean);
+    for m in tv_matches {
+        if seen_urls.insert(m.url.clone()) {
+            all_results.push(m);
+        }
+    }
+
+    // 2. Forrás B: iptv-org (Logos database)
+    let iptv_logos = {
+        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
+        r.clone()
+    };
+    let iptv_logos = match iptv_logos {
+        Some(l) => l,
+        None => {
+            let l = fetch_iptv_org_logos().await.unwrap_or_default();
+            let mut w = IPTV_LOGOS_MEM_CACHE.write().unwrap();
+            *w = Some(l.clone());
+            l
+        }
+    };
+
+    let suffix = format!(".{}", c_code.to_lowercase());
+    let clean_lower = clean.to_lowercase();
+    // Country matches first
+    for item in &iptv_logos {
+        let ch_lower = item.channel.to_lowercase();
+        if ch_lower.ends_with(&suffix) {
+            let base = ch_lower.trim_end_matches(&suffix);
+            if (slug.len() >= 3 && base.contains(&slug)) || base.contains(&clean_lower) {
+                if seen_urls.insert(item.url.clone()) {
+                    let fmt = if item.url.ends_with(".svg") { "SVG" } else { "PNG" };
+                    all_results.push(LogoSearchResult {
+                        url: item.url.clone(),
+                        thumb_url: item.url.clone(),
+                        source_name: "iptv-org".to_string(),
+                        format: fmt.to_string(),
+                        title: item.channel.clone(),
+                    });
+                }
+            }
+        }
+    }
+    // Then international or without language
+    for item in &iptv_logos {
+        let ch_lower = item.channel.to_lowercase();
+        let base = ch_lower.split('.').next().unwrap_or(&ch_lower);
+        if (slug.len() >= 3 && base.contains(&slug)) || base.contains(&clean_lower) {
+            if seen_urls.insert(item.url.clone()) {
+                let fmt = if item.url.ends_with(".svg") { "SVG" } else { "PNG" };
+                all_results.push(LogoSearchResult {
+                    url: item.url.clone(),
+                    thumb_url: item.url.clone(),
+                    source_name: "iptv-org".to_string(),
+                    format: fmt.to_string(),
+                    title: item.channel.clone(),
+                });
+            }
+        }
+    }
+
+    // 3. Forrás C: Wikimedia Commons (With Country)
+    let wiki_matches = search_wikimedia_commons(&clean, country_dir).await;
+    for m in wiki_matches {
+        if seen_urls.insert(m.url.clone()) {
+            all_results.push(m);
+        }
+    }
+
+    // 3b. Forrás C: Wikimedia Commons (Without Country / Global)
+    let wiki_global = search_wikimedia_commons(&clean, "").await;
+    for m in wiki_global {
+        if seen_urls.insert(m.url.clone()) {
+            all_results.push(m);
+        }
+    }
+
+    Ok(all_results)
+}
+
+#[tauri::command]
+async fn auto_match_source_logos(source_id: Option<String>) -> Result<AutoMatchSummary, String> {
+    let conn = init_db();
+
+    let filter_source = match source_id.as_deref() {
+        Some(s) if !s.is_empty() && s != "__ALL_SOURCES__" => Some(s.to_string()),
+        _ => None,
+    };
+
+    let (total_channels, with_logo_count): (i64, i64) = if let Some(ref sid) = filter_source {
+        conn.query_row(
+            "SELECT COUNT(*),
+                    SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END)
+             FROM channels c
+             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+             WHERE c.source_id = ?1",
+            params![sid],
+            |r| Ok((r.get(0).unwrap_or(0), r.get(1).unwrap_or(0))),
+        ).unwrap_or((0, 0))
+    } else {
+        conn.query_row(
+            "SELECT COUNT(*),
+                    SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END)
+             FROM channels c
+             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id",
+            [],
+            |r| Ok((r.get(0).unwrap_or(0), r.get(1).unwrap_or(0))),
+        ).unwrap_or((0, 0))
+    };
+
+    let missing_channels = get_missing_logo_channels(source_id).await?;
+    let missing_count = missing_channels.len();
+    if missing_count == 0 {
+        return Ok(AutoMatchSummary {
+            total_channels: total_channels as usize,
+            with_logo_count: with_logo_count as usize,
+            missing_logos: 0,
+            matched_count: 0,
+            failed_count: 0,
+            skipped_existing: with_logo_count as usize,
+            matches: Vec::new(),
+        });
+    }
+
+    let mut matches = Vec::new();
+    let mut failed_count = 0;
+
+    for ch in &missing_channels {
+        if let Ok(Some(item)) = auto_match_channel_logo(ch.source_id.clone(), ch.id.clone(), ch.name.clone(), ch.country_code.clone()).await {
+            matches.push(item);
+        } else {
+            failed_count += 1;
+        }
+    }
+
+    Ok(AutoMatchSummary {
+        total_channels: total_channels as usize,
+        with_logo_count: with_logo_count as usize,
+        missing_logos: missing_count,
+        matched_count: matches.len(),
+        failed_count,
+        skipped_existing: with_logo_count as usize,
+        matches,
+    })
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2368,6 +3843,16 @@ fn main() {
             rename_channel,
             cache_logo,
             get_cached_logo,
+            get_channel_logo_stats,
+            get_missing_logo_channels,
+            preload_logo_sources,
+            find_channel_logo_github,
+            find_channel_logo_wikimedia,
+            find_channel_logo_url,
+            auto_match_channel_logo,
+            auto_match_source_logos,
+            search_channel_logos,
+            clean_and_slugify_channel,
             export_settings,
             import_settings,
             export_channel_data,
@@ -2507,6 +3992,159 @@ mod tests {
             clean_title("Dr. Csont (Bones)"),
             "Dr. Csont"
         );
+    }
+
+    #[test]
+    fn test_clean_channel_name_and_slugify() {
+        assert_eq!(clean_channel_name("RTL Klub HD"), "RTL Klub");
+        assert_eq!(slugify_channel_name(&clean_channel_name("RTL Klub HD")), "rtl-klub");
+
+        assert_eq!(clean_channel_name("Cool TV (HD)"), "Cool TV");
+        assert_eq!(slugify_channel_name(&clean_channel_name("Cool TV (HD)")), "cool-tv");
+
+        assert_eq!(clean_channel_name("HU: Mozi+ [HUN]"), "Mozi+");
+        assert_eq!(slugify_channel_name(&clean_channel_name("HU: Mozi+ [HUN]")), "mozi-plus");
+
+        assert_eq!(clean_channel_name("Arena4 HD"), "Arena4");
+        assert_eq!(slugify_channel_name(&clean_channel_name("Arena4 HD")), "arena4");
+
+        assert_eq!(clean_channel_name("Duna World / M4 Sport+ (HD) (Telekom)"), "Duna World / M4 Sport+");
+        assert_eq!(slugify_channel_name(&clean_channel_name("Duna World / M4 Sport+ (HD) (Telekom)")), "duna-world-m4-sport-plus");
+
+        assert_eq!(clean_channel_name("TV2 Séf"), "TV2 Séf");
+        assert_eq!(slugify_channel_name(&clean_channel_name("TV2 Séf")), "tv2-sef");
+
+        assert_eq!(clean_channel_name("UniMas HD (Pacific)"), "UniMas");
+        assert_eq!(clean_channel_name("The Discovery Channel HD (Pacific)"), "The Discovery Channel");
+        assert_eq!(clean_channel_name("HBO East"), "HBO");
+        assert_eq!(clean_channel_name("Showtime West (HD)"), "Showtime");
+        assert_eq!(clean_channel_name("Starz (East)"), "Starz");
+        assert_eq!(slugify_channel_name(&clean_channel_name("Animal Planet HD (Pacific)")), "animal-planet");
+
+        assert_eq!(clean_channel_name("BBC One East.uk"), "BBC One");
+        assert_eq!(clean_channel_name("Starz Encore Westerns.us"), "Starz Encore Westerns");
+        assert_eq!(clean_channel_name("Cool TV.hu"), "Cool TV");
+        assert_eq!(clean_channel_name("TotalDanceTV.hu@SD"), "TotalDanceTV");
+        assert_eq!(clean_channel_name("Euronews.de HD"), "Euronews");
+    }
+
+    #[test]
+    fn test_map_country_code() {
+        assert_eq!(map_country_code("HU"), ("hungary", "hu"));
+        assert_eq!(map_country_code("de"), ("germany", "de"));
+        assert_eq!(map_country_code("at"), ("austria", "at"));
+        assert_eq!(map_country_code("US"), ("united-states", "us"));
+        assert_eq!(map_country_code("UK"), ("united-kingdom", "uk"));
+    }
+
+    #[test]
+    fn test_match_tv_logo() {
+        let items = vec![
+            TvLogoFileItem {
+                name: "cool-tv-hu.png".to_string(),
+                download_url: None,
+            },
+            TvLogoFileItem {
+                name: "arena4-hu.png".to_string(),
+                download_url: None,
+            },
+            TvLogoFileItem {
+                name: "rtl-hu.png".to_string(),
+                download_url: None,
+            },
+        ];
+
+        let res = match_tv_logo(&items, "hungary", "hu", "cool-tv");
+        assert!(res.is_some());
+        let logo = res.unwrap();
+        assert_eq!(logo.source_name, "tv-logo");
+        assert_eq!(logo.format, "PNG");
+        assert!(logo.url.contains("cool-tv-hu.png"));
+
+        let res2 = match_tv_logo(&items, "hungary", "hu", "unknown-channel");
+        assert!(res2.is_none());
+    }
+
+    #[test]
+    fn test_match_iptv_org() {
+        let channels = vec![
+            IptvOrgChannel {
+                id: "MoziPlus.hu".to_string(),
+                name: "Mozi+".to_string(),
+                alt_names: vec!["Mozi Plusz".to_string()],
+                country: Some("HU".to_string()),
+                logo: Some("https://example.com/mozi-plus.png".to_string()),
+            },
+        ];
+
+        let res = match_iptv_org(&channels, "mozi-plus", "Mozi+");
+        assert!(res.is_some());
+        let logo = res.unwrap();
+        assert_eq!(logo.source_name, "iptv-org");
+        assert_eq!(logo.url, "https://example.com/mozi-plus.png");
+
+        let res_alt = match_iptv_org(&channels, "mozi-plusz", "Mozi Plusz");
+        assert!(res_alt.is_some());
+    }
+
+    #[test]
+    fn test_match_iptv_org_logos_with_fallback() {
+        let logos = vec![
+            IptvOrgLogoItem {
+                channel: "AnimalPlanet.hu".to_string(),
+                url: "https://example.com/animal-hu.svg".to_string(),
+                format: Some("SVG".to_string()),
+            },
+            IptvOrgLogoItem {
+                channel: "CartoonNetwork.int".to_string(),
+                url: "https://example.com/cn-int.png".to_string(),
+                format: Some("PNG".to_string()),
+            },
+            IptvOrgLogoItem {
+                channel: "Eurosport1.fr".to_string(),
+                url: "https://example.com/eurosport-fr.png".to_string(),
+                format: Some("PNG".to_string()),
+            },
+        ];
+
+        // 1. Exact country match
+        let res_hu = match_iptv_org_logos(&logos, "animal-planet", "HU");
+        assert!(res_hu.is_some());
+        assert_eq!(res_hu.unwrap().url, "https://example.com/animal-hu.svg");
+
+        // 2. International .int fallback
+        let res_int = match_iptv_org_logos(&logos, "cartoon-network", "int");
+        assert!(res_int.is_some());
+        assert_eq!(res_int.unwrap().url, "https://example.com/cn-int.png");
+
+        // 3. Global / without language fallback
+        let res_global = match_iptv_org_logos_any(&logos, "eurosport1");
+        assert!(res_global.is_some());
+        assert_eq!(res_global.unwrap().url, "https://example.com/eurosport-fr.png");
+    }
+
+    #[test]
+    fn test_match_tv_logo_from_tree() {
+        let paths = vec![
+            "countries/hungary/cool-tv-hu.png".to_string(),
+            "countries/international/animal-planet-int.png".to_string(),
+            "countries/france/eurosport-1-fr.png".to_string(),
+        ];
+
+        // 1. Country match
+        let res1 = match_tv_logo_from_tree(&paths, "hungary", "hu", "cool-tv");
+        assert!(res1.is_some());
+        assert_eq!(res1.unwrap().source_name, "tv-logo");
+
+        // 2. International fallback
+        let res2 = match_tv_logo_from_tree(&paths, "hungary", "hu", "animal-planet");
+        assert!(res2.is_some());
+        assert_eq!(res2.unwrap().source_name, "tv-logo (int)");
+
+        // 3. Global in any country fallback
+        let res3 = match_tv_logo_from_tree(&paths, "hungary", "hu", "eurosport-1");
+        assert!(res3.is_some());
+        assert_eq!(res3.unwrap().source_name, "tv-logo (global)");
     }
 }
 

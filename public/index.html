@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EPG/XML TV műsor megjelenítő</title>
-    <link rel="stylesheet" href="dark_theme.css" />
+    <link rel="stylesheet" href="themes/dark_theme.css" />
   </head>
   <body>
     <header>
@@ -357,6 +357,10 @@
               <span>📺</span>
               <span data-i18n="tab_channels">Csatornák</span>
             </div>
+            <div class="settings-nav-item" data-tab="logos">
+              <span>🖼️</span>
+              <span data-i18n="tab_channel_logos">Csatorna logók</span>
+            </div>
             <div class="settings-nav-item" data-tab="tmdb">
               <span>🎬</span>
               <span data-i18n="tab_tmdb">TMDB</span>
@@ -419,21 +423,7 @@
                       data-i18n="source_lang_code"
                       >Nyelvkód:</label
                     >
-                    <select id="sourceCountrySelect">
-                      <option value="HU">HU - Magyar</option>
-                      <option value="EN">EN - English</option>
-                      <option value="DE">DE - Deutsch</option>
-                      <option value="FR">FR - Français</option>
-                      <option value="ES">ES - Español</option>
-                      <option value="IT">IT - Italiano</option>
-                      <option value="SK">SK - Slovenčina</option>
-                      <option value="RO">RO - Română</option>
-                      <option value="PL">PL - Polski</option>
-                      <option value="PT">PT - Português</option>
-                      <option value="CZ">CZ - Čeština</option>
-                      <option value="US">US - English (US)</option>
-                      <option value="UK">UK - English (UK)</option>
-                    </select>
+                    <select id="sourceCountrySelect"></select>
                   </div>
 
                   <!-- Manuális időeltolás (Offset) -->
@@ -619,6 +609,71 @@
                 id="channelOrderList"
                 class="custom-scroll"
               ></div>
+            </div>
+
+            <!-- CSATORNA LOGÓK TAB -->
+            <div class="settings-tab-pane" id="tabPaneLogos">
+              <div class="logos-header-row">
+                <h3 data-i18n="channel_logos_heading">Csatorna logók automatikus lekérése</h3>
+              </div>
+              <div class="logos-info-card">
+                <p data-i18n="channel_logos_info">
+                  A rendszer automatikusan keres és rendel hozzá hivatalos logókat a hiányzó csatornákhoz a megadott prioritási sorrend szerint: 
+                  <strong>1. tv-logo</strong> (GitHub dark PNG) &rarr; <strong>2. iptv-org</strong> &rarr; <strong>3. Wikimedia Commons</strong> (SVG).
+                </p>
+                <div class="logos-notice-badge" data-i18n="channel_logos_safe_notice">
+                  🛡️ A már beállított, meglévő logókat a rendszer soha nem írja felül.
+                </div>
+              </div>
+
+              <div class="logos-controls-card">
+                <div class="logos-controls-row">
+                  <div class="logos-control-group">
+                    <label class="settings-label" data-i18n="select_source">Forrás:</label>
+                    <select id="logoSourceSelect"></select>
+                  </div>
+                  <div class="logos-control-actions">
+                    <button class="btn btn-green" id="autoMatchLogosBtn" data-i18n="btn_auto_match_logos">
+                      ⚡ Hiányzó logók automatikus keresése
+                    </button>
+                  </div>
+                </div>
+
+                <div class="logos-options-row">
+                  <label class="logos-checkbox-label">
+                    <input type="checkbox" id="logoIncludeWikimediaCheck" checked />
+                    <span data-i18n="logo_opt_wikimedia">Keresés a Wikimédián is (2. kör a GitHubon nem talált logókhoz)</span>
+                  </label>
+                </div>
+
+                <div class="logo-stats-grid" id="logoStatsGrid">
+                  <div class="logo-stat-card">
+                    <div class="logo-stat-number" id="logoStatTotal">-</div>
+                    <div class="logo-stat-label" data-i18n="logo_stat_total">Összes csatorna</div>
+                  </div>
+                  <div class="logo-stat-card">
+                    <div class="logo-stat-number stat-has-logo" id="logoStatWithLogo">-</div>
+                    <div class="logo-stat-label" data-i18n="logo_stat_with_logo">Beállított logóval</div>
+                  </div>
+                  <div class="logo-stat-card">
+                    <div class="logo-stat-number stat-missing" id="logoStatMissing">-</div>
+                    <div class="logo-stat-label" data-i18n="logo_stat_missing">Hiányzó logójú</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="logos-progress-container" id="logosProgressContainer" style="display: none;">
+                <div class="logo-progress-bar">
+                  <div class="logo-progress-fill" id="logosProgressFill"></div>
+                </div>
+                <div class="logo-status-text" id="logosStatusText">Keresés folyamatban...</div>
+              </div>
+
+              <div class="logos-results-container" id="logosResultsContainer" style="display: none;">
+                <h4 id="logosResultsTitle" data-i18n="logos_results_title">Eredmények</h4>
+                <div class="logos-results-summary" id="logosResultsSummary"></div>
+                <div class="logo-matches-preview-grid custom-scroll" id="logosMatchesGrid"></div>
+              </div>
             </div>
 
             <!-- 4. TMDB TAB -->
@@ -939,17 +994,28 @@
               data-i18n="channel_logo_label"
               >Logo URL:</label
             >
-            <input
-              type="text"
-              id="channelEditLogoInput"
-              class="channel-edit-input"
-              placeholder="https://... csatorna logó URL"
-              data-i18n-placeholder="channel_logo_placeholder"
-              autocomplete="off"
-            />
+            <div class="channel-edit-input-group">
+              <input
+                type="text"
+                id="channelEditLogoInput"
+                class="channel-edit-input"
+                placeholder="https://... csatorna logó URL"
+                data-i18n-placeholder="channel_logo_placeholder"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="btn btn-blue"
+                id="channelEditLogoSearchBtn"
+                title="Logó keresése külső adatbázisokban"
+                data-i18n-title="btn_search_logo_title"
+              >
+                🔍
+              </button>
+            </div>
           </div>
           <div class="channel-edit-logo-preview" id="channelEditLogoPreview">
-            <span class="logo-preview-placeholder">TV</span>
+            <span class="logo-preview-placeholder" data-icon="device-tv" data-icon-size="24">TV</span>
           </div>
         </div>
         <div class="channel-edit-actions">
@@ -980,7 +1046,35 @@
       </div>
     </div>
 
-    <script src="i18n.js"></script>
-    <script src="epg-viewer.js"></script>
+    <!-- LOGO KERESŐ MODAL (MANUÁLIS VIZUÁLIS KERESÉS) -->
+    <div class="modal-overlay" id="logoSearchModal" style="display: none;">
+      <div class="modal-content logo-search-modal-content">
+        <div class="modal-header">
+          <h2 data-i18n="logo_search_modal_title">Csatornalogó Keresése</h2>
+          <button class="modal-close" id="logoSearchClose">&times;</button>
+        </div>
+        <div class="modal-body logo-search-modal-body">
+          <div class="logo-search-controls">
+            <input
+              type="text"
+              id="logoSearchInput"
+              class="channel-edit-input"
+              placeholder="Csatorna neve..."
+              data-i18n-placeholder="logo_search_input_placeholder"
+              autocomplete="off"
+            />
+            <select id="logoSearchCountrySelect" class="logo-search-country-select" title="Ország"></select>
+            <button class="btn btn-blue" id="logoSearchExecBtn" data-i18n="btn_search">Keresés</button>
+          </div>
+          <div class="logo-search-status" id="logoSearchStatus" style="display: none;"></div>
+          <div class="logo-search-results-grid custom-scroll" id="logoSearchResultsGrid"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="javascript/i18n.js"></script>
+    <script src="javascript/countries.js"></script>
+    <script src="javascript/icons.js"></script>
+    <script src="javascript/epg-viewer.js"></script>
   </body>
 </html>
