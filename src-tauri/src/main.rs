@@ -3645,9 +3645,31 @@ async fn update_source_epg(source_id: String, url: String) -> Result<(), String>
         return Err("Az EPG URL címe üres!".to_string());
     }
 
+    // Rewrite github.com raw view URLs to raw.githubusercontent.com to avoid 504 errors.
+    // github.com/owner/repo/raw/refs/heads/branch/path
+    //   -> raw.githubusercontent.com/owner/repo/refs/heads/branch/path
+    // github.com/owner/repo/raw/branch/path  (legacy form, no refs/heads)
+    //   -> raw.githubusercontent.com/owner/repo/branch/path
+    let url = {
+        let trimmed = url.trim();
+        let rewritten = if let Some(rest) = trimmed.strip_prefix("https://github.com/") {
+            let parts: Vec<&str> = rest.splitn(4, '/').collect();
+            // parts: [owner, repo, "raw", "refs/heads/branch/path" or "branch/path"]
+            if parts.len() == 4 && parts[2] == "raw" {
+                format!("https://raw.githubusercontent.com/{}/{}/{}", parts[0], parts[1], parts[3])
+            } else {
+                trimmed.to_string()
+            }
+        } else {
+            trimmed.to_string()
+        };
+        rewritten
+    };
+
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0.0.0 Safari/537.36")
         .redirect(reqwest::redirect::Policy::limited(10))
+        .timeout(std::time::Duration::from_secs(60))
         .no_gzip()
         .build()
         .map_err(|e| format!("Kliens hiba: {}", e))?;
