@@ -110,6 +110,124 @@ function showPrompt(title, message, defaultValue = "") {
   });
 }
 
+function openLogoSearchModal(channelName, countryCode = "HU") {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("logoSearchModal");
+    const closeBtn = document.getElementById("logoSearchClose");
+    const input = document.getElementById("logoSearchInput");
+    const countrySelect = document.getElementById("logoSearchCountrySelect");
+    const execBtn = document.getElementById("logoSearchExecBtn");
+    const statusEl = document.getElementById("logoSearchStatus");
+    const gridEl = document.getElementById("logoSearchResultsGrid");
+
+    modal.style.display = "flex";
+    modal.classList.add("active");
+
+    let initialQuery = (channelName || "")
+      .replace(/@[A-Za-z0-9]+/g, "")
+      .replace(/^(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL):\s*/i, "")
+      .replace(/\s*[\(\[]\s*(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL|ENG|HUN\/ENG)\s*[\)\]]/gi, "")
+      .replace(/\s*[\(\[]\s*(Telekom|Vodafone|Digi|Yettel|Direct\s*One|UPC|backup|test|\d+)\s*[\)\]]/gi, "")
+      .replace(/\s*[\(\[]\s*(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\s*[\)\]]/gi, "")
+      .replace(/\b(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\b/gi, "")
+      .replace(/\s*[\(\[]\s*(pacific|east|west)\s*[\)\]]/gi, "")
+      .replace(/\b(pacific|east|west)\b/gi, "")
+      .replace(/\.(hu|pt|us|uk|de|at|ro|sk|cz|pl|fr|it|es|nl|com|net|org|tv|ca|ch|se|no|dk|fi|eu|int)\b/gi, "")
+      .trim();
+
+    input.value = initialQuery || channelName || "";
+    if (window.Countries) {
+      window.Countries.populateSelect(countrySelect, {
+        format: "search",
+        selected: countryCode || "HU",
+      });
+    }
+
+    const doSearch = async () => {
+      const q = input.value.trim();
+      const c = countrySelect.value;
+      if (!q) return;
+
+      statusEl.style.display = "block";
+      statusEl.textContent = t("logo_search_searching");
+      gridEl.innerHTML = "";
+      execBtn.disabled = true;
+
+      try {
+        const results = await invoke("search_channel_logos", {
+          query: q,
+          countryCode: c,
+        });
+
+        statusEl.style.display = "none";
+        execBtn.disabled = false;
+
+        if (!results || results.length === 0) {
+          statusEl.style.display = "block";
+          statusEl.textContent = t("logo_search_no_results");
+          return;
+        }
+
+        results.forEach((item) => {
+          const card = document.createElement("div");
+          card.className = "logo-card";
+
+          let badgeClass = "badge-tv-logo";
+          if (item.sourceName === "iptv-org") badgeClass = "badge-iptv-org";
+          else if (item.sourceName.includes("Wikimedia")) badgeClass = "badge-wikimedia";
+
+          card.innerHTML = `
+            <div class="logo-card-img-wrap">
+              <img src="${item.thumbUrl || item.url}" alt="" onerror="this.parentElement.innerHTML='<span style=\\'font-size:10px; color:#555;\\'>ERR</span>'" />
+            </div>
+            <div class="logo-card-title" title="${item.title}">${item.title}</div>
+            <div class="logo-card-meta">
+              <span class="logo-source-badge ${badgeClass}">${item.sourceName}</span>
+              <span class="logo-format-badge">${item.format}</span>
+            </div>
+          `;
+
+          card.onclick = () => {
+            closeModal(item.url);
+          };
+
+          gridEl.appendChild(card);
+        });
+      } catch (err) {
+        statusEl.style.display = "block";
+        statusEl.textContent = "Hiba: " + err;
+        execBtn.disabled = false;
+      }
+    };
+
+    const onBackdropClick = (e) => {
+      if (e.target === modal) {
+        e.stopPropagation();
+        closeModal(null);
+      }
+    };
+    modal.addEventListener("click", onBackdropClick);
+
+    const closeModal = (url) => {
+      modal.removeEventListener("click", onBackdropClick);
+      modal.style.display = "none";
+      modal.classList.remove("active");
+      closeBtn.onclick = null;
+      execBtn.onclick = null;
+      input.onkeydown = null;
+      resolve(url);
+    };
+
+    closeBtn.onclick = () => closeModal(null);
+    execBtn.onclick = doSearch;
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") doSearch();
+    };
+
+    doSearch();
+  });
+}
+
 function openChannelEditModal(channel) {
   return new Promise((resolve) => {
     const overlay = document.getElementById("channelEditModalOverlay");
@@ -122,6 +240,7 @@ function openChannelEditModal(channel) {
     const cancelBtn = document.getElementById("channelEditCancelBtn");
     const saveBtn = document.getElementById("channelEditSaveBtn");
     const resetBtn = document.getElementById("channelEditResetBtn");
+    const searchBtn = document.getElementById("channelEditLogoSearchBtn");
 
     const origName = channel.originalName || channel.name;
     origTitleEl.textContent = `${t("original_channel_name")}: ${origName} (ID: ${channel.id})`;
@@ -136,12 +255,28 @@ function openChannelEditModal(channel) {
       if (displayUrl) {
         previewEl.innerHTML = `<img src="${displayUrl}" alt="" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\\'font-size:10px; color:#555;\\'>ERR</span>';" />`;
       } else {
-        previewEl.innerHTML = `<span style="font-size: 11px; color: #718096">TV</span>`;
+        const tvSvg = window.Icons ? window.Icons.get("device-tv", { size: 24 }) : "TV";
+        previewEl.innerHTML = `<span class="logo-preview-placeholder">${tvSvg}</span>`;
       }
     };
 
     updatePreview();
     logoInput.oninput = updatePreview;
+
+    if (searchBtn) {
+      searchBtn.onclick = async (e) => {
+        if (e) e.stopPropagation();
+        const queryName = nameInput.value.trim() || channel.customName || channel.originalName || channel.name;
+        const actualSourceId = channel.sourceId || currentSourceId;
+        const srcObj = sources.find((s) => s.id === actualSourceId);
+        const country = channel.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
+        const selectedUrl = await openLogoSearchModal(queryName, country);
+        if (selectedUrl) {
+          logoInput.value = selectedUrl;
+          updatePreview();
+        }
+      };
+    }
 
     const cleanup = (result) => {
       overlay.classList.remove("active");
@@ -149,6 +284,7 @@ function openChannelEditModal(channel) {
       cancelBtn.onclick = null;
       saveBtn.onclick = null;
       resetBtn.onclick = null;
+      if (searchBtn) searchBtn.onclick = null;
       logoInput.oninput = null;
       resolve(result);
     };
@@ -250,6 +386,15 @@ function formatDayHeader(dateStr) {
 }
 
 async function init() {
+  if (window.Countries) {
+    window.Countries.populateSelect("sourceCountrySelect", {
+      format: "source",
+      selected: "HU",
+    });
+  }
+  if (window.Icons) {
+    window.Icons.replace();
+  }
   try {
     settings = await invoke("get_settings");
   } catch (e) {
@@ -975,8 +1120,10 @@ window.editSource = function (id) {
   document.getElementById("editSourceId").value = src.id;
   document.getElementById("sourceNameInput").value = src.name;
   document.getElementById("sourceUrlInput").value = src.url;
-  document.getElementById("sourceCountrySelect").value =
-    src.countryCode || "HU";
+  const normalizedCountry = window.Countries
+    ? window.Countries.normalizeCode(src.countryCode)
+    : src.countryCode || "HU";
+  document.getElementById("sourceCountrySelect").value = normalizedCountry;
   document.getElementById("sourceOffsetInput").value = src.timeOffset || 0;
   document.getElementById("saveSourceBtn").innerText = t(
     "btn_save_source_edit",
@@ -2694,6 +2841,9 @@ function switchSettingsTab(tabName) {
     loadChannelOrderSourcesDropdown();
     loadChannelSortPresetsDropdown();
     renderChannelOrderList();
+  } else if (tabName === "logos") {
+    document.getElementById("tabPaneLogos").classList.add("active");
+    loadChannelLogosTab();
   } else if (tabName === "tmdb") {
     document.getElementById("tabPaneTmdb").classList.add("active");
     loadTmdbSettings();
@@ -2774,6 +2924,342 @@ function renderFavoritesList() {
 
     content.appendChild(groupDiv);
   }
+}
+
+let isAutoMatchRunning = false;
+
+async function loadChannelLogosTab() {
+  const select = document.getElementById("logoSourceSelect");
+  const autoMatchBtn = document.getElementById("autoMatchLogosBtn");
+  const statsTotal = document.getElementById("logoStatTotal");
+  const statsWith = document.getElementById("logoStatWithLogo");
+  const statsMissing = document.getElementById("logoStatMissing");
+  const progressContainer = document.getElementById("logosProgressContainer");
+  const progressFill = document.getElementById("logosProgressFill");
+  const statusText = document.getElementById("logosStatusText");
+  const resultsContainer = document.getElementById("logosResultsContainer");
+  const resultsSummary = document.getElementById("logosResultsSummary");
+  const matchesGrid = document.getElementById("logosMatchesGrid");
+
+  if (!select) return;
+
+  const prevVal = select.value;
+  select.innerHTML = "";
+
+  const allOpt = document.createElement("option");
+  allOpt.value = "__ALL_SOURCES__";
+  allOpt.textContent = t("logo_source_all");
+  select.appendChild(allOpt);
+
+  sources.forEach((s) => {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
+    select.appendChild(opt);
+  });
+
+  if (prevVal && Array.from(select.options).some((o) => o.value === prevVal)) {
+    select.value = prevVal;
+  } else if (currentSourceId && currentSourceId !== "__ALL_FAVORITES__") {
+    select.value = currentSourceId;
+  } else {
+    select.value = "__ALL_SOURCES__";
+  }
+
+  const updateStats = async () => {
+    const targetSource = select.value === "__ALL_SOURCES__" ? null : select.value;
+    try {
+      const stats = await invoke("get_channel_logo_stats", { sourceId: targetSource });
+      statsTotal.textContent = stats.totalChannels;
+      statsWith.textContent = stats.withLogoCount;
+      statsMissing.textContent = stats.missingLogoCount;
+      if (!isAutoMatchRunning) {
+        if (stats.missingLogoCount === 0) {
+          autoMatchBtn.disabled = true;
+        } else {
+          autoMatchBtn.disabled = false;
+        }
+      }
+    } catch (e) {
+      console.error("Hiba a statisztika lekérésekor:", e);
+    }
+  };
+
+  select.onchange = () => {
+    if (isAutoMatchRunning) return;
+    progressContainer.style.display = "none";
+    resultsContainer.style.display = "none";
+    updateStats();
+  };
+
+  const setButtonRunningState = (running) => {
+    isAutoMatchRunning = running;
+    if (running) {
+      autoMatchBtn.className = "btn btn-red";
+      autoMatchBtn.textContent = t("btn_stop_auto_match") || "⏹ Leállítás";
+      autoMatchBtn.disabled = false;
+      select.disabled = true;
+    } else {
+      autoMatchBtn.className = "btn btn-green";
+      autoMatchBtn.textContent = t("btn_auto_match_logos") || "⚡ Hiányzó logók automatikus keresése";
+      select.disabled = false;
+    }
+  };
+
+  autoMatchBtn.onclick = async () => {
+    if (isAutoMatchRunning) {
+      isAutoMatchRunning = false;
+      statusText.textContent = "Leállítás folyamatban...";
+      autoMatchBtn.disabled = true;
+      return;
+    }
+
+    const targetSource = select.value === "__ALL_SOURCES__" ? null : select.value;
+
+    let missingChannels = [];
+    try {
+      missingChannels = await invoke("get_missing_logo_channels", { sourceId: targetSource });
+    } catch (err) {
+      alert("Hiba a csatornák lekérésekor: " + err);
+      return;
+    }
+
+    if (!missingChannels || missingChannels.length === 0) {
+      await showAlert(t("alert_info_title") || "Info", t("logos_no_missing"));
+      return;
+    }
+
+    setButtonRunningState(true);
+    progressContainer.style.display = "block";
+    progressFill.style.width = "0%";
+    statusText.textContent = t("logos_preloading") || "Adatforrások gyorstárazása (tv-logo, iptv-org)...";
+
+    // Rejtjük el az előnézeti rácsot a keresés idejére
+    resultsContainer.style.display = "none";
+    resultsSummary.textContent = "";
+    matchesGrid.innerHTML = "";
+
+    // Aktuális számláló értékek beolvasása a valós idejű léptetéshez
+    let currentWithLogo = parseInt(statsWith.textContent, 10) || 0;
+    let currentMissing = parseInt(statsMissing.textContent, 10) || missingChannels.length;
+
+    // 1. LÉPÉS: Források fájllistájának / fanézetének előzetes gyorstárazása a kereséshez
+    try {
+      const uniqueCountries = Array.from(new Set(missingChannels.map((c) => c.countryCode || "HU")));
+      await invoke("preload_logo_sources", { countryCodes: uniqueCountries });
+    } catch (preloadErr) {
+      console.warn("Figyelmeztetés az adatforrások gyorstárazásakor:", preloadErr);
+    }
+
+    let matchedList = [];
+    let round2Channels = [];
+    let failedCount = 0;
+    let wasStopped = false;
+
+    const includeWikiCheck = document.getElementById("logoIncludeWikimediaCheck");
+    const includeWiki = includeWikiCheck ? includeWikiCheck.checked : true;
+
+    // 2. LÉPÉS: 1. KÖR - Keresés a gyorstárazott GitHub forrásokban (tv-logo és iptv-org)
+    for (let i = 0; i < missingChannels.length; i++) {
+      if (!isAutoMatchRunning) {
+        wasStopped = true;
+        break;
+      }
+
+      const ch = missingChannels[i];
+      const percent = Math.round((i / missingChannels.length) * 100);
+      progressFill.style.width = percent + "%";
+
+      const searchMsg = (t("logos_round1_msg") || "1. Kör (GitHub): [{current}/{total}] {channel} keresése...")
+        .replace("{current}", i + 1)
+        .replace("{total}", missingChannels.length)
+        .replace("{channel}", ch.name);
+      statusText.textContent = searchMsg;
+
+      try {
+        const match = await invoke("find_channel_logo_github", {
+          sourceId: ch.sourceId,
+          channelId: ch.id,
+          channelName: ch.name,
+          countryCode: ch.countryCode,
+        });
+
+        if (match) {
+          matchedList.push(match);
+
+          // Minden megtalált logó után azonnal frissíti a számlálókat!
+          currentWithLogo++;
+          currentMissing = Math.max(0, currentMissing - 1);
+          statsWith.textContent = currentWithLogo;
+          statsMissing.textContent = currentMissing;
+
+          const foundMsg = (t("logos_found_channel") || "[{current}/{total}] {channel} → Találat ({source})")
+            .replace("{current}", i + 1)
+            .replace("{total}", missingChannels.length)
+            .replace("{channel}", ch.name)
+            .replace("{source}", match.sourceName);
+          statusText.textContent = foundMsg;
+        } else {
+          round2Channels.push(ch);
+        }
+      } catch (err) {
+        console.error("Hiba a csatorna keresésekor (GitHub):", ch.name, err);
+        round2Channels.push(ch);
+      }
+    }
+
+    // 2.b LÉPÉS: 2. KÖR - Online keresés a Wikimédián a GitHubon nem talált logókhoz
+    if (round2Channels.length > 0 && includeWiki && isAutoMatchRunning) {
+      statusText.textContent = (t("logos_round2_start") || "2. Kör: Online keresés a Wikimédián a maradék {count} csatornához...")
+        .replace("{count}", round2Channels.length);
+      progressFill.style.width = "0%";
+
+      for (let k = 0; k < round2Channels.length; k++) {
+        if (!isAutoMatchRunning) {
+          wasStopped = true;
+          break;
+        }
+
+        const ch = round2Channels[k];
+        const percent2 = Math.round((k / round2Channels.length) * 100);
+        progressFill.style.width = percent2 + "%";
+
+        const searchMsg2 = (t("logos_round2_msg") || "2. Kör (Wikimedia): [{current}/{total}] {channel} keresése...")
+          .replace("{current}", k + 1)
+          .replace("{total}", round2Channels.length)
+          .replace("{channel}", ch.name);
+        statusText.textContent = searchMsg2;
+
+        try {
+          const match = await invoke("find_channel_logo_wikimedia", {
+            sourceId: ch.sourceId,
+            channelId: ch.id,
+            channelName: ch.name,
+            countryCode: ch.countryCode,
+          });
+
+          if (match) {
+            matchedList.push(match);
+
+            currentWithLogo++;
+            currentMissing = Math.max(0, currentMissing - 1);
+            statsWith.textContent = currentWithLogo;
+            statsMissing.textContent = currentMissing;
+
+            const foundMsg = (t("logos_found_channel") || "[{current}/{total}] {channel} → Találat ({source})")
+              .replace("{current}", k + 1)
+              .replace("{total}", round2Channels.length)
+              .replace("{channel}", ch.name)
+              .replace("{source}", match.sourceName);
+            statusText.textContent = foundMsg;
+          } else {
+            failedCount++;
+          }
+        } catch (err) {
+          console.error("Hiba a csatorna keresésekor (Wikimedia):", ch.name, err);
+          failedCount++;
+        }
+      }
+    } else if (round2Channels.length > 0) {
+      failedCount += round2Channels.length;
+    }
+
+    // 3. LÉPÉS: Amint végzett a kereséssel, letölti és gyorstárazza a logókat
+    if (matchedList.length > 0 && isAutoMatchRunning) {
+      statusText.textContent = (t("logos_search_phase_done") || "Keresés kész. {count} logó letöltése folyamatban...")
+        .replace("{count}", matchedList.length);
+      progressFill.style.width = "0%";
+
+      for (let j = 0; j < matchedList.length; j++) {
+        if (!isAutoMatchRunning) {
+          wasStopped = true;
+          break;
+        }
+
+        const item = matchedList[j];
+        const dlPercent = Math.round(((j + 1) / matchedList.length) * 100);
+        progressFill.style.width = dlPercent + "%";
+
+        const dlMsg = (t("logos_downloading_progress") || "Logók letöltése: [{current}/{total}] {channel}...")
+          .replace("{current}", j + 1)
+          .replace("{total}", matchedList.length)
+          .replace("{channel}", item.channelName);
+        statusText.textContent = dlMsg;
+
+        try {
+          const dataUri = await invoke("cache_logo", { url: item.logoUrl });
+          item.cachedData = dataUri;
+        } catch (dlErr) {
+          console.warn("Hiba a logó letöltésekor:", item.logoUrl, dlErr);
+        }
+      }
+    }
+
+    // 4. LÉPÉS: Csak a teljes folyamat befejezése után listázza ki a megtalált logókat
+    resultsContainer.style.display = "block";
+    matchesGrid.innerHTML = "";
+
+    matchedList.forEach((m) => {
+      const itemEl = document.createElement("div");
+      itemEl.className = "logo-match-item";
+      itemEl.innerHTML = `
+        <div class="logo-match-thumb">
+          <img src="${m.cachedData || m.logoUrl}" alt="" onerror="this.parentElement.innerHTML='ERR'" />
+        </div>
+        <div class="logo-match-info">
+          <div class="logo-match-name" title="${m.channelName}">${m.channelName}</div>
+          <div class="logo-match-source">${m.sourceName}</div>
+        </div>
+      `;
+      matchesGrid.appendChild(itemEl);
+    });
+
+    // Frissítjük a memóriában lévő EPG adatokat és újrarajzoljuk az EPG-t
+    if (epgData && epgData.channels && matchedList.length > 0) {
+      matchedList.forEach((m) => {
+        const liveCh = epgData.channels.find(
+          (c) => c.id === m.channelId || c.id.endsWith("::" + m.channelId),
+        );
+        if (liveCh) {
+          liveCh.customIcon = m.logoUrl;
+          liveCh.cachedIcon = m.cachedData || m.logoUrl;
+        }
+        if (epgData.rawChannels) {
+          const rawCh = epgData.rawChannels.find(
+            (c) => c.id === m.channelId || c.id.endsWith("::" + m.channelId),
+          );
+          if (rawCh) {
+            rawCh.customIcon = m.logoUrl;
+            rawCh.cachedIcon = m.cachedData || m.logoUrl;
+          }
+        }
+      });
+      renderEPG();
+    }
+
+    progressFill.style.width = "100%";
+    if (wasStopped) {
+      statusText.textContent = (t("logos_status_stopped") || "Keresés megállítva. Megtalált logók: {count} db.")
+        .replace("{count}", matchedList.length);
+    } else {
+      statusText.textContent = t("status_ready") || "Kész!";
+    }
+
+    setButtonRunningState(false);
+
+    resultsSummary.textContent = (t("logos_search_summary") || "Vizsgált hiányzó csatornák: {missing}. Sikeresen megtalálva: {matched}, sikertelen: {failed}.")
+      .replace("{missing}", wasStopped ? (matchedList.length + failedCount) : missingChannels.length)
+      .replace("{matched}", matchedList.length)
+      .replace("{failed}", failedCount);
+
+    if (matchedList.length === 0 && !wasStopped) {
+      matchesGrid.innerHTML = `<p style="color: var(--text-dim); font-size: 13px; grid-column: 1 / -1; padding: 10px 0;">${t("logo_search_no_results")}</p>`;
+    }
+
+    await updateStats();
+  };
+
+  await updateStats();
 }
 
 let currentSettingsPresets = [];
@@ -3332,12 +3818,13 @@ async function renderChannelOrderList() {
         ? `<span class="channel-order-source-badge" title="${ch.sourceName || ch.countryCode || actualSourceId}">${ch.sourceName || ch.countryCode || actualSourceId}</span>`
         : "";
 
+    const tvPlaceholderSvg = window.Icons ? window.Icons.get("device-tv", { size: 18 }) : "TV";
     item.innerHTML = `
             <div class="channel-item-main">
               <span class="drag-handle" title="${t("channels_drag_hint")}">☰</span>
               <span class="order-index">${idx + 1}</span>
               <div class="channel-order-logo-preview">
-                ${effectiveLogo ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : '<span style="font-size:10px; color:#555;">TV</span>'}
+                ${effectiveLogo ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : `<span class="logo-preview-placeholder">${tvPlaceholderSvg}</span>`}
               </div>
               <span class="channel-order-name" title="${ch.name}">${ch.name}</span>
               ${sourceBadgeHtml}
@@ -3363,7 +3850,10 @@ async function renderChannelOrderList() {
               </div>
               <div class="channel-logo-row">
                 <span class="channel-logo-label">${t("channel_logo_label")}</span>
-                <input type="text" class="channel-logo-input" placeholder="${t("channel_logo_placeholder")}" value="${ch.customIcon || ""}" />
+                <div class="channel-edit-input-group" style="flex:1;">
+                  <input type="text" class="channel-logo-input" placeholder="${t("channel_logo_placeholder")}" value="${ch.customIcon || ""}" />
+                  <button type="button" class="btn btn-blue btn-channel-logo-search" title="${t("btn_search_logo_title")}">🔍</button>
+                </div>
               </div>
             </div>
           `;
@@ -3423,6 +3913,21 @@ async function renderChannelOrderList() {
     // Együttes mentés (Név és Logó egyszerre)
     const logoInput = item.querySelector(".channel-logo-input");
     const renameInput = item.querySelector(".channel-rename-input");
+    const logoSearchBtn = item.querySelector(".btn-channel-logo-search");
+
+    if (logoSearchBtn) {
+      logoSearchBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const queryName = renameInput.value.trim() || ch.customName || ch.originalName || ch.name;
+        const srcObj = sources.find((s) => s.id === actualSourceId);
+        const country = ch.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
+        const selectedUrl = await openLogoSearchModal(queryName, country);
+        if (selectedUrl) {
+          logoInput.value = selectedUrl;
+          saveBoth();
+        }
+      };
+    }
 
     const saveBoth = async () => {
       const newName = renameInput.value.trim();
@@ -3480,9 +3985,10 @@ async function renderChannelOrderList() {
       const logoPreview = item.querySelector(".channel-order-logo-preview");
       const effectiveLogo = ch.customIcon || ch.icon || "";
       if (logoPreview) {
+        const tvPlaceholderSvg = window.Icons ? window.Icons.get("device-tv", { size: 18 }) : "TV";
         logoPreview.innerHTML = effectiveLogo
           ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
-          : '<span style="font-size:10px; color:#555;">TV</span>';
+          : `<span class="logo-preview-placeholder">${tvPlaceholderSvg}</span>`;
       }
       const actionsWrap = item.querySelector(".channel-edit-fields-actions");
       if (actionsWrap) {
@@ -3553,9 +4059,10 @@ async function renderChannelOrderList() {
       const logoPreview = item.querySelector(".channel-order-logo-preview");
       const effectiveLogo = ch.icon || "";
       if (logoPreview) {
+        const tvPlaceholderSvg = window.Icons ? window.Icons.get("device-tv", { size: 18 }) : "TV";
         logoPreview.innerHTML = effectiveLogo
           ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />`
-          : '<span style="font-size:10px; color:#555;">TV</span>';
+          : `<span class="logo-preview-placeholder">${tvPlaceholderSvg}</span>`;
       }
       const actionsWrap = item.querySelector(".channel-edit-fields-actions");
       if (actionsWrap) {

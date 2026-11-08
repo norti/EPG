@@ -19,3 +19,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+### Third-Party Trademarks and Channel Logos Disclaimer
+
+All television channel logos, station names, network titles, and related brand trademarks referenced, retrieved, or displayed by this application are the property of their respective copyright and trademark owners.
+
+The retrieval and display of channel logos in this application is strictly for informational, non-commercial identification purposes under nominative fair use. No channel logos or proprietary image assets are bundled or pre-packaged into the source code, repository, or binary distribution of this software. Logos are queried at runtime from open community repositories (tv-logo/tv-logos, iptv-org/database, Wikimedia Commons) and cached locally on the user's system.
+
+### Third-Party Icons
+
+UI icons are provided by Tabler Icons (https://tabler.io/icons), licensed under the MIT License:
+Copyright (c) 2020-2026 Paweł Kuna
