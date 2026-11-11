@@ -849,6 +849,7 @@ struct MissingChannelInfo {
     country_code: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TvLogoFileItem {
     name: String,
@@ -876,6 +877,7 @@ struct TvLogoGitTreeResponse {
 static TV_LOGO_TREE_CACHE: RwLock<Option<Vec<String>>> = RwLock::new(None);
 static IPTV_LOGOS_MEM_CACHE: RwLock<Option<Vec<IptvOrgLogoItem>>> = RwLock::new(None);
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct IptvOrgChannel {
     id: String,
@@ -1011,6 +1013,7 @@ fn map_country_code(country_code: &str) -> (&'static str, &'static str) {
 }
 
 
+#[allow(dead_code)]
 fn match_tv_logo(items: &[TvLogoFileItem], country_dir: &str, country_code: &str, slug: &str) -> Option<LogoSearchResult> {
     let target_exact = format!("{}-{}.png", slug, country_code);
     let target_simple = format!("{}.png", slug);
@@ -1388,6 +1391,7 @@ fn match_iptv_org_logos_any(
     None
 }
 
+#[allow(dead_code)]
 fn match_iptv_org(channels: &[IptvOrgChannel], slug: &str, clean_name: &str) -> Option<LogoSearchResult> {
     for ch in channels {
         let ch_slug = slugify_channel_name(&ch.name);
