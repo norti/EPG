@@ -110,54 +110,35 @@ function showPrompt(title, message, defaultValue = "") {
   });
 }
 
-function openLogoSearchModal(channelName, countryCode = "HU") {
+async function openLogoSearchModal(channelName, countryCode = "HU") {
+  const modal = document.getElementById("logoSearchModal");
+  const closeBtn = document.getElementById("logoSearchClose");
+  const input = document.getElementById("logoSearchInput");
+  const countrySelect = document.getElementById("logoSearchCountrySelect");
+  const execBtn = document.getElementById("logoSearchExecBtn");
+  const statusEl = document.getElementById("logoSearchStatus");
+  const gridEl = document.getElementById("logoSearchResultsGrid");
+
+  modal.style.display = "flex";
+  modal.classList.add("active");
+
+  let initialQuery = channelName || "";
+  try {
+    const [cleaned] = await invoke("clean_and_slugify_channel", { name: initialQuery });
+    if (cleaned) initialQuery = cleaned;
+  } catch (_) {
+    // fallback: use raw name
+  }
+
+  input.value = initialQuery;
+  if (window.Countries) {
+    window.Countries.populateSelect(countrySelect, {
+      format: "search",
+      selected: countryCode || "HU",
+    });
+  }
+
   return new Promise((resolve) => {
-    const modal = document.getElementById("logoSearchModal");
-    const closeBtn = document.getElementById("logoSearchClose");
-    const input = document.getElementById("logoSearchInput");
-    const countrySelect = document.getElementById("logoSearchCountrySelect");
-    const execBtn = document.getElementById("logoSearchExecBtn");
-    const statusEl = document.getElementById("logoSearchStatus");
-    const gridEl = document.getElementById("logoSearchResultsGrid");
-
-    modal.style.display = "flex";
-    modal.classList.add("active");
-
-    let initialQuery = (channelName || "")
-      .replace(/@[A-Za-z0-9]+/g, "")
-      .replace(/^(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL):\s*/i, "")
-      .replace(
-        /\s*[\(\[]\s*(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL|ENG|HUN\/ENG)\s*[\)\]]/gi,
-        "",
-      )
-      .replace(
-        /\s*[\(\[]\s*(Telekom|Vodafone|Digi|Yettel|Direct\s*One|UPC|backup|test|\d+)\s*[\)\]]/gi,
-        "",
-      )
-      .replace(
-        /\s*[\(\[]\s*(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\s*[\)\]]/gi,
-        "",
-      )
-      .replace(
-        /\b(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\b/gi,
-        "",
-      )
-      .replace(/\s*[\(\[]\s*(pacific|east|west)\s*[\)\]]/gi, "")
-      .replace(/\b(pacific|east|west)\b/gi, "")
-      .replace(
-        /\.(hu|pt|us|uk|de|at|ro|sk|cz|pl|fr|it|es|nl|com|net|org|tv|ca|ch|se|no|dk|fi|eu|int)\b/gi,
-        "",
-      )
-      .trim();
-
-    input.value = initialQuery || channelName || "";
-    if (window.Countries) {
-      window.Countries.populateSelect(countrySelect, {
-        format: "search",
-        selected: countryCode || "HU",
-      });
-    }
-
     const doSearch = async () => {
       const q = input.value.trim();
       const c = countrySelect.value;
@@ -211,7 +192,7 @@ function openLogoSearchModal(channelName, countryCode = "HU") {
         });
       } catch (err) {
         statusEl.style.display = "block";
-        statusEl.textContent = "Hiba: " + err;
+        statusEl.textContent = t("logo_search_error") + " " + err;
         execBtn.disabled = false;
       }
     };
@@ -508,9 +489,9 @@ function renderEmptySourcesState() {
   if (activeBadge) activeBadge.style.display = "none";
   document.getElementById("channelsContainer").innerHTML = `
                 <div class="empty-grid-notice">
-                    <h2>Nincsenek EPG források beállítva</h2>
-                    <p>Kattintson a <strong>⚙ BEÁLLÍTÁSOK</strong> gombra egy EPG forrás URL megadásához.</p>
-                    <button class="btn btn-green" onclick="document.getElementById('settingsBtn').click()" style="padding: 10px 20px; font-size: 14px;">FORRÁS HOZZÁADÁSA</button>
+                    <h2>${t("empty_sources_title")}</h2>
+                    <p>${t("empty_sources_desc", { btn: t("settings_btn") })}</p>
+                    <button class="btn btn-green" onclick="document.getElementById('settingsBtn').click()" style="padding: 10px 20px; font-size: 14px;">${t("empty_sources_btn")}</button>
                 </div>
             `;
   document.getElementById("timeColumn").innerHTML = "";
