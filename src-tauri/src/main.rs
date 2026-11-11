@@ -1,14 +1,20 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
+use tokio::sync::Mutex;
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 use flate2::read::GzDecoder;
 use regex::Regex;
+
+struct AppState {
+    db: Mutex<Connection>,
+    http: reqwest::Client,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -86,7 +92,7 @@ fn get_db_path() -> PathBuf {
     path
 }
 
-fn init_db() -> Connection {
+fn open_and_init_db() -> Connection {
     let conn = Connection::open(get_db_path()).expect("DB megnyitási hiba");
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS channels (
@@ -220,9 +226,8 @@ fn init_db() -> Connection {
     conn
 }
 
-#[tauri::command]
-async fn get_all_favorites_epg_data() -> Result<EpgResponse, String> {
-    let conn = init_db();
+async fn get_all_favorites_epg_data(state: &AppState) -> Result<EpgResponse, String> {
+    let conn = state.db.lock().await;
 
     let mut stmt = conn.prepare(
         "SELECT c.id, 
@@ -316,16 +321,16 @@ async fn get_all_favorites_epg_data() -> Result<EpgResponse, String> {
 }
 
 #[tauri::command]
-async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
+async fn get_epg_data(state: tauri::State<'_, AppState>, source_id: String) -> Result<EpgResponse, String> {
     if source_id.trim().is_empty() {
         return Ok(EpgResponse { channels: Vec::new(), programmes: Vec::new() });
     }
 
     if source_id == "__ALL_FAVORITES__" {
-        return get_all_favorites_epg_data().await;
+        return get_all_favorites_epg_data(state.inner()).await;
     }
 
-    let conn = init_db();
+    let conn = state.db.lock().await;
 
     let mut stmt = conn.prepare(
         "SELECT c.id, 
@@ -400,8 +405,8 @@ async fn get_epg_data(source_id: String) -> Result<EpgResponse, String> {
 }
 
 #[tauri::command]
-async fn get_sources() -> Result<Vec<Source>, String> {
-    let conn = init_db();
+async fn get_sources(state: tauri::State<'_, AppState>) -> Result<Vec<Source>, String> {
+    let conn = state.db.lock().await;
     let mut stmt = conn.prepare(
         "SELECT s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset,
                 (SELECT COUNT(*) FROM channels c WHERE c.source_id = s.id) AS ch_count,
@@ -433,8 +438,8 @@ async fn get_sources() -> Result<Vec<Source>, String> {
 }
 
 #[tauri::command]
-async fn save_source(source: Source) -> Result<(), String> {
-    let conn = init_db();
+async fn save_source(state: tauri::State<'_, AppState>, source: Source) -> Result<(), String> {
+    let conn = state.db.lock().await;
     conn.execute(
         "INSERT INTO sources (id, name, url, last_downloaded, country_code, time_offset) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT(id) DO UPDATE SET 
@@ -449,8 +454,8 @@ async fn save_source(source: Source) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn delete_source(source_id: String) -> Result<(), String> {
-    let mut conn = init_db();
+async fn delete_source(state: tauri::State<'_, AppState>, source_id: String) -> Result<(), String> {
+    let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
     tx.execute("DELETE FROM sources WHERE id = ?1", params![source_id]).ok();
@@ -464,14 +469,10 @@ async fn delete_source(source_id: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-async fn delete_source_data(source_id: String) -> Result<(), String> {
-    delete_source(source_id).await
-}
 
 #[tauri::command]
-async fn save_source_order(order: Vec<String>) -> Result<(), String> {
-    let mut conn = init_db();
+async fn save_source_order(state: tauri::State<'_, AppState>, order: Vec<String>) -> Result<(), String> {
+    let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     for (pos, src_id) in order.iter().enumerate() {
         tx.execute(
@@ -484,8 +485,8 @@ async fn save_source_order(order: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn clear_entire_database() -> Result<(), String> {
-    let mut conn = init_db();
+async fn clear_entire_database(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
     tx.execute("DELETE FROM channels", []).ok();
@@ -498,8 +499,8 @@ async fn clear_entire_database() -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn get_favorites() -> Result<Vec<String>, String> {
-    let conn = init_db();
+async fn get_favorites(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    let conn = state.db.lock().await;
     let mut stmt = conn.prepare("SELECT title FROM favorites ORDER BY rowid ASC").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
     let mut favs = Vec::new();
@@ -510,8 +511,8 @@ async fn get_favorites() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn toggle_favorite(title: String) -> Result<bool, String> {
-    let conn = init_db();
+async fn toggle_favorite(state: tauri::State<'_, AppState>, title: String) -> Result<bool, String> {
+    let conn = state.db.lock().await;
     let exists: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM favorites WHERE title = ?1)",
         params![title],
@@ -528,8 +529,8 @@ async fn toggle_favorite(title: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn set_favorites(favorites: Vec<String>) -> Result<(), String> {
-    let mut conn = init_db();
+async fn set_favorites(state: tauri::State<'_, AppState>, favorites: Vec<String>) -> Result<(), String> {
+    let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM favorites", []).ok();
     for f in favorites {
@@ -540,8 +541,8 @@ async fn set_favorites(favorites: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn get_channel_order(source_id: String) -> Result<Vec<String>, String> {
-    let conn = init_db();
+async fn get_channel_order(state: tauri::State<'_, AppState>, source_id: String) -> Result<Vec<String>, String> {
+    let conn = state.db.lock().await;
     let mut stmt = conn.prepare(
         "SELECT channel_id FROM channel_orders WHERE source_id = ?1 ORDER BY position ASC"
     ).map_err(|e| e.to_string())?;
@@ -554,8 +555,8 @@ async fn get_channel_order(source_id: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn save_channel_order(source_id: String, order: Vec<String>) -> Result<(), String> {
-    let mut conn = init_db();
+async fn save_channel_order(state: tauri::State<'_, AppState>, source_id: String, order: Vec<String>) -> Result<(), String> {
+    let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM channel_orders WHERE source_id = ?1", params![source_id]).ok();
     for (pos, ch_id) in order.iter().enumerate() {
@@ -579,8 +580,8 @@ struct SortPreset {
 }
 
 #[tauri::command]
-async fn get_sort_presets(source_id: String) -> Result<Vec<SortPreset>, String> {
-    let conn = init_db();
+async fn get_sort_presets(state: tauri::State<'_, AppState>, source_id: String) -> Result<Vec<SortPreset>, String> {
+    let conn = state.db.lock().await;
     let mut stmt = conn.prepare(
         "SELECT id, name, source_id, channel_order, created_at FROM channel_sort_presets WHERE source_id = ?1 ORDER BY id ASC"
     ).map_err(|e| e.to_string())?;
@@ -603,8 +604,8 @@ async fn get_sort_presets(source_id: String) -> Result<Vec<SortPreset>, String> 
 }
 
 #[tauri::command]
-async fn save_sort_preset(source_id: String, name: String, order: Vec<String>) -> Result<SortPreset, String> {
-    let conn = init_db();
+async fn save_sort_preset(state: tauri::State<'_, AppState>, source_id: String, name: String, order: Vec<String>) -> Result<SortPreset, String> {
+    let conn = state.db.lock().await;
     let order_json = serde_json::to_string(&order).map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT INTO channel_sort_presets (name, source_id, channel_order, created_at) VALUES (?1, ?2, ?3, datetime('now', 'localtime'))",
@@ -622,8 +623,8 @@ async fn save_sort_preset(source_id: String, name: String, order: Vec<String>) -
 }
 
 #[tauri::command]
-async fn rename_sort_preset(preset_id: i64, new_name: String) -> Result<(), String> {
-    let conn = init_db();
+async fn rename_sort_preset(state: tauri::State<'_, AppState>, preset_id: i64, new_name: String) -> Result<(), String> {
+    let conn = state.db.lock().await;
     conn.execute(
         "UPDATE channel_sort_presets SET name = ?1 WHERE id = ?2",
         params![new_name, preset_id],
@@ -632,15 +633,15 @@ async fn rename_sort_preset(preset_id: i64, new_name: String) -> Result<(), Stri
 }
 
 #[tauri::command]
-async fn delete_sort_preset(preset_id: i64) -> Result<(), String> {
-    let conn = init_db();
+async fn delete_sort_preset(state: tauri::State<'_, AppState>, preset_id: i64) -> Result<(), String> {
+    let conn = state.db.lock().await;
     conn.execute("DELETE FROM channel_sort_presets WHERE id = ?1", params![preset_id]).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-async fn toggle_channel_favorite(source_id: String, channel_id: String) -> Result<bool, String> {
-    let conn = init_db();
+async fn toggle_channel_favorite(state: tauri::State<'_, AppState>, source_id: String, channel_id: String) -> Result<bool, String> {
+    let conn = state.db.lock().await;
     let current_fav: bool = conn.query_row(
         "SELECT COALESCE(is_favorite, 0) = 1 FROM channel_user_settings WHERE source_id = ?1 AND channel_id = ?2",
         params![source_id, channel_id],
@@ -658,8 +659,8 @@ async fn toggle_channel_favorite(source_id: String, channel_id: String) -> Resul
 }
 
 #[tauri::command]
-async fn toggle_channel_hidden(source_id: String, channel_id: String) -> Result<bool, String> {
-    let conn = init_db();
+async fn toggle_channel_hidden(state: tauri::State<'_, AppState>, source_id: String, channel_id: String) -> Result<bool, String> {
+    let conn = state.db.lock().await;
     let current_hidden: bool = conn.query_row(
         "SELECT COALESCE(is_hidden, 0) = 1 FROM channel_user_settings WHERE source_id = ?1 AND channel_id = ?2",
         params![source_id, channel_id],
@@ -677,8 +678,8 @@ async fn toggle_channel_hidden(source_id: String, channel_id: String) -> Result<
 }
 
 #[tauri::command]
-async fn set_channel_logo(source_id: String, channel_id: String, logo_url: String) -> Result<(), String> {
-    let conn = init_db();
+async fn set_channel_logo(state: tauri::State<'_, AppState>, source_id: String, channel_id: String, logo_url: String) -> Result<(), String> {
+    let conn = state.db.lock().await;
     let clean_url = logo_url.trim();
     let custom_icon = if clean_url.is_empty() { None } else { Some(clean_url.to_string()) };
     conn.execute(
@@ -690,8 +691,8 @@ async fn set_channel_logo(source_id: String, channel_id: String, logo_url: Strin
 }
 
 #[tauri::command]
-async fn rename_channel(source_id: String, channel_id: String, name: String) -> Result<(), String> {
-    let conn = init_db();
+async fn rename_channel(state: tauri::State<'_, AppState>, source_id: String, channel_id: String, name: String) -> Result<(), String> {
+    let conn = state.db.lock().await;
     let clean_name = name.trim();
     let custom_name = if clean_name.is_empty() { None } else { Some(clean_name.to_string()) };
     conn.execute(
@@ -703,12 +704,12 @@ async fn rename_channel(source_id: String, channel_id: String, name: String) -> 
 }
 
 #[tauri::command]
-async fn get_cached_logo(url: String) -> Result<Option<String>, String> {
+async fn get_cached_logo(state: tauri::State<'_, AppState>, url: String) -> Result<Option<String>, String> {
     let clean_url = url.trim();
     if clean_url.is_empty() {
         return Ok(None);
     }
-    let conn = init_db();
+    let conn = state.db.lock().await;
     let res: Option<String> = conn.query_row(
         "SELECT data FROM logo_cache WHERE url = ?1",
         params![clean_url],
@@ -717,8 +718,7 @@ async fn get_cached_logo(url: String) -> Result<Option<String>, String> {
     Ok(res)
 }
 
-#[tauri::command]
-async fn cache_logo(url: String) -> Result<String, String> {
+async fn cache_logo_inner(state: &AppState, url: String) -> Result<String, String> {
     let clean_url = url.trim().to_string();
     if clean_url.is_empty() {
         return Err("Üres URL".to_string());
@@ -727,7 +727,7 @@ async fn cache_logo(url: String) -> Result<String, String> {
         return Ok(clean_url);
     }
 
-    let conn = init_db();
+    let conn = state.db.lock().await;
     let cached: Option<String> = conn.query_row(
         "SELECT data FROM logo_cache WHERE url = ?1",
         params![clean_url],
@@ -744,14 +744,7 @@ async fn cache_logo(url: String) -> Result<String, String> {
         return Err("Nem támogatott URL protokoll".to_string());
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client.get(&clean_url).send().await.map_err(|e| e.to_string())?;
+    let resp = state.http.get(&clean_url).send().await.map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
         return Err(format!("HTTP hiba: {}", resp.status()));
     }
@@ -1017,64 +1010,6 @@ fn map_country_code(country_code: &str) -> (&'static str, &'static str) {
     }
 }
 
-#[allow(dead_code)]
-async fn fetch_tv_logo_index(country_dir: &str) -> Result<Vec<TvLogoFileItem>, String> {
-    let cache_key = format!("tv_logo_{}", country_dir);
-    let conn = init_db();
-
-    let cached: Option<String> = conn.query_row(
-        "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-24 hours')",
-        params![cache_key],
-        |row| row.get(0),
-    ).ok();
-
-    if let Some(json_str) = cached {
-        if let Ok(items) = serde_json::from_str::<Vec<TvLogoFileItem>>(&json_str) {
-            if !items.is_empty() {
-                return Ok(items);
-            }
-        }
-    }
-
-    let url = format!("https://api.github.com/repos/tv-logo/tv-logos/contents/countries/{}", country_dir);
-    let client = reqwest::Client::builder()
-        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client.get(&url).send().await;
-    match resp {
-        Ok(r) if r.status().is_success() => {
-            if let Ok(text) = r.text().await {
-                if let Ok(items) = serde_json::from_str::<Vec<TvLogoFileItem>>(&text) {
-                    let _ = conn.execute(
-                        "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
-                         ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-                        params![cache_key, text],
-                    );
-                    return Ok(items);
-                }
-            }
-        }
-        _ => {
-            let fallback: Option<String> = conn.query_row(
-                "SELECT content FROM external_logo_cache WHERE source_key = ?1",
-                params![cache_key],
-                |row| row.get(0),
-            ).ok();
-            if let Some(json_str) = fallback {
-                if let Ok(items) = serde_json::from_str::<Vec<TvLogoFileItem>>(&json_str) {
-                    if !items.is_empty() {
-                        return Ok(items);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(Vec::new())
-}
 
 fn match_tv_logo(items: &[TvLogoFileItem], country_dir: &str, country_code: &str, slug: &str) -> Option<LogoSearchResult> {
     let target_exact = format!("{}-{}.png", slug, country_code);
@@ -1134,50 +1069,10 @@ fn match_tv_logo(items: &[TvLogoFileItem], country_dir: &str, country_code: &str
     None
 }
 
-#[allow(dead_code)]
-fn search_tv_logo_all(
-    items: &[TvLogoFileItem],
-    country_dir: &str,
-    country_code: &str,
-    slug: &str,
-    clean_name: &str,
-) -> Vec<LogoSearchResult> {
-    let mut results = Vec::new();
-    let mut seen = std::collections::HashSet::new();
 
-    if let Some(exact) = match_tv_logo(items, country_dir, country_code, slug) {
-        seen.insert(exact.url.clone());
-        results.push(exact);
-    }
-
-    let clean_lower = clean_name.to_lowercase();
-    for item in items {
-        let name_lower = item.name.to_lowercase();
-        let dl = item.download_url.clone().unwrap_or_else(|| {
-            format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/{}/{}", country_dir, item.name)
-        });
-        if !seen.contains(&dl) {
-            let matches = (slug.len() >= 3 && name_lower.contains(slug))
-                || (!clean_lower.is_empty() && name_lower.contains(&clean_lower));
-            if matches {
-                seen.insert(dl.clone());
-                results.push(LogoSearchResult {
-                    url: dl.clone(),
-                    thumb_url: dl,
-                    source_name: "tv-logo".to_string(),
-                    format: "PNG".to_string(),
-                    title: item.name.trim_end_matches(".png").to_string(),
-                });
-            }
-        }
-    }
-
-    results
-}
-
-async fn fetch_tv_logo_full_tree() -> Result<Vec<String>, String> {
+async fn fetch_tv_logo_full_tree(state: &AppState) -> Result<Vec<String>, String> {
     let cache_key = "tv_logo_full_tree_paths";
-    let conn = init_db();
+    let conn = state.db.lock().await;
 
     let cached: Option<String> = conn.query_row(
         "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
@@ -1194,13 +1089,7 @@ async fn fetch_tv_logo_full_tree() -> Result<Vec<String>, String> {
     }
 
     let url = "https://api.github.com/repos/tv-logo/tv-logos/git/trees/main?recursive=1";
-    let client = reqwest::Client::builder()
-        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client.get(url).send().await;
+    let resp = state.http.get(url).send().await;
     match resp {
         Ok(r) if r.status().is_success() => {
             if let Ok(text) = r.text().await {
@@ -1392,74 +1281,10 @@ fn search_tv_logo_from_tree(
     results
 }
 
-#[allow(dead_code)]
-async fn fetch_iptv_org_channels(target_country: &str) -> Result<Vec<IptvOrgChannel>, String> {
-    let cache_key = format!("iptv_org_channels_{}", target_country.to_uppercase());
-    let conn = init_db();
 
-    let cached: Option<String> = conn.query_row(
-        "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
-        params![cache_key],
-        |row| row.get(0),
-    ).ok();
-
-    if let Some(json_str) = cached {
-        if let Ok(channels) = serde_json::from_str::<Vec<IptvOrgChannel>>(&json_str) {
-            if !channels.is_empty() {
-                return Ok(channels);
-            }
-        }
-    }
-
-    let client = reqwest::Client::builder()
-        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client.get("https://iptv-org.github.io/api/channels.json").send().await;
-    match resp {
-        Ok(r) if r.status().is_success() => {
-            if let Ok(text) = r.text().await {
-                if let Ok(all_channels) = serde_json::from_str::<Vec<IptvOrgChannel>>(&text) {
-                    let country_upper = target_country.to_uppercase();
-                    let filtered: Vec<IptvOrgChannel> = all_channels.into_iter()
-                        .filter(|c| c.country.as_deref().map(|cnt| cnt.eq_ignore_ascii_case(&country_upper)).unwrap_or(false))
-                        .collect();
-
-                    if let Ok(ser) = serde_json::to_string(&filtered) {
-                        let _ = conn.execute(
-                            "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
-                             ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-                            params![cache_key, ser],
-                        );
-                    }
-                    return Ok(filtered);
-                }
-            }
-        }
-        _ => {
-            let fallback: Option<String> = conn.query_row(
-                "SELECT content FROM external_logo_cache WHERE source_key = ?1",
-                params![cache_key],
-                |row| row.get(0),
-            ).ok();
-            if let Some(json_str) = fallback {
-                if let Ok(channels) = serde_json::from_str::<Vec<IptvOrgChannel>>(&json_str) {
-                    if !channels.is_empty() {
-                        return Ok(channels);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(Vec::new())
-}
-
-async fn fetch_iptv_org_logos() -> Result<Vec<IptvOrgLogoItem>, String> {
+async fn fetch_iptv_org_logos(state: &AppState) -> Result<Vec<IptvOrgLogoItem>, String> {
     let cache_key = "iptv_org_logos".to_string();
-    let conn = init_db();
+    let conn = state.db.lock().await;
 
     let cached: Option<String> = conn.query_row(
         "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
@@ -1475,13 +1300,7 @@ async fn fetch_iptv_org_logos() -> Result<Vec<IptvOrgLogoItem>, String> {
         }
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let resp = client.get("https://iptv-org.github.io/api/logos.json").send().await;
+    let resp = state.http.get("https://iptv-org.github.io/api/logos.json").send().await;
     match resp {
         Ok(r) if r.status().is_success() => {
             if let Ok(text) = r.text().await {
@@ -1600,57 +1419,9 @@ fn match_iptv_org(channels: &[IptvOrgChannel], slug: &str, clean_name: &str) -> 
     None
 }
 
-#[allow(dead_code)]
-fn search_iptv_org_all(
-    channels: &[IptvOrgChannel],
-    slug: &str,
-    clean_name: &str,
-) -> Vec<LogoSearchResult> {
-    let mut results = Vec::new();
-    let mut seen = std::collections::HashSet::new();
 
-    if let Some(exact) = match_iptv_org(channels, slug, clean_name) {
-        seen.insert(exact.url.clone());
-        results.push(exact);
-    }
-
-    let clean_lower = clean_name.to_lowercase();
-    for ch in channels {
-        if let Some(ref l) = ch.logo {
-            let l_trimmed = l.trim();
-            if !l_trimmed.is_empty() && !seen.contains(l_trimmed) {
-                let ch_slug = slugify_channel_name(&ch.name);
-                let ch_lower = ch.name.to_lowercase();
-                let matches = (slug.len() >= 3 && ch_slug.contains(slug))
-                    || ch_lower.contains(&clean_lower)
-                    || ch.alt_names.iter().any(|a| a.to_lowercase().contains(&clean_lower));
-                if matches {
-                    seen.insert(l_trimmed.to_string());
-                    let fmt = if l_trimmed.ends_with(".svg") { "SVG" } else { "PNG" };
-                    results.push(LogoSearchResult {
-                        url: l_trimmed.to_string(),
-                        thumb_url: l_trimmed.to_string(),
-                        source_name: "iptv-org".to_string(),
-                        format: fmt.to_string(),
-                        title: ch.name.clone(),
-                    });
-                }
-            }
-        }
-    }
-
-    results
-}
-
-async fn search_wikimedia_commons(clean_name: &str, country_name: &str) -> Vec<LogoSearchResult> {
-    let client = match reqwest::Client::builder()
-        .user_agent("EPG-Viewer/1.0 (https://github.com/norti/EPG)")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return Vec::new(),
-    };
+async fn search_wikimedia_commons(state: &AppState, clean_name: &str, country_name: &str) -> Vec<LogoSearchResult> {
+    let client = &state.http;
 
     let query = if country_name.trim().is_empty() {
         format!("{} logo", clean_name.trim())
@@ -1726,85 +1497,6 @@ async fn search_wikimedia_commons(clean_name: &str, country_name: &str) -> Vec<L
     results
 }
 
-#[allow(dead_code)]
-async fn match_single_channel_candidate(
-    clean: &str,
-    slug: &str,
-    country_code: &str,
-    tv_logo_cache: &mut HashMap<String, Vec<TvLogoFileItem>>,
-    iptv_logos_cache: &mut Option<Vec<IptvOrgLogoItem>>,
-) -> Option<(String, String)> {
-    let (country_dir, c_code) = map_country_code(country_code);
-
-    // 1. Forrás A: tv-logo (Country)
-    if !tv_logo_cache.contains_key(country_dir) {
-        if let Ok(items) = fetch_tv_logo_index(country_dir).await {
-            tv_logo_cache.insert(country_dir.to_string(), items);
-        }
-    }
-    if let Some(items) = tv_logo_cache.get(country_dir) {
-        if let Some(res) = match_tv_logo(items, country_dir, c_code, slug) {
-            return Some((res.url, "tv-logo".to_string()));
-        }
-    }
-
-    // 1b. Forrás A: tv-logo (Fallback: International)
-    if country_dir != "international" {
-        if !tv_logo_cache.contains_key("international") {
-            if let Ok(items) = fetch_tv_logo_index("international").await {
-                tv_logo_cache.insert("international".to_string(), items);
-            }
-        }
-        if let Some(items) = tv_logo_cache.get("international") {
-            if let Some(res) = match_tv_logo(items, "international", "int", slug) {
-                return Some((res.url, "tv-logo (int)".to_string()));
-            }
-        }
-    }
-
-    // 2. Forrás B: iptv-org (Country -> INT -> Global)
-    if iptv_logos_cache.is_none() {
-        if let Ok(logos) = fetch_iptv_org_logos().await {
-            *iptv_logos_cache = Some(logos);
-        }
-    }
-    if let Some(logos) = iptv_logos_cache.as_ref() {
-        // 2a. Target country
-        if let Some(res) = match_iptv_org_logos(logos, slug, c_code) {
-            return Some((res.url, "iptv-org".to_string()));
-        }
-        // 2b. International .int
-        if c_code != "INT" {
-            if let Some(res) = match_iptv_org_logos(logos, slug, "int") {
-                return Some((res.url, "iptv-org (int)".to_string()));
-            }
-        }
-        // 2c. Global / without language
-        if let Some(res) = match_iptv_org_logos_any(logos, slug) {
-            return Some((res.url, "iptv-org (global)".to_string()));
-        }
-    }
-
-    // 3. Forrás C: Wikimedia Commons (Country)
-    let wiki_results = search_wikimedia_commons(clean, country_dir).await;
-    for w in &wiki_results {
-        let title_lower = w.title.to_lowercase();
-        if title_lower.contains(slug) || title_lower.contains(&clean.to_lowercase()) {
-            return Some((w.url.clone(), "Wikimedia Commons".to_string()));
-        }
-    }
-
-    // 3b. Forrás C: Wikimedia Commons (Fallback: Without Country / Global)
-    let wiki_global = search_wikimedia_commons(clean, "").await;
-    for w in &wiki_global {
-        let title_lower = w.title.to_lowercase();
-        if title_lower.contains(slug) || title_lower.contains(&clean.to_lowercase()) {
-            return Some((w.url.clone(), "Wikimedia Commons (global)".to_string()));
-        }
-    }
-
-    None
-}
 
 #[tauri::command]
 async fn clean_and_slugify_channel(name: String) -> Result<(String, String), String> {
@@ -1813,9 +1505,8 @@ async fn clean_and_slugify_channel(name: String) -> Result<(String, String), Str
     Ok((clean, slug))
 }
 
-#[tauri::command]
-async fn get_missing_logo_channels(source_id: Option<String>) -> Result<Vec<MissingChannelInfo>, String> {
-    let conn = init_db();
+async fn get_missing_logo_channels_inner(state: &AppState, source_id: Option<String>) -> Result<Vec<MissingChannelInfo>, String> {
+    let conn = state.db.lock().await;
     let filter_source = match source_id.as_deref() {
         Some(s) if !s.is_empty() && s != "__ALL_SOURCES__" => Some(s.to_string()),
         _ => None,
@@ -1869,13 +1560,13 @@ async fn get_missing_logo_channels(source_id: Option<String>) -> Result<Vec<Miss
     Ok(missing)
 }
 
-async fn ensure_tv_logo_tree_loaded() -> Result<(), String> {
+async fn ensure_tv_logo_tree_loaded(state: &AppState) -> Result<(), String> {
     let already_have = {
         let r = TV_LOGO_TREE_CACHE.read().unwrap();
         r.is_some()
     };
     if !already_have {
-        if let Ok(paths) = fetch_tv_logo_full_tree().await {
+        if let Ok(paths) = fetch_tv_logo_full_tree(state).await {
             let mut w = TV_LOGO_TREE_CACHE.write().unwrap();
             *w = Some(paths);
         }
@@ -1883,13 +1574,13 @@ async fn ensure_tv_logo_tree_loaded() -> Result<(), String> {
     Ok(())
 }
 
-async fn ensure_iptv_logos_loaded() -> Result<(), String> {
+async fn ensure_iptv_logos_loaded(state: &AppState) -> Result<(), String> {
     let already_have = {
         let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
         r.is_some()
     };
     if !already_have {
-        if let Ok(logos) = fetch_iptv_org_logos().await {
+        if let Ok(logos) = fetch_iptv_org_logos(state).await {
             let mut w = IPTV_LOGOS_MEM_CACHE.write().unwrap();
             *w = Some(logos);
         }
@@ -1898,14 +1589,13 @@ async fn ensure_iptv_logos_loaded() -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn preload_logo_sources(_country_codes: Vec<String>) -> Result<(), String> {
-    let _ = ensure_tv_logo_tree_loaded().await;
-    let _ = ensure_iptv_logos_loaded().await;
+async fn preload_logo_sources(state: tauri::State<'_, AppState>, _country_codes: Vec<String>) -> Result<(), String> {
+    let _ = ensure_tv_logo_tree_loaded(state.inner()).await;
+    let _ = ensure_iptv_logos_loaded(state.inner()).await;
     Ok(())
 }
 
-#[tauri::command]
-async fn find_channel_logo_github(
+async fn find_channel_logo_github_inner(state: &AppState, 
     source_id: String,
     channel_id: String,
     channel_name: String,
@@ -1918,7 +1608,7 @@ async fn find_channel_logo_github(
     let mut candidate: Option<(String, String)> = None;
 
     // 1. Forrás A: tv-logo full tree
-    let _ = ensure_tv_logo_tree_loaded().await;
+    let _ = ensure_tv_logo_tree_loaded(state).await;
     {
         let r = TV_LOGO_TREE_CACHE.read().unwrap();
         if let Some(ref tree) = *r {
@@ -1930,7 +1620,7 @@ async fn find_channel_logo_github(
 
     // 2. Forrás B: iptv-org logos
     if candidate.is_none() {
-        let _ = ensure_iptv_logos_loaded().await;
+        let _ = ensure_iptv_logos_loaded(state).await;
         let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
         if let Some(ref iptv_logos) = *r {
             if let Some(res) = match_iptv_org_logos(iptv_logos, &slug, c_code) {
@@ -1948,7 +1638,7 @@ async fn find_channel_logo_github(
     }
 
     if let Some((logo_url, src_name)) = candidate {
-        let conn = init_db();
+        let conn = state.db.lock().await;
         let _ = conn.execute(
             "INSERT INTO channel_user_settings (source_id, channel_id, custom_icon) VALUES (?1, ?2, ?3)
              ON CONFLICT(source_id, channel_id) DO UPDATE SET custom_icon = excluded.custom_icon",
@@ -1967,8 +1657,7 @@ async fn find_channel_logo_github(
     Ok(None)
 }
 
-#[tauri::command]
-async fn find_channel_logo_wikimedia(
+async fn find_channel_logo_wikimedia_inner(state: &AppState, 
     source_id: String,
     channel_id: String,
     channel_name: String,
@@ -1981,7 +1670,7 @@ async fn find_channel_logo_wikimedia(
     let mut candidate: Option<(String, String)> = None;
 
     // 3. Forrás C: Wikimedia Commons (Country)
-    let wiki_results = search_wikimedia_commons(&clean, country_dir).await;
+    let wiki_results = search_wikimedia_commons(state, &clean, country_dir).await;
     for w in &wiki_results {
         let title_lower = w.title.to_lowercase();
         if title_lower.contains(&slug) || title_lower.contains(&clean.to_lowercase()) {
@@ -1992,7 +1681,7 @@ async fn find_channel_logo_wikimedia(
 
     // 3b. Forrás C: Wikimedia Commons (Fallback: Without Country / Global)
     if candidate.is_none() {
-        let wiki_global = search_wikimedia_commons(&clean, "").await;
+        let wiki_global = search_wikimedia_commons(state, &clean, "").await;
         for w in &wiki_global {
             let title_lower = w.title.to_lowercase();
             if title_lower.contains(&slug) || title_lower.contains(&clean.to_lowercase()) {
@@ -2003,7 +1692,7 @@ async fn find_channel_logo_wikimedia(
     }
 
     if let Some((logo_url, src_name)) = candidate {
-        let conn = init_db();
+        let conn = state.db.lock().await;
         let _ = conn.execute(
             "INSERT INTO channel_user_settings (source_id, channel_id, custom_icon) VALUES (?1, ?2, ?3)
              ON CONFLICT(source_id, channel_id) DO UPDATE SET custom_icon = excluded.custom_icon",
@@ -2022,29 +1711,27 @@ async fn find_channel_logo_wikimedia(
     Ok(None)
 }
 
-#[tauri::command]
-async fn find_channel_logo_url(
+async fn find_channel_logo_url_inner(state: &AppState, 
     source_id: String,
     channel_id: String,
     channel_name: String,
     country_code: String,
 ) -> Result<Option<MatchedChannelItem>, String> {
-    if let Some(item) = find_channel_logo_github(source_id.clone(), channel_id.clone(), channel_name.clone(), country_code.clone()).await? {
+    if let Some(item) = find_channel_logo_github_inner(state, source_id.clone(), channel_id.clone(), channel_name.clone(), country_code.clone()).await? {
         return Ok(Some(item));
     }
-    find_channel_logo_wikimedia(source_id, channel_id, channel_name, country_code).await
+    find_channel_logo_wikimedia_inner(state, source_id, channel_id, channel_name, country_code).await
 }
 
-#[tauri::command]
-async fn auto_match_channel_logo(
+async fn auto_match_channel_logo_inner(state: &AppState, 
     source_id: String,
     channel_id: String,
     channel_name: String,
     country_code: String,
 ) -> Result<Option<MatchedChannelItem>, String> {
-    if let Some(mut item) = find_channel_logo_url(source_id, channel_id, channel_name, country_code).await? {
-        if let Ok(data) = cache_logo(item.logo_url.clone()).await {
-            item.cached_data = Some(data);
+    if let Some(mut item) = find_channel_logo_url_inner(state, source_id, channel_id, channel_name, country_code).await? {
+        if let Ok(cached_data) = cache_logo_inner(state, item.logo_url.clone()).await {
+            item.cached_data = Some(cached_data);
             return Ok(Some(item));
         }
     }
@@ -2052,8 +1739,38 @@ async fn auto_match_channel_logo(
 }
 
 #[tauri::command]
-async fn get_channel_logo_stats(source_id: Option<String>) -> Result<ChannelLogoStats, String> {
-    let conn = init_db();
+async fn cache_logo(state: tauri::State<'_, AppState>, url: String) -> Result<String, String> {
+    cache_logo_inner(state.inner(), url).await
+}
+
+#[tauri::command]
+async fn get_missing_logo_channels(state: tauri::State<'_, AppState>, source_id: Option<String>) -> Result<Vec<MissingChannelInfo>, String> {
+    get_missing_logo_channels_inner(state.inner(), source_id).await
+}
+
+#[tauri::command]
+async fn find_channel_logo_github(state: tauri::State<'_, AppState>, source_id: String, channel_id: String, channel_name: String, country_code: String) -> Result<Option<MatchedChannelItem>, String> {
+    find_channel_logo_github_inner(state.inner(), source_id, channel_id, channel_name, country_code).await
+}
+
+#[tauri::command]
+async fn find_channel_logo_wikimedia(state: tauri::State<'_, AppState>, source_id: String, channel_id: String, channel_name: String, country_code: String) -> Result<Option<MatchedChannelItem>, String> {
+    find_channel_logo_wikimedia_inner(state.inner(), source_id, channel_id, channel_name, country_code).await
+}
+
+#[tauri::command]
+async fn find_channel_logo_url(state: tauri::State<'_, AppState>, source_id: String, channel_id: String, channel_name: String, country_code: String) -> Result<Option<MatchedChannelItem>, String> {
+    find_channel_logo_url_inner(state.inner(), source_id, channel_id, channel_name, country_code).await
+}
+
+#[tauri::command]
+async fn auto_match_channel_logo(state: tauri::State<'_, AppState>, source_id: String, channel_id: String, channel_name: String, country_code: String) -> Result<Option<MatchedChannelItem>, String> {
+    auto_match_channel_logo_inner(state.inner(), source_id, channel_id, channel_name, country_code).await
+}
+
+#[tauri::command]
+async fn get_channel_logo_stats(state: tauri::State<'_, AppState>, source_id: Option<String>) -> Result<ChannelLogoStats, String> {
+    let conn = state.db.lock().await;
     let query = if let Some(ref sid) = source_id {
         if sid.is_empty() || sid == "__ALL_SOURCES__" {
             "SELECT 
@@ -2098,7 +1815,7 @@ async fn get_channel_logo_stats(source_id: Option<String>) -> Result<ChannelLogo
 }
 
 #[tauri::command]
-async fn search_channel_logos(query: String, country_code: String) -> Result<Vec<LogoSearchResult>, String> {
+async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, country_code: String) -> Result<Vec<LogoSearchResult>, String> {
     let clean = clean_channel_name(&query);
     let slug = slugify_channel_name(&clean);
     let (country_dir, c_code) = map_country_code(&country_code);
@@ -2114,7 +1831,7 @@ async fn search_channel_logos(query: String, country_code: String) -> Result<Vec
     let tv_tree = match tv_tree {
         Some(t) => t,
         None => {
-            let t = fetch_tv_logo_full_tree().await.unwrap_or_default();
+            let t = fetch_tv_logo_full_tree(state.inner()).await.unwrap_or_default();
             let mut w = TV_LOGO_TREE_CACHE.write().unwrap();
             *w = Some(t.clone());
             t
@@ -2137,7 +1854,7 @@ async fn search_channel_logos(query: String, country_code: String) -> Result<Vec
     let iptv_logos = match iptv_logos {
         Some(l) => l,
         None => {
-            let l = fetch_iptv_org_logos().await.unwrap_or_default();
+            let l = fetch_iptv_org_logos(state.inner()).await.unwrap_or_default();
             let mut w = IPTV_LOGOS_MEM_CACHE.write().unwrap();
             *w = Some(l.clone());
             l
@@ -2184,7 +1901,7 @@ async fn search_channel_logos(query: String, country_code: String) -> Result<Vec
     }
 
     // 3. Forrás C: Wikimedia Commons (With Country)
-    let wiki_matches = search_wikimedia_commons(&clean, country_dir).await;
+    let wiki_matches = search_wikimedia_commons(state.inner(), &clean, country_dir).await;
     for m in wiki_matches {
         if seen_urls.insert(m.url.clone()) {
             all_results.push(m);
@@ -2192,7 +1909,7 @@ async fn search_channel_logos(query: String, country_code: String) -> Result<Vec
     }
 
     // 3b. Forrás C: Wikimedia Commons (Without Country / Global)
-    let wiki_global = search_wikimedia_commons(&clean, "").await;
+    let wiki_global = search_wikimedia_commons(state.inner(), &clean, "").await;
     for m in wiki_global {
         if seen_urls.insert(m.url.clone()) {
             all_results.push(m);
@@ -2203,36 +1920,38 @@ async fn search_channel_logos(query: String, country_code: String) -> Result<Vec
 }
 
 #[tauri::command]
-async fn auto_match_source_logos(source_id: Option<String>) -> Result<AutoMatchSummary, String> {
-    let conn = init_db();
-
+async fn auto_match_source_logos(state: tauri::State<'_, AppState>, source_id: Option<String>) -> Result<AutoMatchSummary, String> {
     let filter_source = match source_id.as_deref() {
         Some(s) if !s.is_empty() && s != "__ALL_SOURCES__" => Some(s.to_string()),
         _ => None,
     };
 
-    let (total_channels, with_logo_count): (i64, i64) = if let Some(ref sid) = filter_source {
-        conn.query_row(
-            "SELECT COUNT(*),
-                    SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END)
-             FROM channels c
-             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
-             WHERE c.source_id = ?1",
-            params![sid],
-            |r| Ok((r.get(0).unwrap_or(0), r.get(1).unwrap_or(0))),
-        ).unwrap_or((0, 0))
-    } else {
-        conn.query_row(
-            "SELECT COUNT(*),
-                    SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END)
-             FROM channels c
-             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id",
-            [],
-            |r| Ok((r.get(0).unwrap_or(0), r.get(1).unwrap_or(0))),
-        ).unwrap_or((0, 0))
+    let (total_channels, with_logo_count): (i64, i64) = {
+        let conn = state.db.lock().await;
+        if let Some(ref sid) = filter_source {
+            conn.query_row(
+                "SELECT COUNT(*),
+                        SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END)
+                 FROM channels c
+                 LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+                 WHERE c.source_id = ?1",
+                params![sid],
+                |r| Ok((r.get(0).unwrap_or(0), r.get(1).unwrap_or(0))),
+            ).unwrap_or((0, 0))
+        } else {
+            conn.query_row(
+                "SELECT COUNT(*),
+                        SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END)
+                 FROM channels c
+                 LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id",
+                [],
+                |r| Ok((r.get(0).unwrap_or(0), r.get(1).unwrap_or(0))),
+            ).unwrap_or((0, 0))
+        }
     };
 
-    let missing_channels = get_missing_logo_channels(source_id).await?;
+    let app_state = state.inner();
+    let missing_channels = get_missing_logo_channels_inner(app_state, source_id).await?;
     let missing_count = missing_channels.len();
     if missing_count == 0 {
         return Ok(AutoMatchSummary {
@@ -2250,7 +1969,7 @@ async fn auto_match_source_logos(source_id: Option<String>) -> Result<AutoMatchS
     let mut failed_count = 0;
 
     for ch in &missing_channels {
-        if let Ok(Some(item)) = auto_match_channel_logo(ch.source_id.clone(), ch.id.clone(), ch.name.clone(), ch.country_code.clone()).await {
+        if let Ok(Some(item)) = auto_match_channel_logo_inner(app_state, ch.source_id.clone(), ch.id.clone(), ch.name.clone(), ch.country_code.clone()).await {
             matches.push(item);
         } else {
             failed_count += 1;
@@ -2327,8 +2046,8 @@ struct ChannelDataExport {
 }
 
 #[tauri::command]
-async fn export_channel_data() -> Result<ChannelDataExport, String> {
-    let conn = init_db();
+async fn export_channel_data(state: tauri::State<'_, AppState>) -> Result<ChannelDataExport, String> {
+    let conn = state.db.lock().await;
 
     let mut stmt = conn.prepare(
         "SELECT
@@ -2385,8 +2104,8 @@ async fn export_channel_data() -> Result<ChannelDataExport, String> {
 }
 
 #[tauri::command]
-async fn import_channel_data(data: ChannelDataExport) -> Result<(), String> {
-    let mut conn = init_db();
+async fn import_channel_data(state: tauri::State<'_, AppState>, data: ChannelDataExport) -> Result<(), String> {
+    let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
     for row in data.channels {
@@ -2429,8 +2148,8 @@ async fn import_channel_data(data: ChannelDataExport) -> Result<(), String> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-async fn export_settings() -> Result<BackupData, String> {
-    let conn = init_db();
+async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData, String> {
+    let conn = state.db.lock().await;
 
     // Sources
     let mut stmt = conn.prepare(
@@ -2543,8 +2262,8 @@ async fn export_settings() -> Result<BackupData, String> {
 }
 
 #[tauri::command]
-async fn import_settings(backup: BackupData) -> Result<(), String> {
-    let mut conn = init_db();
+async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) -> Result<(), String> {
+    let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
     // Sources
@@ -2623,8 +2342,8 @@ async fn import_settings(backup: BackupData) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn get_settings() -> Result<HashMap<String, String>, String> {
-    let conn = init_db();
+async fn get_settings(state: tauri::State<'_, AppState>) -> Result<HashMap<String, String>, String> {
+    let conn = state.db.lock().await;
     let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -2638,8 +2357,8 @@ async fn get_settings() -> Result<HashMap<String, String>, String> {
 }
 
 #[tauri::command]
-async fn set_setting(key: String, value: String) -> Result<(), String> {
-    let conn = init_db();
+async fn set_setting(state: tauri::State<'_, AppState>, key: String, value: String) -> Result<(), String> {
+    let conn = state.db.lock().await;
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, value],
@@ -2648,8 +2367,8 @@ async fn set_setting(key: String, value: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn get_language_content(lang: String) -> Result<String, String> {
-    let conn = init_db();
+async fn get_language_content(state: tauri::State<'_, AppState>, lang: String) -> Result<String, String> {
+    let conn = state.db.lock().await;
     let normalized = lang.to_lowercase();
     let mut stmt = conn
         .prepare("SELECT content FROM app_languages WHERE lang = ?1")
@@ -2673,8 +2392,8 @@ async fn get_language_content(lang: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn save_language_content(lang: String, content: String) -> Result<(), String> {
-    let conn = init_db();
+async fn save_language_content(state: tauri::State<'_, AppState>, lang: String, content: String) -> Result<(), String> {
+    let conn = state.db.lock().await;
     let normalized = lang.to_lowercase();
     conn.execute(
         "INSERT INTO app_languages (lang, content, updated_at) VALUES (?1, ?2, datetime('now', 'localtime'))
@@ -2685,8 +2404,8 @@ async fn save_language_content(lang: String, content: String) -> Result<(), Stri
 }
 
 #[tauri::command]
-async fn restore_languages_to_disk() -> Result<(), String> {
-    let conn = init_db();
+async fn restore_languages_to_disk(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let conn = state.db.lock().await;
 
     conn.execute(
         "INSERT INTO app_languages (lang, content, updated_at) VALUES ('english', ?1, datetime('now', 'localtime'))
@@ -2722,23 +2441,17 @@ async fn restore_languages_to_disk() -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn download_languages_from_github() -> Result<HashMap<String, String>, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("EPG-Viewer/1.0")
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
-
+async fn download_languages_from_github(state: tauri::State<'_, AppState>) -> Result<HashMap<String, String>, String> {
     let langs = ["english", "hungarian"];
     let mut result = HashMap::new();
-    let conn = init_db();
+    let conn = state.db.lock().await;
 
     for lang in &langs {
         let url = format!(
             "https://raw.githubusercontent.com/norti/EPG/main/public/languages/{}.lng",
             lang
         );
-        let resp = client.get(&url).send().await.map_err(|e| format!("Letöltési hiba ({url}): {e}"))?;
+        let resp = state.http.get(&url).send().await.map_err(|e| format!("Letöltési hiba ({url}): {e}"))?;
         if !resp.status().is_success() {
             return Err(format!("GitHub letöltés sikertelen ({url}): HTTP {}", resp.status()));
         }
@@ -3023,8 +2736,8 @@ fn best_tmdb_match(
 }
 
 #[tauri::command]
-async fn get_tmdb_api_key() -> Result<Option<String>, String> {
-    let conn = init_db();
+async fn get_tmdb_api_key(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    let conn = state.db.lock().await;
     let res: Option<String> = conn.query_row(
         "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
         [],
@@ -3034,8 +2747,8 @@ async fn get_tmdb_api_key() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-async fn set_tmdb_api_key(api_key: String) -> Result<(), String> {
-    let conn = init_db();
+async fn set_tmdb_api_key(state: tauri::State<'_, AppState>, api_key: String) -> Result<(), String> {
+    let conn = state.db.lock().await;
     let clean_key = api_key.trim();
     if clean_key.is_empty() {
         conn.execute("DELETE FROM settings WHERE key = 'tmdb_api_key'", []).map_err(|e| e.to_string())?;
@@ -3049,31 +2762,25 @@ async fn set_tmdb_api_key(api_key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn clear_tmdb_cache() -> Result<(), String> {
-    let conn = init_db();
+async fn clear_tmdb_cache(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let conn = state.db.lock().await;
     conn.execute("DELETE FROM tmdb_cache", []).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-async fn test_tmdb_api_key(api_key: String) -> Result<bool, String> {
+async fn test_tmdb_api_key(state: tauri::State<'_, AppState>, api_key: String) -> Result<bool, String> {
     let key = api_key.trim();
     if key.is_empty() {
         return Ok(false);
     }
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
-        .timeout(std::time::Duration::from_secs(6))
-        .build()
-        .map_err(|e| e.to_string())?;
-
     let is_v4 = key.starts_with("eyJ") || key.len() > 40;
     let req = if is_v4 {
-        client.get("https://api.themoviedb.org/3/authentication")
+        state.http.get("https://api.themoviedb.org/3/authentication")
             .header("Authorization", format!("Bearer {}", key))
             .header("Accept", "application/json")
     } else {
-        client.get("https://api.themoviedb.org/3/authentication")
+        state.http.get("https://api.themoviedb.org/3/authentication")
             .query(&[("api_key", key)])
             .header("Accept", "application/json")
     };
@@ -3085,7 +2792,7 @@ async fn test_tmdb_api_key(api_key: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<TmdbDetails>, String> {
+async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang: Option<String>) -> Result<Option<TmdbDetails>, String> {
     // Extract year hint from raw title BEFORE cleaning strips it (used for scoring later)
     let year_hint = extract_year_hint(&title);
     let clean = clean_title(&title);
@@ -3097,7 +2804,7 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
 
     // 1. Check local cache
     let cached = {
-        let conn = init_db();
+        let conn = state.db.lock().await;
         conn.query_row(
         "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
          FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
@@ -3142,7 +2849,7 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
 
     // 2. Retrieve TMDB API key from settings
     let api_key: Option<String> = {
-        let conn = init_db();
+        let conn = state.db.lock().await;
         conn.query_row(
             "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
             [],
@@ -3155,16 +2862,10 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
         _ => return Ok(None),
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
     let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
 
     let execute_search = |q: &str, l: &str| {
-        let mut req = client.get("https://api.themoviedb.org/3/search/multi")
+        let mut req = state.http.get("https://api.themoviedb.org/3/search/multi")
             .header("Accept", "application/json")
             .query(&[("query", q), ("language", l), ("include_adult", "false")]);
         if is_v4 {
@@ -3206,7 +2907,7 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     let item = match matched_item {
         Some(it) => it,
         None => {
-            let conn = init_db();
+            let conn = state.db.lock().await;
             conn.execute(
                 "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
                 params![clean, target_lang],
@@ -3216,22 +2917,22 @@ async fn get_tmdb_details(title: String, lang: Option<String>) -> Result<Option<
     };
 
         let details = fetch_tmdb_item_details(
+        state.inner(),
         item,
         &clean,
         &target_lang,
         &api_key,
-        &client,
     ).await?;
 
     Ok(Some(details))
 }
 
 async fn fetch_tmdb_item_details(
+    state: &AppState,
     item: TmdbRawItem,
     clean: &str,
     target_lang: &str,
     api_key: &str,
-    client: &reqwest::Client,
 ) -> Result<TmdbDetails, String> {
     let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
     let tmdb_id = item.id;
@@ -3246,7 +2947,7 @@ async fn fetch_tmdb_item_details(
     let mut hu_overview: Option<String> = None;
 
     let trans_url = format!("https://api.themoviedb.org/3/{}/{}/translations", media_type, tmdb_id);
-    let mut trans_req = client.get(&trans_url).header("Accept", "application/json");
+    let mut trans_req = state.http.get(&trans_url).header("Accept", "application/json");
     if is_v4 {
         trans_req = trans_req.header("Authorization", format!("Bearer {}", api_key));
     } else {
@@ -3316,7 +3017,7 @@ async fn fetch_tmdb_item_details(
     };
 
     // Save to cache
-    let conn = init_db();
+    let conn = state.db.lock().await;
     conn.execute(
         "INSERT OR REPLACE INTO tmdb_cache (
             query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
@@ -3344,7 +3045,7 @@ async fn fetch_tmdb_item_details(
 }
 
 #[tauri::command]
-async fn get_tmdb_details_for_lang(
+async fn get_tmdb_details_for_lang(state: tauri::State<'_, AppState>, 
     tmdb_id: i64,
     media_type: String,
     lang: String,
@@ -3357,7 +3058,7 @@ async fn get_tmdb_details_for_lang(
 
     // Check cache first (keyed by query_title + lang)
     let cached = {
-        let conn = init_db();
+        let conn = state.db.lock().await;
         conn.query_row(
             "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
              FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
@@ -3401,7 +3102,7 @@ async fn get_tmdb_details_for_lang(
 
     // Not in cache — fetch from TMDB by ID
     let api_key: Option<String> = {
-        let conn = init_db();
+        let conn = state.db.lock().await;
         conn.query_row(
             "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
             [],
@@ -3414,16 +3115,10 @@ async fn get_tmdb_details_for_lang(
         _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
     let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
 
     let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
-    let mut details_req = client.get(&details_url)
+    let mut details_req = state.http.get(&details_url)
         .header("Accept", "application/json")
         .query(&[("language", lang.as_str())]);
     if is_v4 {
@@ -3441,11 +3136,11 @@ async fn get_tmdb_details_for_lang(
     let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
     raw_item.media_type = Some(media_type);
 
-    fetch_tmdb_item_details(raw_item, &cache_key, &lang, &api_key, &client).await
+    fetch_tmdb_item_details(state.inner(), raw_item, &cache_key, &lang, &api_key).await
 }
 
 #[tauri::command]
-async fn search_tmdb(query: String, lang: Option<String>) -> Result<Vec<TmdbSearchResultItem>, String> {
+async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Option<String>) -> Result<Vec<TmdbSearchResultItem>, String> {
     let q = query.trim().to_string();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -3454,7 +3149,7 @@ async fn search_tmdb(query: String, lang: Option<String>) -> Result<Vec<TmdbSear
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
 
     let api_key: Option<String> = {
-        let conn = init_db();
+        let conn = state.db.lock().await;
         conn.query_row(
             "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
             [],
@@ -3467,16 +3162,10 @@ async fn search_tmdb(query: String, lang: Option<String>) -> Result<Vec<TmdbSear
         _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
     let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
 
     let execute_search = |term: &str, l: &str| {
-        let mut req = client.get("https://api.themoviedb.org/3/search/multi")
+        let mut req = state.http.get("https://api.themoviedb.org/3/search/multi")
             .header("Accept", "application/json")
             .query(&[("query", term), ("language", l), ("include_adult", "false")]);
         if is_v4 {
@@ -3557,7 +3246,7 @@ async fn search_tmdb(query: String, lang: Option<String>) -> Result<Vec<TmdbSear
 }
 
 #[tauri::command]
-async fn set_tmdb_match(
+async fn set_tmdb_match(state: tauri::State<'_, AppState>, 
     query_title: String,
     tmdb_id: i64,
     media_type: String,
@@ -3572,7 +3261,7 @@ async fn set_tmdb_match(
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
 
     let api_key: Option<String> = {
-        let conn = init_db();
+        let conn = state.db.lock().await;
         conn.query_row(
             "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
             [],
@@ -3585,16 +3274,10 @@ async fn set_tmdb_match(
         _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
-
     let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
 
     let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
-    let mut details_req = client.get(&details_url)
+    let mut details_req = state.http.get(&details_url)
         .header("Accept", "application/json")
         .query(&[("language", target_lang.as_str())]);
     if is_v4 {
@@ -3613,25 +3296,25 @@ async fn set_tmdb_match(
     raw_item.media_type = Some(media_type);
 
     let details = fetch_tmdb_item_details(
+        state.inner(),
         raw_item,
         &cache_key,
         &target_lang,
         &api_key,
-        &client,
     ).await?;
 
     Ok(details)
 }
 
 #[tauri::command]
-async fn clear_tmdb_match(query_title: String, lang: Option<String>) -> Result<(), String> {
+async fn clear_tmdb_match(state: tauri::State<'_, AppState>, query_title: String, lang: Option<String>) -> Result<(), String> {
     let clean = clean_title(&query_title);
     let cache_key = if clean.is_empty() { query_title.trim().to_string() } else { clean };
     if cache_key.is_empty() {
         return Ok(());
     }
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
-    let conn = init_db();
+    let conn = state.db.lock().await;
     conn.execute(
         "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
         params![cache_key, target_lang],
@@ -3640,7 +3323,7 @@ async fn clear_tmdb_match(query_title: String, lang: Option<String>) -> Result<(
 }
 
 #[tauri::command]
-async fn update_source_epg(source_id: String, url: String) -> Result<(), String> {
+async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String, url: String) -> Result<(), String> {
     if url.trim().is_empty() {
         return Err("Az EPG URL címe üres!".to_string());
     }
@@ -3690,7 +3373,7 @@ async fn update_source_epg(source_id: String, url: String) -> Result<(), String>
         String::from_utf8(bytes.to_vec()).map_err(|e| format!("UTF8 konverziós hiba: {}", e))?
     };
 
-    let mut conn = init_db();
+    let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
     tx.execute("DELETE FROM channels WHERE source_id = ?1", params![source_id]).ok();
@@ -3827,7 +3510,18 @@ fn open_url(url: String) {
 }
 
 fn main() {
+    let http_client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .expect("HTTP kliens létrehozási hiba");
+
     tauri::Builder::default()
+        .manage(AppState {
+            db: Mutex::new(open_and_init_db()),
+            http: http_client,
+        })
         .setup(|app| {
             #[cfg(target_os = "windows")]
             {
@@ -3842,11 +3536,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_epg_data,
-            get_all_favorites_epg_data,
             get_sources,
             save_source,
             delete_source,
-            delete_source_data,
             save_source_order,
             clear_entire_database,
             update_source_epg,
