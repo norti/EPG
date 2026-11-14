@@ -242,5 +242,14 @@
   "btn_restore_languages": "RESTORE LANGUAGES",
   "status_restoring_languages": "Restoring language files...",
   "status_languages_restored": "Language files restored successfully!",
-  "status_languages_restore_error": "Error restoring language files!"
+  "status_languages_restore_error": "Error restoring language files!",
+  "logo_dedup_heading": "Duplicate Logo Cache Management",
+  "logo_dedup_desc": "Finds identical logos in the cache (images.db) that are stored under different URLs across sources/channels and removes unnecessary redundancy.",
+  "btn_find_duplicate_logos": "🔍 Find Duplicates",
+  "btn_deduplicate_logos": "🧹 Remove Duplicates",
+  "logo_dedup_searching": "Scanning for duplicates...",
+  "logo_dedup_no_duplicates": "No duplicate logos found in cache. All stored images are unique!",
+  "logo_dedup_found": "Found duplicates: {count} redundant URLs for {groups} unique images. Potential space saved: {size}.",
+  "logo_dedup_success": "Successfully optimized! {removedUrls} redundant links and {removedImages} orphaned images removed. Freed space: {freedSize}.",
+  "logo_dedup_error": "Error managing duplicates: "
 }

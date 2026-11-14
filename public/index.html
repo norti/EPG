@@ -674,6 +674,29 @@
                 <div class="logos-results-summary" id="logosResultsSummary"></div>
                 <div class="logo-matches-preview-grid custom-scroll" id="logosMatchesGrid"></div>
               </div>
+
+              <!-- DUPLIKÁLT LOGÓK KERESÉSE ÉS MEGSZÜNTETÉSE -->
+              <div class="logos-dedup-card">
+                <div class="logos-dedup-header">
+                  <h4 data-i18n="logo_dedup_heading">Duplikált logó gyorsítótár kezelése</h4>
+                  <p class="logos-dedup-desc" data-i18n="logo_dedup_desc">
+                    Megkeresi a gyorsítótárban (images.db) azokat az azonos tartalmú logókat, amelyeket több forrás vagy csatorna különböző URL alatt tárol, és megszünteti a felesleges redundanciát.
+                  </p>
+                </div>
+                <div class="logos-dedup-actions">
+                  <button class="btn btn-blue" id="findDuplicateLogosBtn" data-i18n="btn_find_duplicate_logos">
+                    🔍 Duplikátumok keresése
+                  </button>
+                  <button class="btn btn-green" id="deduplicateLogosBtn" data-i18n="btn_deduplicate_logos" style="display: none;">
+                    🧹 Duplikátumok megszüntetése
+                  </button>
+                  <span id="logoDedupStatus" class="export-import-status" style="display: none;"></span>
+                </div>
+                <div id="logoDedupResults" class="logo-dedup-results" style="display: none;">
+                  <div class="logo-dedup-summary" id="logoDedupSummary"></div>
+                  <div class="logo-dedup-list custom-scroll" id="logoDedupList"></div>
+                </div>
+              </div>
             </div>
 
             <!-- 4. TMDB TAB -->
