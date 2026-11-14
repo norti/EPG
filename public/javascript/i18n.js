@@ -13,6 +13,7 @@ const EMERGENCY_FALLBACK = {
   app_title: "EPG/XML TV Guide Viewer",
   btn_ok: "OK",
   btn_cancel: "Cancel",
+  alert_info_title: "Information",
   alert_error_title: "Error occurred",
   status_error: "Error processing data.",
   days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
@@ -116,9 +117,9 @@ function t(key, params = {}) {
         ? base[key]
         : key;
 
-  if (typeof val === "string") {
+  if (typeof val === "string" && params && typeof params === "object") {
     for (const [k, v] of Object.entries(params)) {
-      val = val.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+      val = val.split(`{${k}}`).join(String(v));
     }
   }
   return val;
@@ -234,8 +235,7 @@ async function restoreLanguageFiles() {
 
     if (success) {
       // Clear memory cache so fresh files are loaded
-      delete loadedLanguagesCache["english"];
-      delete loadedLanguagesCache["hungarian"];
+      Object.keys(loadedLanguagesCache).forEach((k) => delete loadedLanguagesCache[k]);
       baseDict = {};
       await setLanguage(currentLang);
       return { success: true, message: t("status_languages_restored") };
