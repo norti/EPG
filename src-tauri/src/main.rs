@@ -3,7 +3,7 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
 use tokio::sync::Mutex;
 use std::fs;
 use std::io::Read;
@@ -14,6 +14,7 @@ use regex::Regex;
 struct AppState {
     db: Mutex<Connection>,
     http: reqwest::Client,
+    http_epg: reqwest::Client,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -84,20 +85,20 @@ struct Source {
     hidden_count: Option<i64>,
 }
 
-fn get_db_path() -> PathBuf {
+fn get_app_db_path(filename: &str) -> PathBuf {
     let mut path = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
     path.push("epg-viewer");
     fs::create_dir_all(&path).ok();
-    path.push("epg.db");
+    path.push(filename);
     path
 }
 
+fn get_db_path() -> PathBuf {
+    get_app_db_path("epg.db")
+}
+
 fn get_images_db_path() -> PathBuf {
-    let mut path = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("epg-viewer");
-    fs::create_dir_all(&path).ok();
-    path.push("images.db");
-    path
+    get_app_db_path("images.db")
 }
 
 fn open_and_init_db() -> Connection {
@@ -220,9 +221,6 @@ fn open_and_init_db() -> Connection {
          PRAGMA images_db.cache_size = -64000;",
     );
 
-    // 4. VACUUM lefuttatása a törölt adatok helyének tényleges felszabadítására
-    let _ = conn.execute("VACUUM", []);
-
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS channels (
             id TEXT, source_id TEXT, name TEXT, icon TEXT, PRIMARY KEY (id, source_id)
@@ -322,15 +320,29 @@ fn open_and_init_db() -> Connection {
     let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN en_title TEXT", []);
     let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN original_language TEXT", []);
 
-    // Tisztítsuk meg a korábban hibásan felülírt franchise gyorsítótár bejegyzéseket (pl. Jurassic World -> Fallen Kingdom)
-    conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'Jurassic World' AND (title LIKE '%gefallene%' OR title LIKE '%Fallen Kingdom%')", []).ok();
-    conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'G.I. Joe' AND (title LIKE '%Megtorlás%' OR title LIKE '%Retaliation%')", []).ok();
+    // Egyszeri migrációs tisztítás (franchise cache javítás és régi alapértelmezett források törlése)
+    let has_migrated_legacy_cleanup: bool = conn
+        .query_row(
+            "SELECT 1 FROM settings WHERE key = 'migration_cleanup_v1'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
 
-    // Korábbi alapértelmezett források törlése a tiszta induláshoz
-    conn.execute("DELETE FROM sources WHERE id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
-    conn.execute("DELETE FROM channels WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
-    conn.execute("DELETE FROM programmes WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
-    conn.execute("DELETE FROM channel_orders WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
+    if !has_migrated_legacy_cleanup {
+        conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'Jurassic World' AND (title LIKE '%gefallene%' OR title LIKE '%Fallen Kingdom%')", []).ok();
+        conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'G.I. Joe' AND (title LIKE '%Megtorlás%' OR title LIKE '%Retaliation%')", []).ok();
+
+        conn.execute("DELETE FROM sources WHERE id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
+        conn.execute("DELETE FROM channels WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
+        conn.execute("DELETE FROM programmes WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
+        conn.execute("DELETE FROM channel_orders WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
+
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_cleanup_v1', '1')",
+            [],
+        );
+    }
 
     // Kezdeti nyelvi sablonok feltöltése, ha üres lenne
     let lang_count: i64 = conn
@@ -1019,26 +1031,35 @@ async fn find_duplicate_logos(state: tauri::State<'_, AppState>) -> Result<Dupli
          ORDER BY cnt DESC, img.byte_size DESC"
     ).map_err(|e| e.to_string())?;
 
-    let group_rows = stmt.query_map([], |row| {
-        let image_id: i64 = row.get(0)?;
-        let sha256: String = row.get(1)?;
-        let mime_type: String = row.get(2)?;
-        let byte_size: i64 = row.get(3)?;
-        let data: String = row.get(4)?;
-        Ok((image_id, sha256, mime_type, byte_size, data))
-    }).map_err(|e| e.to_string())?;
+    let group_rows: Vec<(i64, String, String, i64, String)> = {
+        let mapped = stmt.query_map([], |row| {
+            let image_id: i64 = row.get(0)?;
+            let sha256: String = row.get(1)?;
+            let mime_type: String = row.get(2)?;
+            let byte_size: i64 = row.get(3)?;
+            let data: String = row.get(4)?;
+            Ok((image_id, sha256, mime_type, byte_size, data))
+        }).map_err(|e| e.to_string())?;
+        mapped.flatten().collect()
+    };
+    drop(stmt);
 
     let mut duplicate_groups = Vec::new();
     let mut redundant_count = 0;
     let mut potential_saved_bytes = 0;
 
-    for g in group_rows.flatten() {
-        let (image_id, sha256, mime_type, byte_size, data) = g;
+    let mut url_stmt = conn.prepare(
+        "SELECT url FROM images_db.image_urls WHERE image_id = ?1 AND image_type = 'logo' ORDER BY url ASC"
+    ).map_err(|e| e.to_string())?;
 
-        let mut url_stmt = conn.prepare(
-            "SELECT url FROM images_db.image_urls WHERE image_id = ?1 AND image_type = 'logo' ORDER BY url ASC"
-        ).map_err(|e| e.to_string())?;
+    let mut ch_stmt = conn.prepare(
+        "SELECT DISTINCT COALESCE(NULLIF(cus.custom_name, ''), c.name) AS ch_name
+         FROM channels c
+         LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+         WHERE COALESCE(NULLIF(cus.custom_icon, ''), c.icon) = ?1"
+    ).map_err(|e| e.to_string())?;
 
+    for (image_id, sha256, mime_type, byte_size, data) in group_rows {
         let urls: Vec<String> = url_stmt.query_map(params![image_id], |r| r.get(0))
             .map_err(|e| e.to_string())?
             .flatten()
@@ -1046,13 +1067,6 @@ async fn find_duplicate_logos(state: tauri::State<'_, AppState>) -> Result<Dupli
 
         let mut ch_names = Vec::new();
         for u in &urls {
-            let mut ch_stmt = conn.prepare(
-                "SELECT DISTINCT COALESCE(NULLIF(cus.custom_name, ''), c.name) AS ch_name
-                 FROM channels c
-                 LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
-                 WHERE COALESCE(NULLIF(cus.custom_icon, ''), c.icon) = ?1"
-            ).map_err(|e| e.to_string())?;
-
             let names: Vec<String> = ch_stmt.query_map(params![u], |r| r.get(0))
                 .map_err(|e| e.to_string())?
                 .flatten()
@@ -1101,46 +1115,68 @@ async fn deduplicate_logos(state: tauri::State<'_, AppState>) -> Result<Deduplic
          HAVING cnt > 1"
     ).map_err(|e| e.to_string())?;
 
-    let groups: Vec<(i64, i64, usize)> = stmt.query_map([], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    }).map_err(|e| e.to_string())?
-      .flatten()
-      .collect();
+    let groups: Vec<(i64, i64, usize)> = {
+        let mapped = stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        }).map_err(|e| e.to_string())?;
+        mapped.flatten().collect()
+    };
+    drop(stmt);
 
     let mut cleaned_groups = 0;
     let mut removed_urls = 0;
     let mut freed_bytes = 0;
 
-    for (image_id, byte_size, _) in groups {
-        let mut url_stmt = conn.prepare(
-            "SELECT url FROM images_db.image_urls WHERE image_id = ?1 AND image_type = 'logo' ORDER BY length(url) ASC, url ASC"
-        ).map_err(|e| e.to_string())?;
+    if !groups.is_empty() {
+        conn.execute_batch("BEGIN TRANSACTION;").map_err(|e| e.to_string())?;
 
-        let urls: Vec<String> = url_stmt.query_map(params![image_id], |r| r.get(0))
-            .map_err(|e| e.to_string())?
-            .flatten()
-            .collect();
+        let res: Result<(), String> = (|| {
+            let mut url_stmt = conn.prepare(
+                "SELECT url FROM images_db.image_urls WHERE image_id = ?1 AND image_type = 'logo' ORDER BY length(url) ASC, url ASC"
+            ).map_err(|e| e.to_string())?;
 
-        if urls.len() <= 1 {
-            continue;
+            let mut update_settings_stmt = conn.prepare(
+                "UPDATE channel_user_settings SET custom_icon = ?1 WHERE custom_icon = ?2"
+            ).map_err(|e| e.to_string())?;
+
+            let mut delete_url_stmt = conn.prepare(
+                "DELETE FROM images_db.image_urls WHERE url = ?1"
+            ).map_err(|e| e.to_string())?;
+
+            for (image_id, byte_size, _) in groups {
+                let urls: Vec<String> = url_stmt.query_map(params![image_id], |r| r.get(0))
+                    .map_err(|e| e.to_string())?
+                    .flatten()
+                    .collect();
+
+                if urls.len() <= 1 {
+                    continue;
+                }
+
+                let canonical_url = &urls[0];
+                let redundant_urls = &urls[1..];
+
+                for red_url in redundant_urls {
+                    update_settings_stmt.execute(params![canonical_url, red_url]).map_err(|e| e.to_string())?;
+                    delete_url_stmt.execute(params![red_url]).map_err(|e| e.to_string())?;
+                    removed_urls += 1;
+                    freed_bytes += byte_size;
+                }
+                cleaned_groups += 1;
+            }
+
+            drop(url_stmt);
+            drop(update_settings_stmt);
+            drop(delete_url_stmt);
+
+            conn.execute_batch("COMMIT;").map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+
+        if let Err(e) = res {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(e);
         }
-
-        let canonical_url = &urls[0];
-        let redundant_urls = &urls[1..];
-
-        for red_url in redundant_urls {
-            let _ = conn.execute(
-                "UPDATE channel_user_settings SET custom_icon = ?1 WHERE custom_icon = ?2",
-                params![canonical_url, red_url],
-            );
-            let _ = conn.execute(
-                "DELETE FROM images_db.image_urls WHERE url = ?1",
-                params![red_url],
-            );
-            removed_urls += 1;
-            freed_bytes += byte_size;
-        }
-        cleaned_groups += 1;
     }
 
     let removed_images = conn.execute(
@@ -1764,13 +1800,6 @@ struct MissingChannelInfo {
     country_code: String,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct TvLogoFileItem {
-    name: String,
-    download_url: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct IptvOrgLogoItem {
     channel: String,
@@ -1791,19 +1820,6 @@ struct TvLogoGitTreeResponse {
 
 static TV_LOGO_TREE_CACHE: RwLock<Option<Vec<String>>> = RwLock::new(None);
 static IPTV_LOGOS_MEM_CACHE: RwLock<Option<Vec<IptvOrgLogoItem>>> = RwLock::new(None);
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct IptvOrgChannel {
-    id: String,
-    name: String,
-    #[serde(default)]
-    alt_names: Vec<String>,
-    #[serde(default)]
-    country: Option<String>,
-    #[serde(default)]
-    logo: Option<String>,
-}
 
 #[derive(Debug, Deserialize)]
 struct MwQueryResponse {
@@ -1830,37 +1846,28 @@ struct MwImageInfo {
     mime: Option<String>,
 }
 
+static RE_CHANNEL_AT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"@[A-Za-z0-9]+").unwrap());
+static RE_CHANNEL_PREFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL):\s*").unwrap());
+static RE_CHANNEL_LANG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*[\(\[]\s*(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL|ENG|HUN/ENG)\s*[\)\]]").unwrap());
+static RE_CHANNEL_PROVIDER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*[\(\[]\s*(Telekom|Vodafone|Digi|Yettel|Direct\s*One|UPC|backup|test|\d+)\s*[\)\]]").unwrap());
+static RE_CHANNEL_QUALITY_BRACKET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*[\(\[]\s*(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\s*[\)\]]").unwrap());
+static RE_CHANNEL_QUALITY_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\b").unwrap());
+static RE_CHANNEL_REGION_BRACKET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*[\(\[]\s*(pacific|east|west)\s*[\)\]]").unwrap());
+static RE_CHANNEL_REGION_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b(pacific|east|west)\b").unwrap());
+static RE_CHANNEL_DOMAINS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\.(hu|pt|us|uk|de|at|ro|sk|cz|pl|fr|it|es|nl|com|net|org|tv|ca|ch|se|no|dk|fi|eu|int)\b").unwrap());
+static RE_SPACES: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
+
 fn clean_channel_name(raw_name: &str) -> String {
-    let re_at = Regex::new(r"@[A-Za-z0-9]+").unwrap();
-    let mut name = re_at.replace_all(raw_name, "").to_string();
-
-    let re_prefix = Regex::new(r"(?i)^(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL):\s*").unwrap();
-    name = re_prefix.replace(&name, "").to_string();
-
-    let re_lang = Regex::new(r"(?i)\s*[\(\[]\s*(HU|HUN|RO|DE|AT|SK|CZ|UK|US|PT|PL|ENG|HUN/ENG)\s*[\)\]]").unwrap();
-    name = re_lang.replace_all(&name, "").to_string();
-
-    let re_provider = Regex::new(r"(?i)\s*[\(\[]\s*(Telekom|Vodafone|Digi|Yettel|Direct\s*One|UPC|backup|test|\d+)\s*[\)\]]").unwrap();
-    name = re_provider.replace_all(&name, "").to_string();
-
-    let re_quality_bracket = Regex::new(r"(?i)\s*[\(\[]\s*(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\s*[\)\]]").unwrap();
-    name = re_quality_bracket.replace_all(&name, "").to_string();
-
-    let re_quality_word = Regex::new(r"(?i)\b(HD|FHD|4K|UHD|SD|HEVC|H\.?265|1080[pi]|720[pi]|50fps|60fps|100fps)\b").unwrap();
-    name = re_quality_word.replace_all(&name, "").to_string();
-
-    let re_region_bracket = Regex::new(r"(?i)\s*[\(\[]\s*(pacific|east|west)\s*[\)\]]").unwrap();
-    name = re_region_bracket.replace_all(&name, "").to_string();
-
-    let re_region_word = Regex::new(r"(?i)\b(pacific|east|west)\b").unwrap();
-    name = re_region_word.replace_all(&name, "").to_string();
-
-    // Domain extensions: .hu, .pt, .us, .uk, .de, .at, .ro, etc.
-    let re_domains = Regex::new(r"(?i)\.(hu|pt|us|uk|de|at|ro|sk|cz|pl|fr|it|es|nl|com|net|org|tv|ca|ch|se|no|dk|fi|eu|int)\b").unwrap();
-    name = re_domains.replace_all(&name, "").to_string();
-
-    let re_spaces = Regex::new(r"\s+").unwrap();
-    name = re_spaces.replace_all(&name, " ").to_string();
+    let mut name = RE_CHANNEL_AT.replace_all(raw_name, "").to_string();
+    name = RE_CHANNEL_PREFIX.replace(&name, "").to_string();
+    name = RE_CHANNEL_LANG.replace_all(&name, "").to_string();
+    name = RE_CHANNEL_PROVIDER.replace_all(&name, "").to_string();
+    name = RE_CHANNEL_QUALITY_BRACKET.replace_all(&name, "").to_string();
+    name = RE_CHANNEL_QUALITY_WORD.replace_all(&name, "").to_string();
+    name = RE_CHANNEL_REGION_BRACKET.replace_all(&name, "").to_string();
+    name = RE_CHANNEL_REGION_WORD.replace_all(&name, "").to_string();
+    name = RE_CHANNEL_DOMAINS.replace_all(&name, "").to_string();
+    name = RE_SPACES.replace_all(&name, " ").to_string();
     name = name.trim().trim_matches(|c: char| c == '-' || c == '_' || c == ':' || c == '.' || c == '/' || c == '(' || c == ')').trim().to_string();
 
     if name.is_empty() {
@@ -1926,67 +1933,6 @@ fn map_country_code(country_code: &str) -> (&'static str, &'static str) {
         _ => ("hungary", "hu"),
     }
 }
-
-
-#[allow(dead_code)]
-fn match_tv_logo(items: &[TvLogoFileItem], country_dir: &str, country_code: &str, slug: &str) -> Option<LogoSearchResult> {
-    let target_exact = format!("{}-{}.png", slug, country_code);
-    let target_simple = format!("{}.png", slug);
-
-    for item in items {
-        if item.name.eq_ignore_ascii_case(&target_exact) {
-            let dl = item.download_url.clone().unwrap_or_else(|| {
-                format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/{}/{}", country_dir, item.name)
-            });
-            return Some(LogoSearchResult {
-                url: dl.clone(),
-                thumb_url: dl,
-                source_name: "tv-logo".to_string(),
-                format: "PNG".to_string(),
-                title: item.name.trim_end_matches(".png").to_string(),
-            });
-        }
-    }
-
-    for item in items {
-        if item.name.eq_ignore_ascii_case(&target_simple) {
-            let dl = item.download_url.clone().unwrap_or_else(|| {
-                format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/{}/{}", country_dir, item.name)
-            });
-            return Some(LogoSearchResult {
-                url: dl.clone(),
-                thumb_url: dl,
-                source_name: "tv-logo".to_string(),
-                format: "PNG".to_string(),
-                title: item.name.trim_end_matches(".png").to_string(),
-            });
-        }
-    }
-
-    for item in items {
-        let name_no_ext = item.name.trim_end_matches(".png");
-        let name_clean = if let Some(stripped) = name_no_ext.strip_suffix(&format!("-{}", country_code)) {
-            stripped
-        } else {
-            name_no_ext
-        };
-        if name_clean.eq_ignore_ascii_case(slug) {
-            let dl = item.download_url.clone().unwrap_or_else(|| {
-                format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/{}/{}", country_dir, item.name)
-            });
-            return Some(LogoSearchResult {
-                url: dl.clone(),
-                thumb_url: dl,
-                source_name: "tv-logo".to_string(),
-                format: "PNG".to_string(),
-                title: item.name.trim_end_matches(".png").to_string(),
-            });
-        }
-    }
-
-    None
-}
-
 
 async fn fetch_tv_logo_full_tree(state: &AppState) -> Result<Vec<String>, String> {
     let cache_key = "tv_logo_full_tree_paths";
@@ -2438,39 +2384,6 @@ fn match_iptv_org_logos_any(
     None
 }
 
-#[allow(dead_code)]
-fn match_iptv_org(channels: &[IptvOrgChannel], slug: &str, clean_name: &str) -> Option<LogoSearchResult> {
-    for ch in channels {
-        let ch_slug = slugify_channel_name(&ch.name);
-        let mut matches = ch_slug == slug || ch.name.eq_ignore_ascii_case(clean_name);
-        if !matches {
-            for alt in &ch.alt_names {
-                if slugify_channel_name(alt) == slug || alt.eq_ignore_ascii_case(clean_name) {
-                    matches = true;
-                    break;
-                }
-            }
-        }
-        if matches {
-            if let Some(ref l) = ch.logo {
-                let l_trimmed = l.trim();
-                if !l_trimmed.is_empty() {
-                    let fmt = if l_trimmed.ends_with(".svg") { "SVG" } else { "PNG" };
-                    return Some(LogoSearchResult {
-                        url: l_trimmed.to_string(),
-                        thumb_url: l_trimmed.to_string(),
-                        source_name: "iptv-org".to_string(),
-                        format: fmt.to_string(),
-                        title: ch.name.clone(),
-                    });
-                }
-            }
-        }
-    }
-    None
-}
-
-
 async fn search_wikimedia_commons(state: &AppState, clean_name: &str, country_name: &str) -> Vec<LogoSearchResult> {
     let client = &state.http;
 
@@ -2822,37 +2735,32 @@ async fn auto_match_channel_logo(state: tauri::State<'_, AppState>, source_id: S
 #[tauri::command]
 async fn get_channel_logo_stats(state: tauri::State<'_, AppState>, source_id: Option<String>) -> Result<ChannelLogoStats, String> {
     let conn = state.db.lock().await;
-    let query = if let Some(ref sid) = source_id {
-        if sid.is_empty() || sid == "__ALL_SOURCES__" {
-            "SELECT 
+    let filter_source = source_id.as_deref().filter(|s| !s.is_empty() && *s != "__ALL_SOURCES__");
+
+    let (total, with_logo): (i64, i64) = if let Some(sid) = filter_source {
+        let sql = "SELECT 
                 COUNT(*) as total,
                 SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END) as with_logo
              FROM channels c
-             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id".to_string()
-        } else {
-            format!(
-                "SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END) as with_logo
-                 FROM channels c
-                 LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
-                 WHERE c.source_id = '{}'",
-                sid.replace('\'', "''")
-            )
-        }
+             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+             WHERE c.source_id = ?1";
+        conn.query_row(sql, params![sid], |r| {
+            let tot: i64 = r.get(0).unwrap_or(0);
+            let wl: i64 = r.get(1).unwrap_or(0);
+            Ok((tot, wl))
+        }).unwrap_or((0, 0))
     } else {
-        "SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END) as with_logo
-         FROM channels c
-         LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id".to_string()
+        let sql = "SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN (cus.custom_icon IS NOT NULL AND cus.custom_icon != '') OR (c.icon IS NOT NULL AND c.icon != '') THEN 1 ELSE 0 END) as with_logo
+             FROM channels c
+             LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id";
+        conn.query_row(sql, [], |r| {
+            let tot: i64 = r.get(0).unwrap_or(0);
+            let wl: i64 = r.get(1).unwrap_or(0);
+            Ok((tot, wl))
+        }).unwrap_or((0, 0))
     };
-
-    let (total, with_logo): (i64, i64) = conn.query_row(&query, [], |r| {
-        let tot: i64 = r.get(0).unwrap_or(0);
-        let wl: i64 = r.get(1).unwrap_or(0);
-        Ok((tot, wl))
-    }).unwrap_or((0, 0));
 
     let total_usize = total.max(0) as usize;
     let with_logo_usize = with_logo.max(0) as usize;
@@ -3605,75 +3513,67 @@ struct TmdbTranslationData {
     overview: Option<String>,
 }
 
+static RE_TITLE_YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*[\(\[\{]\s*(?:19|20)\d{2}\s*[\)\]\}]").unwrap());
+static RE_TITLE_TAGS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*[\(\[\{]\s*(?:12|16|18|BA|KN|HD|UHD|FHD|4K|3D|élő|live|ism\.?|premier|új|uj|feliratos|szinkronizált|magyarul beszélő[^)]*)\s*[\)\]\}]").unwrap());
+static RE_TITLE_HU_SEASON: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*[-–—:]?\s*(?:első|második|harmadik|negyedik|ötödik|hatodik|hetedik|nyolcadik|kilencedik|tizedik)\s+évad.*$").unwrap());
+static RE_TITLE_EP1: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*[-–—:]\s*(?:s\d+(?:e\d+)?|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$").unwrap());
+static RE_TITLE_EP2: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s+(?:s\d+e\d+|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$").unwrap());
+static RE_TITLE_ROMAN_PART: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*(?:[-–—:]\s*)?\b(?:[IVXLCDM]+)\.?\s*(?:rész|évad|epizód).*$").unwrap());
+static RE_TITLE_SLASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*(?:[-–—:]\s*)?\b(?:[IVXLCDM]+|\d+)\.?\s*/\s*\d+[\.:]?(?:\s*(?:rész|évad|epizód))?.*$").unwrap());
+static RE_TITLE_TAIL_PAREN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*[\(\[\{][^\(\)\[\]\{\}]*[\)\]\}]\s*$").unwrap());
+static RE_YEAR_HINT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\(\[]\s*((?:19|20)\d{2})\s*[\)\]]").unwrap());
+
 fn clean_title(title: &str) -> String {
     let mut s = title.replace('\u{a0}', " ").trim().to_string();
 
     // 1. Remove year in parentheses / brackets e.g. (1999), [2021]
-    if let Ok(re_year) = regex::Regex::new(r"(?i)\s*[\(\[\{]\s*(?:19|20)\d{2}\s*[\)\]\}]") {
-        s = re_year.replace_all(&s, "").to_string();
-    }
+    s = RE_TITLE_YEAR.replace_all(&s, "").to_string();
 
     // 2. Remove rating and tech tags e.g. (12), (16), (18), (HD), (élő), (ism.), etc.
-    if let Ok(re_tags) = regex::Regex::new(r"(?i)\s*[\(\[\{]\s*(?:12|16|18|BA|KN|HD|UHD|FHD|4K|3D|élő|live|ism\.?|premier|új|uj|feliratos|szinkronizált|magyarul beszélő[^)]*)\s*[\)\]\}]") {
-        s = re_tags.replace_all(&s, "").to_string();
-    }
+    s = RE_TITLE_TAGS.replace_all(&s, "").to_string();
 
     // 3. Remove written-out Hungarian season names e.g. " - Második évad"
-    if let Ok(re_hu_season) = regex::Regex::new(r"(?i)\s*[-–—:]?\s*(?:első|második|harmadik|negyedik|ötödik|hatodik|hetedik|nyolcadik|kilencedik|tizedik)\s+évad.*$") {
-        let trimmed_cand = re_hu_season.replace(&s, "").to_string();
-        if trimmed_cand.trim().len() >= 2 {
-            s = trimmed_cand;
-        }
+    let trimmed_cand = RE_TITLE_HU_SEASON.replace(&s, "").to_string();
+    if trimmed_cand.trim().len() >= 2 {
+        s = trimmed_cand;
     }
 
     // 4. Remove episode / season patterns with delimiter or explicit keyword:
     // e.g. " - 1. rész", " 2. évad", " - S01E02", " - Ep. 5", " 1. epizód"
-    if let Ok(re_ep1) = regex::Regex::new(r"(?i)\s*[-–—:]\s*(?:s\d+(?:e\d+)?|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$") {
-        let trimmed_cand = re_ep1.replace(&s, "").to_string();
-        if trimmed_cand.trim().len() >= 2 {
-            s = trimmed_cand;
-        }
+    let trimmed_cand = RE_TITLE_EP1.replace(&s, "").to_string();
+    if trimmed_cand.trim().len() >= 2 {
+        s = trimmed_cand;
     }
 
-    if let Ok(re_ep2) = regex::Regex::new(r"(?i)\s+(?:s\d+e\d+|\d+[\.:]?\s*(?:rész|évad|epizód)|season\s*\d+|episode\s*\d+|ep\.\s*\d+).*$") {
-        let trimmed_cand = re_ep2.replace(&s, "").to_string();
-        if trimmed_cand.trim().len() >= 2 {
-            s = trimmed_cand;
-        }
+    let trimmed_cand = RE_TITLE_EP2.replace(&s, "").to_string();
+    if trimmed_cand.trim().len() >= 2 {
+        s = trimmed_cand;
     }
 
     // 5. Roman numeral season/part WITH explicit keyword only (e.g. " - I. évad", " II. rész")
     // Requires word boundary \b and explicit keyword to prevent matching words starting with Roman letters (like "Das...", "Megtorlás")
-    if let Ok(re_roman_part) = regex::Regex::new(r"(?i)\s*(?:[-–—:]\s*)?\b(?:[IVXLCDM]+)\.?\s*(?:rész|évad|epizód).*$") {
-        let trimmed_cand = re_roman_part.replace(&s, "").to_string();
-        if trimmed_cand.trim().len() >= 2 {
-            s = trimmed_cand;
-        }
+    let trimmed_cand = RE_TITLE_ROMAN_PART.replace(&s, "").to_string();
+    if trimmed_cand.trim().len() >= 2 {
+        s = trimmed_cand;
     }
 
     // 6. Season / episode slash numbering e.g. " I./3.", " I/3.", " - I./3.", " 1./3.", " 1/3", " II/4. rész"
-    if let Ok(re_slash) = regex::Regex::new(r"(?i)\s*(?:[-–—:]\s*)?\b(?:[IVXLCDM]+|\d+)\.?\s*/\s*\d+[\.:]?(?:\s*(?:rész|évad|epizód))?.*$") {
-        let trimmed_cand = re_slash.replace(&s, "").to_string();
-        if trimmed_cand.trim().len() >= 2 {
-            s = trimmed_cand;
-        }
+    let trimmed_cand = RE_TITLE_SLASH.replace(&s, "").to_string();
+    if trimmed_cand.trim().len() >= 2 {
+        s = trimmed_cand;
     }
 
     // 7. Remove trailing generic parenthesis/bracket tag if it still exists at the end
-    if let Ok(re_tail_paren) = regex::Regex::new(r"\s*[\(\[\{][^\(\)\[\]\{\}]*[\)\]\}]\s*$") {
-        let trimmed_cand = re_tail_paren.replace(&s, "").to_string();
-        if trimmed_cand.trim().len() >= 2 {
-            s = trimmed_cand;
-        }
+    let trimmed_cand = RE_TITLE_TAIL_PAREN.replace(&s, "").to_string();
+    if trimmed_cand.trim().len() >= 2 {
+        s = trimmed_cand;
     }
 
     // 8. Remove trailing punctuation: dashes, colons, dots, slashes, commas
     s = s.trim_end_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '–' | '—' | ':' | ',' | '.' | '/' | '\\')).to_string();
 
     // 9. Collapse multiple spaces
-    if let Ok(re_spaces) = regex::Regex::new(r"\s+") {
-        s = re_spaces.replace_all(&s, " ").to_string();
-    }
+    s = RE_SPACES.replace_all(&s, " ").to_string();
 
     s = s.trim().to_string();
     if s.len() < 2 {
@@ -3686,8 +3586,7 @@ fn clean_title(title: &str) -> String {
 // Extract a 4-digit year from parentheses/brackets in a raw EPG title, e.g. "Film (2018)" → Some(2018).
 // Called BEFORE clean_title() so the year is not yet stripped.
 fn extract_year_hint(raw_title: &str) -> Option<u32> {
-    regex::Regex::new(r"[\(\[]\s*((?:19|20)\d{2})\s*[\)\]]")
-        .ok()?
+    RE_YEAR_HINT
         .captures(raw_title)?
         .get(1)?
         .as_str()
@@ -3801,15 +3700,46 @@ fn best_tmdb_match(
     }).map(|(_, _, item)| item)
 }
 
-#[tauri::command]
-async fn get_tmdb_api_key(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+fn is_tmdb_v4_key(key: &str) -> bool {
+    key.starts_with("eyJ") || key.len() > 40
+}
+
+fn apply_tmdb_auth(req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
+    if is_tmdb_v4_key(api_key) {
+        req.header("Authorization", format!("Bearer {}", api_key))
+    } else {
+        req.query(&[("api_key", api_key)])
+    }
+}
+
+fn build_tmdb_search_req(
+    http: &reqwest::Client,
+    api_key: &str,
+    query: &str,
+    lang: &str,
+) -> reqwest::RequestBuilder {
+    let req = http.get("https://api.themoviedb.org/3/search/multi")
+        .header("Accept", "application/json")
+        .query(&[("query", query), ("language", lang), ("include_adult", "false")]);
+    apply_tmdb_auth(req, api_key)
+}
+
+async fn get_tmdb_api_key_from_state(state: &AppState) -> Option<String> {
     let conn = state.db.lock().await;
-    let res: Option<String> = conn.query_row(
+    let key: Option<String> = conn.query_row(
         "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
         [],
         |row| row.get(0),
     ).ok();
-    Ok(res)
+    key.and_then(|k| {
+        let trimmed = k.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    })
+}
+
+#[tauri::command]
+async fn get_tmdb_api_key(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    Ok(get_tmdb_api_key_from_state(state.inner()).await)
 }
 
 #[tauri::command]
@@ -3840,16 +3770,11 @@ async fn test_tmdb_api_key(state: tauri::State<'_, AppState>, api_key: String) -
     if key.is_empty() {
         return Ok(false);
     }
-    let is_v4 = key.starts_with("eyJ") || key.len() > 40;
-    let req = if is_v4 {
+    let req = apply_tmdb_auth(
         state.http.get("https://api.themoviedb.org/3/authentication")
-            .header("Authorization", format!("Bearer {}", key))
-            .header("Accept", "application/json")
-    } else {
-        state.http.get("https://api.themoviedb.org/3/authentication")
-            .query(&[("api_key", key)])
-            .header("Accept", "application/json")
-    };
+            .header("Accept", "application/json"),
+        key,
+    );
 
     match req.send().await {
         Ok(resp) => Ok(resp.status().is_success()),
@@ -3914,35 +3839,12 @@ async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang
     }
 
     // 2. Retrieve TMDB API key from settings
-    let api_key: Option<String> = {
-        let conn = state.db.lock().await;
-        conn.query_row(
-            "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
-            [],
-            |row| row.get(0),
-        ).ok()
-    };
-
-    let api_key = match api_key {
-        Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+    let api_key = match get_tmdb_api_key_from_state(state.inner()).await {
+        Some(k) => k,
         _ => return Ok(None),
     };
 
-    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
-
-    let execute_search = |q: &str, l: &str| {
-        let mut req = state.http.get("https://api.themoviedb.org/3/search/multi")
-            .header("Accept", "application/json")
-            .query(&[("query", q), ("language", l), ("include_adult", "false")]);
-        if is_v4 {
-            req = req.header("Authorization", format!("Bearer {}", api_key));
-        } else {
-            req = req.query(&[("api_key", api_key.as_str())]);
-        }
-        req
-    };
-
-    let resp = execute_search(&clean, &target_lang).send().await;
+    let resp = build_tmdb_search_req(&state.http, &api_key, &clean, &target_lang).send().await;
     let resp = match resp {
         Ok(r) => {
             if r.status() == reqwest::StatusCode::UNAUTHORIZED {
@@ -3961,7 +3863,7 @@ async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang
     let mut matched_item = best_tmdb_match(search_res, &clean, year_hint);
 
     if matched_item.is_none() && target_lang != "en-US" {
-        if let Ok(fallback_resp) = execute_search(&clean, "en-US").send().await {
+        if let Ok(fallback_resp) = build_tmdb_search_req(&state.http, &api_key, &clean, "en-US").send().await {
             if let Ok(fallback_text) = fallback_resp.text().await {
                 if let Ok(fallback_json) = serde_json::from_str::<TmdbSearchResponse>(&fallback_text) {
                     matched_item = best_tmdb_match(fallback_json.results.unwrap_or_default(), &clean, year_hint);
@@ -4000,7 +3902,6 @@ async fn fetch_tmdb_item_details(
     target_lang: &str,
     api_key: &str,
 ) -> Result<TmdbDetails, String> {
-    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
     let tmdb_id = item.id;
     let media_type = item.media_type.unwrap_or_else(|| "movie".to_string());
     let display_title = item.title.clone().or_else(|| item.name.clone()).unwrap_or_else(|| clean.to_string());
@@ -4013,12 +3914,10 @@ async fn fetch_tmdb_item_details(
     let mut hu_overview: Option<String> = None;
 
     let trans_url = format!("https://api.themoviedb.org/3/{}/{}/translations", media_type, tmdb_id);
-    let mut trans_req = state.http.get(&trans_url).header("Accept", "application/json");
-    if is_v4 {
-        trans_req = trans_req.header("Authorization", format!("Bearer {}", api_key));
-    } else {
-        trans_req = trans_req.query(&[("api_key", api_key)]);
-    }
+    let trans_req = apply_tmdb_auth(
+        state.http.get(&trans_url).header("Accept", "application/json"),
+        api_key,
+    );
 
     if let Ok(trans_resp) = trans_req.send().await {
         if let Ok(trans_text) = trans_resp.text().await {
@@ -4167,31 +4066,18 @@ async fn get_tmdb_details_for_lang(state: tauri::State<'_, AppState>,
     }
 
     // Not in cache — fetch from TMDB by ID
-    let api_key: Option<String> = {
-        let conn = state.db.lock().await;
-        conn.query_row(
-            "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
-            [],
-            |row| row.get(0),
-        ).ok()
-    };
-
-    let api_key = match api_key {
-        Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+    let api_key = match get_tmdb_api_key_from_state(state.inner()).await {
+        Some(k) => k,
         _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
     };
 
-    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
-
     let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
-    let mut details_req = state.http.get(&details_url)
-        .header("Accept", "application/json")
-        .query(&[("language", lang.as_str())]);
-    if is_v4 {
-        details_req = details_req.header("Authorization", format!("Bearer {}", api_key));
-    } else {
-        details_req = details_req.query(&[("api_key", api_key.as_str())]);
-    }
+    let details_req = apply_tmdb_auth(
+        state.http.get(&details_url)
+            .header("Accept", "application/json")
+            .query(&[("language", lang.as_str())]),
+        &api_key,
+    );
 
     let resp = details_req.send().await.map_err(|e| format!("TMDB lekérési hiba: {}", e))?;
     if !resp.status().is_success() {
@@ -4214,36 +4100,13 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
 
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
 
-    let api_key: Option<String> = {
-        let conn = state.db.lock().await;
-        conn.query_row(
-            "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
-            [],
-            |row| row.get(0),
-        ).ok()
-    };
-
-    let api_key = match api_key {
-        Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+    let api_key = match get_tmdb_api_key_from_state(state.inner()).await {
+        Some(k) => k,
         _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
     };
 
-    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
-
-    let execute_search = |term: &str, l: &str| {
-        let mut req = state.http.get("https://api.themoviedb.org/3/search/multi")
-            .header("Accept", "application/json")
-            .query(&[("query", term), ("language", l), ("include_adult", "false")]);
-        if is_v4 {
-            req = req.header("Authorization", format!("Bearer {}", api_key));
-        } else {
-            req = req.query(&[("api_key", api_key.as_str())]);
-        }
-        req
-    };
-
     let mut results: Vec<TmdbRawItem> = Vec::new();
-    let resp = execute_search(&q, &target_lang).send().await.map_err(|e| format!("TMDB keresési hiba: {}", e))?;
+    let resp = build_tmdb_search_req(&state.http, &api_key, &q, &target_lang).send().await.map_err(|e| format!("TMDB keresési hiba: {}", e))?;
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Err("Érvénytelen TMDB API kulcs / Invalid TMDB API key".to_string());
     }
@@ -4258,7 +4121,7 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
     // If no results and clean_title(q) differs from q, try searching with clean_title
     let cleaned = clean_title(&q);
     if results.is_empty() && !cleaned.is_empty() && cleaned != q {
-        if let Ok(resp2) = execute_search(&cleaned, &target_lang).send().await {
+        if let Ok(resp2) = build_tmdb_search_req(&state.http, &api_key, &cleaned, &target_lang).send().await {
             if resp2.status().is_success() {
                 if let Ok(text2) = resp2.text().await {
                     if let Ok(search_json2) = serde_json::from_str::<TmdbSearchResponse>(&text2) {
@@ -4272,7 +4135,7 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
     // Fallback to en-US if still empty and language was not en-US
     if results.is_empty() && target_lang != "en-US" {
         let query_term = if !cleaned.is_empty() { &cleaned } else { &q };
-        if let Ok(resp3) = execute_search(query_term, "en-US").send().await {
+        if let Ok(resp3) = build_tmdb_search_req(&state.http, &api_key, query_term, "en-US").send().await {
             if resp3.status().is_success() {
                 if let Ok(text3) = resp3.text().await {
                     if let Ok(search_json3) = serde_json::from_str::<TmdbSearchResponse>(&text3) {
@@ -4326,31 +4189,18 @@ async fn set_tmdb_match(state: tauri::State<'_, AppState>,
 
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
 
-    let api_key: Option<String> = {
-        let conn = state.db.lock().await;
-        conn.query_row(
-            "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
-            [],
-            |row| row.get(0),
-        ).ok()
-    };
-
-    let api_key = match api_key {
-        Some(k) if !k.trim().is_empty() => k.trim().to_string(),
+    let api_key = match get_tmdb_api_key_from_state(state.inner()).await {
+        Some(k) => k,
         _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
     };
 
-    let is_v4 = api_key.starts_with("eyJ") || api_key.len() > 40;
-
     let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
-    let mut details_req = state.http.get(&details_url)
-        .header("Accept", "application/json")
-        .query(&[("language", target_lang.as_str())]);
-    if is_v4 {
-        details_req = details_req.header("Authorization", format!("Bearer {}", api_key));
-    } else {
-        details_req = details_req.query(&[("api_key", api_key.as_str())]);
-    }
+    let details_req = apply_tmdb_auth(
+        state.http.get(&details_url)
+            .header("Accept", "application/json")
+            .query(&[("language", target_lang.as_str())]),
+        &api_key,
+    );
 
     let resp = details_req.send().await.map_err(|e| format!("TMDB lekérési hiba: {}", e))?;
     if !resp.status().is_success() {
@@ -4415,15 +4265,7 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
         rewritten
     };
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0.0.0 Safari/537.36")
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .timeout(std::time::Duration::from_secs(60))
-        .no_gzip()
-        .build()
-        .map_err(|e| format!("Kliens hiba: {}", e))?;
-
-    let response = client.get(&url).send().await.map_err(|e| format!("Hálózati hiba: {}", e))?;
+    let response = state.http_epg.get(&url).send().await.map_err(|e| format!("Hálózati hiba: {}", e))?;
     if !response.status().is_success() {
         return Err(format!("A szerver hibakódot adott vissza: {}", response.status()));
     }
@@ -4575,18 +4417,35 @@ fn open_url(url: String) {
     let _ = open::that(url);
 }
 
-fn main() {
-    let http_client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) EPGViewer/1.0")
-        .timeout(std::time::Duration::from_secs(30))
+const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0.0.0 Safari/537.36 EPGViewer/1.0";
+
+fn base_http_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .user_agent(DEFAULT_USER_AGENT)
         .redirect(reqwest::redirect::Policy::limited(10))
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        .pool_max_idle_per_host(10)
+}
+
+fn main() {
+    let http_client = base_http_builder()
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .expect("HTTP kliens létrehozási hiba");
+
+    // Dedicated client for EPG downloads: shares base settings (user agent, redirects, pool limits),
+    // but adds no_gzip() (so raw .gz bytes are preserved for GzDecoder) and a 60s timeout for large XML/GZ downloads.
+    let http_epg_client = base_http_builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .no_gzip()
+        .build()
+        .expect("EPG HTTP kliens létrehozási hiba");
 
     tauri::Builder::default()
         .manage(AppState {
             db: Mutex::new(open_and_init_db()),
             http: http_client,
+            http_epg: http_epg_client,
         })
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -4823,56 +4682,6 @@ mod tests {
         assert_eq!(map_country_code("at"), ("austria", "at"));
         assert_eq!(map_country_code("US"), ("united-states", "us"));
         assert_eq!(map_country_code("UK"), ("united-kingdom", "uk"));
-    }
-
-    #[test]
-    fn test_match_tv_logo() {
-        let items = vec![
-            TvLogoFileItem {
-                name: "cool-tv-hu.png".to_string(),
-                download_url: None,
-            },
-            TvLogoFileItem {
-                name: "arena4-hu.png".to_string(),
-                download_url: None,
-            },
-            TvLogoFileItem {
-                name: "rtl-hu.png".to_string(),
-                download_url: None,
-            },
-        ];
-
-        let res = match_tv_logo(&items, "hungary", "hu", "cool-tv");
-        assert!(res.is_some());
-        let logo = res.unwrap();
-        assert_eq!(logo.source_name, "tv-logo");
-        assert_eq!(logo.format, "PNG");
-        assert!(logo.url.contains("cool-tv-hu.png"));
-
-        let res2 = match_tv_logo(&items, "hungary", "hu", "unknown-channel");
-        assert!(res2.is_none());
-    }
-
-    #[test]
-    fn test_match_iptv_org() {
-        let channels = vec![
-            IptvOrgChannel {
-                id: "MoziPlus.hu".to_string(),
-                name: "Mozi+".to_string(),
-                alt_names: vec!["Mozi Plusz".to_string()],
-                country: Some("HU".to_string()),
-                logo: Some("https://example.com/mozi-plus.png".to_string()),
-            },
-        ];
-
-        let res = match_iptv_org(&channels, "mozi-plus", "Mozi+");
-        assert!(res.is_some());
-        let logo = res.unwrap();
-        assert_eq!(logo.source_name, "iptv-org");
-        assert_eq!(logo.url, "https://example.com/mozi-plus.png");
-
-        let res_alt = match_iptv_org(&channels, "mozi-plusz", "Mozi Plusz");
-        assert!(res_alt.is_some());
     }
 
     #[test]

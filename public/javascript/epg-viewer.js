@@ -16,6 +16,11 @@ let settings = {};
 const downloadingSources = new Set();
 let isUpdatingAllSources = false;
 
+const LOCALE_COMPARE_OPTIONS = Object.freeze({
+  sensitivity: "base",
+  numeric: true,
+});
+
 // ============================================================================
 // Fuzzy Search & Diacritics Normalization Utilities
 // ============================================================================
@@ -30,25 +35,34 @@ function normalizeSearchText(str) {
 }
 
 function levenshteinDistance(a, b) {
+  if (a === b) return 0;
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
-  const matrix = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (a.charAt(i - 1) === b.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1,
-        );
-      }
-    }
+
+  let prev = new Array(b.length + 1);
+  let curr = new Array(b.length + 1);
+
+  for (let j = 0; j <= b.length; j++) {
+    prev[j] = j;
   }
-  return matrix[b.length][a.length];
+
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    const aChar = a.charCodeAt(i - 1);
+    for (let j = 1; j <= b.length; j++) {
+      const cost = aChar === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(
+        prev[j] + 1,
+        curr[j - 1] + 1,
+        prev[j - 1] + cost,
+      );
+    }
+    const temp = prev;
+    prev = curr;
+    curr = temp;
+  }
+
+  return prev[b.length];
 }
 
 function fuzzySearchMatch(target, query) {
@@ -80,65 +94,56 @@ function fuzzySearchMatch(target, query) {
   });
 }
 
-function showConfirm(title, message) {
+function showDialog({ title, message, isConfirm = false }) {
   return new Promise((resolve) => {
-    document.getElementById("customConfirmTitle").innerText = title;
-    document.getElementById("customConfirmMessage").innerText = message;
+    const titleEl = document.getElementById("customConfirmTitle");
+    const msgEl = document.getElementById("customConfirmMessage");
     const overlay = document.getElementById("customConfirmOverlay");
     const okBtn = document.getElementById("customConfirmOkBtn");
     const cancelBtn = document.getElementById("customConfirmCancelBtn");
     const closeBtn = document.getElementById("customConfirmClose");
 
-    cancelBtn.style.display = "inline-block";
-    cancelBtn.innerText = t("btn_cancel");
-    okBtn.innerText = t("btn_ok");
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = message;
+
+    if (isConfirm) {
+      if (cancelBtn) {
+        cancelBtn.style.display = "inline-block";
+        cancelBtn.textContent = t("btn_cancel");
+      }
+    } else {
+      if (cancelBtn) cancelBtn.style.display = "none";
+    }
+    if (okBtn) okBtn.textContent = t("btn_ok");
 
     const cleanup = (result) => {
-      overlay.classList.remove("active");
-      okBtn.onclick = null;
-      cancelBtn.onclick = null;
-      closeBtn.onclick = null;
+      if (overlay) overlay.classList.remove("active");
+      if (okBtn) okBtn.onclick = null;
+      if (cancelBtn) cancelBtn.onclick = null;
+      if (closeBtn) closeBtn.onclick = null;
       resolve(result);
     };
 
-    okBtn.onclick = () => cleanup(true);
-    cancelBtn.onclick = () => cleanup(false);
-    closeBtn.onclick = () => cleanup(false);
+    if (okBtn) okBtn.onclick = () => cleanup(true);
+    if (cancelBtn) cancelBtn.onclick = () => cleanup(false);
+    if (closeBtn) closeBtn.onclick = () => cleanup(false);
 
-    overlay.classList.add("active");
+    if (overlay) overlay.classList.add("active");
   });
 }
 
+function showConfirm(title, message) {
+  return showDialog({ title, message, isConfirm: true });
+}
+
 function showAlert(title, message) {
-  return new Promise((resolve) => {
-    document.getElementById("customConfirmTitle").innerText = title;
-    document.getElementById("customConfirmMessage").innerText = message;
-    const overlay = document.getElementById("customConfirmOverlay");
-    const okBtn = document.getElementById("customConfirmOkBtn");
-    const cancelBtn = document.getElementById("customConfirmCancelBtn");
-    const closeBtn = document.getElementById("customConfirmClose");
-
-    cancelBtn.style.display = "none";
-    okBtn.innerText = t("btn_ok");
-
-    const cleanup = () => {
-      overlay.classList.remove("active");
-      okBtn.onclick = null;
-      closeBtn.onclick = null;
-      resolve();
-    };
-
-    okBtn.onclick = () => cleanup();
-    closeBtn.onclick = () => cleanup();
-
-    overlay.classList.add("active");
-  });
+  return showDialog({ title, message, isConfirm: false }).then(() => {});
 }
 
 function showPrompt(title, message, defaultValue = "") {
   return new Promise((resolve) => {
-    document.getElementById("customPromptTitle").innerText = title;
-    document.getElementById("customPromptMessage").innerText = message;
+    document.getElementById("customPromptTitle").textContent = title;
+    document.getElementById("customPromptMessage").textContent = message;
     const overlay = document.getElementById("customPromptOverlay");
     const input = document.getElementById("customPromptInput");
     const okBtn = document.getElementById("customPromptOkBtn");
@@ -146,8 +151,8 @@ function showPrompt(title, message, defaultValue = "") {
     const closeBtn = document.getElementById("customPromptClose");
 
     input.value = defaultValue;
-    okBtn.innerText = t("btn_ok");
-    cancelBtn.innerText = t("btn_cancel");
+    okBtn.textContent = t("btn_ok");
+    cancelBtn.textContent = t("btn_cancel");
 
     const cleanup = (val) => {
       overlay.classList.remove("active");
@@ -489,6 +494,11 @@ async function init() {
     viewSelect.value = String(currentStepMin);
   }
 
+  const prevDayBtn = document.getElementById("prevDayBtn");
+  if (prevDayBtn) prevDayBtn.onclick = () => navigateDate(-1);
+  const nextDayBtn = document.getElementById("nextDayBtn");
+  if (nextDayBtn) nextDayBtn.onclick = () => navigateDate(1);
+
   await refreshSourcesFromDb();
   favorites = await invoke("get_favorites");
 
@@ -508,7 +518,7 @@ async function init() {
   } else {
     currentSourceId = "";
     updateAllFavBtnState();
-    document.getElementById("status").innerText = t("status_ready");
+    document.getElementById("status").textContent = t("status_ready");
     renderEmptySourcesState();
   }
 }
@@ -551,13 +561,18 @@ function updateLayoutButtonUi() {
 function renderEmptySourcesState() {
   const activeBadge = document.getElementById("activeChannelBadge");
   if (activeBadge) activeBadge.style.display = "none";
-  document.getElementById("channelsContainer").innerHTML = `
+  const container = document.getElementById("channelsContainer");
+  container.innerHTML = `
                 <div class="empty-grid-notice">
                     <h2>${t("empty_sources_title")}</h2>
                     <p>${t("empty_sources_desc", { btn: t("settings_btn") })}</p>
-                    <button class="btn btn-green" onclick="document.getElementById('settingsBtn').click()" style="padding: 10px 20px; font-size: 14px;">${t("empty_sources_btn")}</button>
+                    <button id="emptySourcesOpenSettingsBtn" class="btn btn-green" style="padding: 10px 20px; font-size: 14px;">${t("empty_sources_btn")}</button>
                 </div>
             `;
+  const openBtn = document.getElementById("emptySourcesOpenSettingsBtn");
+  if (openBtn) {
+    openBtn.onclick = () => document.getElementById("settingsBtn")?.click();
+  }
   document.getElementById("timeColumn").innerHTML = "";
   document.getElementById("dateSelect").innerHTML = "";
 }
@@ -581,6 +596,38 @@ async function refreshSourcesFromDb() {
   loadChannelOrderSourcesDropdown();
 }
 
+async function saveSourceOrderFromDom() {
+  const sourcesList = document.getElementById("sourcesList");
+  const sourceSelect = document.getElementById("sourceSelect");
+  if (!sourcesList || !sourceSelect) return;
+
+  const items = Array.from(sourcesList.querySelectorAll(".source-item"));
+  const newOrder = items.map((el) => el.dataset.sourceId);
+  // Update the in-memory sources array to match new order
+  newOrder.forEach((id, idx) => {
+    const src = sources.find((s) => s.id === id);
+    if (src) src._sortPos = idx;
+  });
+  sources.sort((a, b) => (a._sortPos ?? 0) - (b._sortPos ?? 0));
+  // Reload dropdown option order
+  Array.from(sourceSelect.options).forEach((opt) => {
+    if (opt.value !== "__ALL_FAVORITES__") opt.remove();
+  });
+  sources.forEach((s) => {
+    const opt = document.createElement("option");
+    opt.value = s.id;
+    opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
+    sourceSelect.appendChild(opt);
+  });
+  sourceSelect.value = currentSourceId;
+  // Renumber order-index badges
+  items.forEach((el, i) => {
+    const badge = el.querySelector(".source-order-index");
+    if (badge) badge.textContent = i + 1;
+  });
+  await invoke("save_source_order", { order: newOrder });
+}
+
 function loadSourcesDropdown() {
   const sourceSelect = document.getElementById("sourceSelect");
   const sourcesList = document.getElementById("sourcesList");
@@ -593,34 +640,6 @@ function loadSourcesDropdown() {
     allFavOpt.textContent = t("all_favorites_source");
     sourceSelect.appendChild(allFavOpt);
   }
-
-  const saveSourceOrder = async () => {
-    const items = Array.from(sourcesList.querySelectorAll(".source-item"));
-    const newOrder = items.map((el) => el.dataset.sourceId);
-    // Update the in-memory sources array to match new order
-    newOrder.forEach((id, idx) => {
-      const src = sources.find((s) => s.id === id);
-      if (src) src._sortPos = idx;
-    });
-    sources.sort((a, b) => (a._sortPos ?? 0) - (b._sortPos ?? 0));
-    // Reload dropdown option order
-    Array.from(sourceSelect.options).forEach((opt) => {
-      if (opt.value !== "__ALL_FAVORITES__") opt.remove();
-    });
-    sources.forEach((s) => {
-      const opt = document.createElement("option");
-      opt.value = s.id;
-      opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
-      sourceSelect.appendChild(opt);
-    });
-    sourceSelect.value = currentSourceId;
-    // Renumber order-index badges
-    items.forEach((el, i) => {
-      const badge = el.querySelector(".source-order-index");
-      if (badge) badge.textContent = i + 1;
-    });
-    await invoke("save_source_order", { order: newOrder });
-  };
 
   sources.forEach((s, idx) => {
     const opt = document.createElement("option");
@@ -665,9 +684,9 @@ function loadSourcesDropdown() {
                                 <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
                             </div>
                             <div class="source-actions">
-                                <button class="btn btn-green" onclick="downloadSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
-                                <button class="btn btn-blue" onclick="editSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_edit")}</button>
-                                <button class="btn btn-red" onclick="deleteSource('${s.id}')" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_delete")}</button>
+                                <button class="btn btn-green btn-source-update" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
+                                <button class="btn btn-blue btn-source-edit" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_edit")}</button>
+                                <button class="btn btn-red btn-source-delete" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${t("btn_delete")}</button>
                             </div>
                         </div>
                     </div>
@@ -680,12 +699,21 @@ function loadSourcesDropdown() {
                     </div>
                 `;
 
+    const updateBtn = item.querySelector(".btn-source-update");
+    if (updateBtn) updateBtn.onclick = () => downloadSource(s.id);
+
+    const editBtn = item.querySelector(".btn-source-edit");
+    if (editBtn) editBtn.onclick = () => editSource(s.id);
+
+    const deleteBtn = item.querySelector(".btn-source-delete");
+    if (deleteBtn) deleteBtn.onclick = () => deleteSource(s.id);
+
     // ▲ Up arrow
     item.querySelector(".btn-up").onclick = async () => {
       const prev = item.previousElementSibling;
       if (prev && prev.classList.contains("source-item")) {
         sourcesList.insertBefore(item, prev);
-        await saveSourceOrder();
+        await saveSourceOrderFromDom();
       }
     };
 
@@ -694,7 +722,7 @@ function loadSourcesDropdown() {
       const next = item.nextElementSibling;
       if (next && next.classList.contains("source-item")) {
         sourcesList.insertBefore(next, item);
-        await saveSourceOrder();
+        await saveSourceOrderFromDom();
       }
     };
 
@@ -733,7 +761,7 @@ function loadSourcesDropdown() {
           handle.releasePointerCapture(upEvent.pointerId);
         } catch (_) {}
         item.classList.remove("dragging");
-        await saveSourceOrder();
+        await saveSourceOrderFromDom();
       };
 
       document.addEventListener("pointermove", onPointerMove);
@@ -796,34 +824,13 @@ function loadSourcesDropdown() {
         return srcA.localeCompare(
           srcB,
           currentLang === "hungarian" ? "hu" : "en",
-          {
-            sensitivity: "base",
-            numeric: true,
-          },
+          LOCALE_COMPARE_OPTIONS,
         );
       });
-      items.forEach((el, i) => {
-        const badge = el.querySelector(".source-order-index");
-        if (badge) badge.textContent = i + 1;
+      items.forEach((el) => {
         sourcesList.appendChild(el);
       });
-      const newOrder = items.map((el) => el.dataset.sourceId);
-      newOrder.forEach((id, idx) => {
-        const src = sources.find((s) => s.id === id);
-        if (src) src._sortPos = idx;
-      });
-      sources.sort((a, b) => (a._sortPos ?? 0) - (b._sortPos ?? 0));
-      Array.from(sourceSelect.options).forEach((opt) => {
-        if (opt.value !== "__ALL_FAVORITES__") opt.remove();
-      });
-      sources.forEach((s) => {
-        const opt = document.createElement("option");
-        opt.value = s.id;
-        opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
-        sourceSelect.appendChild(opt);
-      });
-      sourceSelect.value = currentSourceId;
-      await invoke("save_source_order", { order: newOrder });
+      await saveSourceOrderFromDom();
     };
   }
 }
@@ -977,10 +984,7 @@ function applyActiveSortToEpgChannels() {
       return nameA.localeCompare(
         nameB,
         currentLang === "hungarian" ? "hu" : "en",
-        {
-          sensitivity: "base",
-          numeric: true,
-        },
+        LOCALE_COMPARE_OPTIONS,
       );
     });
   } else if (mode === "source_az" && currentSourceId === "__ALL_FAVORITES__") {
@@ -990,10 +994,7 @@ function applyActiveSortToEpgChannels() {
       const srcCmp = srcA.localeCompare(
         srcB,
         currentLang === "hungarian" ? "hu" : "en",
-        {
-          sensitivity: "base",
-          numeric: true,
-        },
+        LOCALE_COMPARE_OPTIONS,
       );
       if (srcCmp !== 0) return srcCmp;
       const nameA = a.name || a.originalName || "";
@@ -1001,10 +1002,7 @@ function applyActiveSortToEpgChannels() {
       return nameA.localeCompare(
         nameB,
         currentLang === "hungarian" ? "hu" : "en",
-        {
-          sensitivity: "base",
-          numeric: true,
-        },
+        LOCALE_COMPARE_OPTIONS,
       );
     });
   } else if (mode.startsWith("preset_")) {
@@ -1035,13 +1033,13 @@ async function fetchEPG() {
   }
 
   updateAllFavBtnState();
-  document.getElementById("status").innerText = t("status_loading");
+  document.getElementById("status").textContent = t("status_loading");
   try {
     epgData = await invoke("get_epg_data", { sourceId: currentSourceId });
 
     if (currentSourceId === "__ALL_FAVORITES__") {
       if (!epgData.channels || epgData.channels.length === 0) {
-        document.getElementById("status").innerText = t("status_ready");
+        document.getElementById("status").textContent = t("status_ready");
         await updateHeaderSortDropdown();
         renderEmptyFavoritesState();
         return;
@@ -1071,7 +1069,7 @@ async function fetchEPG() {
       p.stop = parseEPGDate(p.stop, offset);
     });
 
-    document.getElementById("status").innerText = t("status_ready");
+    document.getElementById("status").textContent = t("status_ready");
     setupDateSelector();
     renderEPG();
     scrollToNow();
@@ -1110,7 +1108,7 @@ async function fetchEPG() {
     }
   } catch (err) {
     console.error(err);
-    document.getElementById("status").innerText = t("status_error");
+    document.getElementById("status").textContent = t("status_error");
   }
 }
 
@@ -1121,7 +1119,7 @@ window.downloadSource = async function (id) {
   downloadingSources.add(id);
   loadSourcesDropdown();
 
-  document.getElementById("status").innerText = t("status_downloading", {
+  document.getElementById("status").textContent = t("status_downloading", {
     name: src.name,
   });
   try {
@@ -1129,7 +1127,7 @@ window.downloadSource = async function (id) {
     downloadingSources.delete(id);
     await refreshSourcesFromDb();
 
-    document.getElementById("status").innerText = t("status_download_success");
+    document.getElementById("status").textContent = t("status_download_success");
     if (id === currentSourceId || currentSourceId === "__ALL_FAVORITES__") {
       await fetchEPG();
     }
@@ -1141,7 +1139,7 @@ window.downloadSource = async function (id) {
       t("alert_error_title"),
       t("status_download_error") + ": " + err,
     );
-    document.getElementById("status").innerText = t("status_download_error");
+    document.getElementById("status").textContent = t("status_download_error");
   }
 };
 
@@ -1154,41 +1152,48 @@ window.updateAllSources = async function () {
 
   isUpdatingAllSources = true;
   const btn = document.getElementById("updateAllSourcesBtn");
-  const originalText = btn ? btn.innerText : t("btn_update_all");
+  const originalText = btn ? btn.textContent : t("btn_update_all");
 
   loadSourcesDropdown();
 
   let updatedCount = 0;
   let hasErrors = false;
 
-  for (let i = 0; i < sources.length; i++) {
-    const s = sources[i];
-    const progressLabel = `${t("btn_update_all_progress")} (${i + 1}/${sources.length}): ${s.name}...`;
-    if (btn) btn.innerText = progressLabel;
-    document.getElementById("status").innerText = t("status_downloading", {
-      name: s.name,
-    });
+  try {
+    for (let i = 0; i < sources.length; i++) {
+      const s = sources[i];
+      const progressLabel = `${t("btn_update_all_progress")} (${i + 1}/${sources.length}): ${s.name}...`;
+      if (btn) btn.textContent = progressLabel;
+      const statusEl = document.getElementById("status");
+      if (statusEl) {
+        statusEl.textContent = t("status_downloading", {
+          name: s.name,
+        });
+      }
 
-    downloadingSources.add(s.id);
-    loadSourcesDropdown();
+      downloadingSources.add(s.id);
+      loadSourcesDropdown();
 
-    try {
-      await invoke("update_source_epg", { sourceId: s.id, url: s.url });
-      updatedCount++;
-    } catch (err) {
-      console.error(`Hiba a(z) ${s.name} forrás frissítésekor:`, err);
-      hasErrors = true;
-    } finally {
-      downloadingSources.delete(s.id);
+      try {
+        await invoke("update_source_epg", { sourceId: s.id, url: s.url });
+        updatedCount++;
+      } catch (err) {
+        console.error(`Hiba a(z) ${s.name} forrás frissítésekor:`, err);
+        hasErrors = true;
+      } finally {
+        downloadingSources.delete(s.id);
+      }
     }
+  } finally {
+    isUpdatingAllSources = false;
   }
 
-  isUpdatingAllSources = false;
   await refreshSourcesFromDb();
 
-  if (btn) btn.innerText = originalText;
+  if (btn) btn.textContent = originalText;
+  const statusEl = document.getElementById("status");
   if (hasErrors) {
-    document.getElementById("status").innerText = t("status_download_error");
+    if (statusEl) statusEl.textContent = t("status_download_error");
     await showAlert(
       t("alert_error_title"),
       t("status_update_all_done_errors", {
@@ -1197,7 +1202,7 @@ window.updateAllSources = async function () {
       }),
     );
   } else {
-    document.getElementById("status").innerText = t("status_download_success");
+    if (statusEl) statusEl.textContent = t("status_download_success");
   }
 
   if (currentSourceId) {
@@ -1222,7 +1227,7 @@ window.editSource = function (id) {
     : src.countryCode || "HU";
   document.getElementById("sourceCountrySelect").value = normalizedCountry;
   document.getElementById("sourceOffsetInput").value = src.timeOffset || 0;
-  document.getElementById("saveSourceBtn").innerText = t(
+  document.getElementById("saveSourceBtn").textContent = t(
     "btn_save_source_edit",
   );
 };
@@ -1315,7 +1320,7 @@ document.getElementById("saveSourceBtn").onclick = async () => {
   document.getElementById("sourceUrlInput").value = "";
   document.getElementById("sourceCountrySelect").value = "HU";
   document.getElementById("sourceOffsetInput").value = 0;
-  document.getElementById("saveSourceBtn").innerText = t("btn_save_source");
+  document.getElementById("saveSourceBtn").textContent = t("btn_save_source");
 
   if (!currentSourceId || editId === currentSourceId) {
     currentSourceId = sourceObj.id;
@@ -1324,10 +1329,32 @@ document.getElementById("saveSourceBtn").onclick = async () => {
   }
 };
 
-function setupDateSelector() {
+function updateDateNavBtns() {
   const dateSelect = document.getElementById("dateSelect");
   const prevBtn = document.getElementById("prevDayBtn");
   const nextBtn = document.getElementById("nextDayBtn");
+  if (!dateSelect) return;
+  const count = dateSelect.options.length;
+  const idx = dateSelect.selectedIndex;
+  if (prevBtn) prevBtn.disabled = idx <= 0;
+  if (nextBtn) nextBtn.disabled = idx < 0 || idx >= count - 1;
+}
+
+function navigateDate(delta) {
+  const dateSelect = document.getElementById("dateSelect");
+  if (!dateSelect || dateSelect.options.length === 0) return;
+  const newIdx = dateSelect.selectedIndex + delta;
+  if (newIdx >= 0 && newIdx < dateSelect.options.length) {
+    dateSelect.selectedIndex = newIdx;
+    selectedDateStr = dateSelect.value;
+    updateDateNavBtns();
+    renderEPG();
+  }
+}
+
+function setupDateSelector() {
+  const dateSelect = document.getElementById("dateSelect");
+  if (!dateSelect) return;
   const dates = new Set();
 
   epgData.programmes.forEach((p) => {
@@ -1358,43 +1385,13 @@ function setupDateSelector() {
   }
   dateSelect.value = selectedDateStr;
 
-  function updateNavBtns() {
-    const idx = sortedDates.indexOf(selectedDateStr);
-    if (prevBtn) prevBtn.disabled = idx <= 0;
-    if (nextBtn) nextBtn.disabled = idx < 0 || idx >= sortedDates.length - 1;
-  }
-
-  updateNavBtns();
+  updateDateNavBtns();
 
   dateSelect.onchange = (e) => {
     selectedDateStr = e.target.value;
-    updateNavBtns();
+    updateDateNavBtns();
     renderEPG();
   };
-
-  if (prevBtn) {
-    prevBtn.onclick = () => {
-      const idx = sortedDates.indexOf(selectedDateStr);
-      if (idx > 0) {
-        selectedDateStr = sortedDates[idx - 1];
-        dateSelect.value = selectedDateStr;
-        updateNavBtns();
-        renderEPG();
-      }
-    };
-  }
-
-  if (nextBtn) {
-    nextBtn.onclick = () => {
-      const idx = sortedDates.indexOf(selectedDateStr);
-      if (idx >= 0 && idx < sortedDates.length - 1) {
-        selectedDateStr = sortedDates[idx + 1];
-        dateSelect.value = selectedDateStr;
-        updateNavBtns();
-        renderEPG();
-      }
-    };
-  }
 }
 
 function setupMainHeaderPointerDrag(headerItem, columnWrapper, channelId) {
@@ -1817,13 +1814,13 @@ function renderEPG() {
     const channel = epgData.channels.find(
       (c) => c.id === activeSingleChannelId,
     );
-    if (!channel) {
-      activeSingleChannelId = null;
-      renderEPG();
+    if (channel) {
+      renderSingleChannelMultiDay(channel, filterText, isHorizontal, minuteScale);
       return;
     }
-    renderSingleChannelMultiDay(channel, filterText, isHorizontal, minuteScale);
-    return;
+    activeSingleChannelId = null;
+    const activeBadge = document.getElementById("activeChannelBadge");
+    if (activeBadge) activeBadge.style.display = "none";
   }
 
   const dayStart = new Date(`${selectedDateStr}T00:00:00`);
@@ -2070,7 +2067,7 @@ function renderEPG() {
     channelsContainer.appendChild(wrapper);
   });
 
-  renderNowLine(dayStart);
+  renderNowLine();
 
   if (firstMatchEl) {
     const viewport = document.getElementById("epgViewport");
@@ -2696,9 +2693,9 @@ async function openModal(title, time, desc, channel) {
   const fetchIndex = currentModalFetchIndex;
 
   // Set basic EPG fields immediately
-  document.getElementById("modalTitle").innerText = title;
-  document.getElementById("modalTime").innerText = time;
-  document.getElementById("modalDesc").innerText = desc || t("modal_no_desc");
+  document.getElementById("modalTitle").textContent = title;
+  document.getElementById("modalTime").textContent = time;
+  document.getElementById("modalDesc").textContent = desc || t("modal_no_desc");
   updateModalFavStar();
 
   // Close fix overlay and reset TMDB UI
@@ -2831,7 +2828,7 @@ async function clearTmdbCache() {
   }
 }
 
-function renderNowLine(dayStart) {
+function renderNowLine() {
   const oldLines = document.querySelectorAll(".now-line, .now-line-vertical");
   oldLines.forEach((l) => l.remove());
 
@@ -3541,7 +3538,7 @@ function setupLogoDeduplicationHandlers() {
   dedupBtn.onclick = async () => {
     const confirmed = await showConfirm(
       t("btn_deduplicate_logos"),
-      "Biztosan összevonja a duplikált logókat és felszámolja a felesleges hivatkozásokat?",
+      t("logo_dedup_confirm"),
     );
     if (!confirmed) return;
 
@@ -3549,7 +3546,7 @@ function setupLogoDeduplicationHandlers() {
     findBtn.disabled = true;
     setExportImportStatus(
       "logoDedupStatus",
-      "Optimalizálás folyamatban...",
+      t("logo_dedup_optimizing"),
       "loading",
     );
 
@@ -3686,7 +3683,7 @@ if (presetSelectEl) {
 
     items.forEach((item, idx) => {
       const idxEl = item.querySelector(".order-index");
-      if (idxEl) idxEl.innerText = idx + 1;
+      if (idxEl) idxEl.textContent = idx + 1;
       container.appendChild(item);
     });
 
@@ -3841,16 +3838,13 @@ if (sortAzBtn) {
       return nameA.localeCompare(
         nameB,
         currentLang === "hungarian" ? "hu" : "en",
-        {
-          sensitivity: "base",
-          numeric: true,
-        },
+        LOCALE_COMPARE_OPTIONS,
       );
     });
 
     items.forEach((item, idx) => {
       const idxEl = item.querySelector(".order-index");
-      if (idxEl) idxEl.innerText = idx + 1;
+      if (idxEl) idxEl.textContent = idx + 1;
       container.appendChild(item);
     });
 
@@ -3895,10 +3889,7 @@ if (sortSourceAzBtn) {
       const srcCmp = srcA.localeCompare(
         srcB,
         currentLang === "hungarian" ? "hu" : "en",
-        {
-          sensitivity: "base",
-          numeric: true,
-        },
+        LOCALE_COMPARE_OPTIONS,
       );
       if (srcCmp !== 0) return srcCmp;
 
@@ -3907,16 +3898,13 @@ if (sortSourceAzBtn) {
       return nameA.localeCompare(
         nameB,
         currentLang === "hungarian" ? "hu" : "en",
-        {
-          sensitivity: "base",
-          numeric: true,
-        },
+        LOCALE_COMPARE_OPTIONS,
       );
     });
 
     items.forEach((item, idx) => {
       const idxEl = item.querySelector(".order-index");
-      if (idxEl) idxEl.innerText = idx + 1;
+      if (idxEl) idxEl.textContent = idx + 1;
       container.appendChild(item);
     });
 
@@ -4029,7 +4017,7 @@ if (channelSearchInput) {
 async function renderChannelOrderList() {
   const select = document.getElementById("channelOrderSourceSelect");
   const targetSourceId =
-    select.value ||
+    select?.value ||
     (currentSourceId && currentSourceId !== "__ALL_FAVORITES__"
       ? currentSourceId
       : sources.length > 0
@@ -4037,28 +4025,39 @@ async function renderChannelOrderList() {
         : "");
   const container = document.getElementById("channelOrderList");
   const contentArea = document.querySelector(".settings-content-area");
-  const savedContainerScroll = container ? container.scrollTop : 0;
-  const savedContentAreaScroll = contentArea ? contentArea.scrollTop : 0;
-  container.innerHTML = "";
+  if (!container) return;
 
   if (!targetSourceId) {
-    container.innerHTML = `<p style="color:#8e94a8; font-size:13px;">Nincsenek elérhető források.</p>`;
+    container.innerHTML = `<p style="color:#8e94a8; font-size:13px;">${t("no_sources_available")}</p>`;
     return;
   }
 
   let sourceChannels = [];
-  try {
-    const res = await invoke("get_epg_data", {
-      sourceId: targetSourceId,
-    });
-    sourceChannels = res.channels || [];
-  } catch (err) {
-    console.error("Failed to load channels for order list:", err);
-    sourceChannels = [];
+  if (
+    targetSourceId === currentSourceId &&
+    epgData &&
+    epgData.channels &&
+    epgData.channels.length > 0
+  ) {
+    sourceChannels = epgData.rawChannels || epgData.channels;
+  } else {
+    try {
+      const res = await invoke("get_epg_data", {
+        sourceId: targetSourceId,
+      });
+      sourceChannels = res.channels || [];
+    } catch (err) {
+      console.error("Failed to load channels for order list:", err);
+      sourceChannels = [];
+    }
   }
 
+  const savedContainerScroll = container.scrollTop;
+  const savedContentAreaScroll = contentArea ? contentArea.scrollTop : 0;
+  container.innerHTML = "";
+
   if (sourceChannels.length === 0) {
-    container.innerHTML = `<p style="color:#8e94a8; font-size:13px;">Nincsenek csatornák ebben a forrásban.</p>`;
+    container.innerHTML = `<p style="color:#8e94a8; font-size:13px;">${t("no_channels_in_source")}</p>`;
     return;
   }
 
@@ -4077,7 +4076,7 @@ async function renderChannelOrderList() {
   });
 
   if (filteredChannels.length === 0) {
-    container.innerHTML = `<p style="color:#8e94a8; font-size:13px; padding:10px 0;">Nincs a szűrésnek megfelelő csatorna.</p>`;
+    container.innerHTML = `<p style="color:#8e94a8; font-size:13px; padding:10px 0;">${t("no_channels_match_filter")}</p>`;
     return;
   }
 
@@ -4089,7 +4088,7 @@ async function renderChannelOrderList() {
     if (channelFilterMode === "all" && !channelSearchQuery) {
       newOrder = reorderedItems.map((el, i) => {
         const idxEl = el.querySelector(".order-index");
-        if (idxEl) idxEl.innerText = i + 1;
+        if (idxEl) idxEl.textContent = i + 1;
         return el.dataset.channelId;
       });
     } else {

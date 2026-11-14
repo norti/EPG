@@ -19,7 +19,12 @@ const EMERGENCY_FALLBACK = {
   months: [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
-  ]
+  ],
+  logo_dedup_confirm: "Are you sure you want to merge duplicate logos and eliminate redundant links?",
+  logo_dedup_optimizing: "Optimization in progress...",
+  no_sources_available: "No sources available.",
+  no_channels_in_source: "No channels found in this source.",
+  no_channels_match_filter: "No channels match the filter."
 };
 
 function getTauriInvoke() {
@@ -127,7 +132,7 @@ function applyTranslations() {
 
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
-    el.innerText = t(key);
+    el.textContent = t(key);
   });
 
   document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
