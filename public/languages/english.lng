@@ -92,6 +92,7 @@
   "confirm_delete_source": "Are you sure you want to delete this source?",
   "confirm_clear_db_title": "Clear Database",
   "confirm_clear_db": "Are you sure you want to clear the entire EPG database? All downloaded programmes will be lost.",
+  "alert_info_title": "Information",
   "alert_warning_title": "Warning",
   "alert_success_title": "Success",
   "alert_error_title": "Error occurred",

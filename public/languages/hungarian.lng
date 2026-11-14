@@ -92,6 +92,7 @@
   "confirm_delete_source": "Biztosan törölni szeretné ezt a forrást?",
   "confirm_clear_db_title": "Adatbázis törlése",
   "confirm_clear_db": "Biztosan törölni szeretné a teljes EPG adatbázist? Minden letöltött műsor elveszik.",
+  "alert_info_title": "Információ",
   "alert_warning_title": "Figyelmeztetés",
   "alert_success_title": "Sikeres művelet",
   "alert_error_title": "Hiba történt",
