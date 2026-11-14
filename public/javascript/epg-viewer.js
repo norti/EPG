@@ -2986,6 +2986,7 @@ function switchSettingsTab(tabName) {
     loadTmdbSettings();
   } else if (tabName === "export") {
     document.getElementById("tabPaneExport").classList.add("active");
+    updateCacheSectionStats();
   }
 }
 
@@ -4837,6 +4838,162 @@ document.getElementById("importChannelDataInput").onchange = async (e) => {
     );
   }
   e.target.value = "";
+};
+
+// ============================================================================
+// Cache Management (ZIP Export / Import, Clear Logos & Posters)
+// ============================================================================
+
+async function updateCacheSectionStats() {
+  const logosCountEl = document.getElementById("cacheStatLogosCount");
+  const logosSizeEl = document.getElementById("cacheStatLogosSize");
+  const postersCountEl = document.getElementById("cacheStatPostersCount");
+  const postersSizeEl = document.getElementById("cacheStatPostersSize");
+  const totalSizeEl = document.getElementById("cacheStatTotalSize");
+
+  if (!logosCountEl) return;
+
+  try {
+    const stats = await invoke("get_image_cache_stats");
+    logosCountEl.textContent = stats.logoCount;
+    logosSizeEl.textContent = `(${formatByteSize(stats.logoBytes)})`;
+    postersCountEl.textContent = stats.posterCount;
+    postersSizeEl.textContent = `(${formatByteSize(stats.posterBytes)})`;
+    totalSizeEl.textContent = formatByteSize(stats.totalBytes);
+  } catch (err) {
+    console.error("Hiba a gyorsítótár statisztikák lekérésekor:", err);
+  }
+}
+
+document.getElementById("exportCacheZipBtn").onclick = async () => {
+  try {
+    setExportImportStatus(
+      "cacheDataStatus",
+      t("status_exporting_cache"),
+      "loading",
+    );
+    const res = await invoke("export_cache_zip");
+    if (res.cancelled) {
+      document.getElementById("cacheDataStatus").style.display = "none";
+      return;
+    }
+
+    const sizeStr = formatByteSize(res.fileSize);
+    const successMsg = `${t("alert_cache_export_success")} (${res.totalFiles} db kép, ${sizeStr})\n${res.filePath}`;
+
+    setExportImportStatus(
+      "cacheDataStatus",
+      t("alert_cache_export_success"),
+      "success",
+    );
+    await showAlert(t("alert_success_title"), successMsg);
+  } catch (err) {
+    setExportImportStatus(
+      "cacheDataStatus",
+      t("alert_cache_export_error"),
+      "error",
+    );
+    await showAlert(
+      t("alert_error_title"),
+      t("alert_cache_export_error") + ": " + err,
+    );
+  }
+};
+
+document.getElementById("importCacheZipBtn").onclick = async () => {
+  try {
+    setExportImportStatus(
+      "cacheDataStatus",
+      t("status_importing_cache"),
+      "loading",
+    );
+    const res = await invoke("import_cache_zip");
+    if (res.cancelled) {
+      document.getElementById("cacheDataStatus").style.display = "none";
+      return;
+    }
+
+    const msg = t("alert_cache_import_success")
+      .replace("{logos}", res.importedLogos)
+      .replace("{posters}", res.importedPosters);
+
+    setExportImportStatus("cacheDataStatus", msg, "success");
+    await showAlert(t("alert_success_title"), msg);
+
+    await updateCacheSectionStats();
+    if (res.importedLogos > 0) {
+      await fetchEPG();
+    }
+  } catch (err) {
+    setExportImportStatus(
+      "cacheDataStatus",
+      t("alert_cache_import_error"),
+      "error",
+    );
+    await showAlert(
+      t("alert_error_title"),
+      t("alert_cache_import_error") + ": " + err,
+    );
+  }
+};
+
+document.getElementById("clearLogoCacheBtn").onclick = async () => {
+  const confirmed = await showConfirm(
+    t("btn_clear_logo_cache"),
+    t("confirm_clear_logo_cache"),
+  );
+  if (!confirmed) return;
+
+  try {
+    setExportImportStatus("cacheDataStatus", "Törlés folyamatban...", "loading");
+    await invoke("clear_logo_cache");
+    setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
+    await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
+    await updateCacheSectionStats();
+    await fetchEPG();
+  } catch (err) {
+    setExportImportStatus("cacheDataStatus", String(err), "error");
+    await showAlert(t("alert_error_title"), String(err));
+  }
+};
+
+document.getElementById("clearPosterCacheBtn").onclick = async () => {
+  const confirmed = await showConfirm(
+    t("btn_clear_poster_cache"),
+    t("confirm_clear_poster_cache"),
+  );
+  if (!confirmed) return;
+
+  try {
+    setExportImportStatus("cacheDataStatus", "Törlés folyamatban...", "loading");
+    await invoke("clear_poster_cache");
+    setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
+    await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
+    await updateCacheSectionStats();
+  } catch (err) {
+    setExportImportStatus("cacheDataStatus", String(err), "error");
+    await showAlert(t("alert_error_title"), String(err));
+  }
+};
+
+document.getElementById("clearAllCacheBtn").onclick = async () => {
+  const confirmed = await showConfirm(
+    t("btn_clear_all_cache"),
+    t("confirm_clear_all_cache"),
+  );
+  if (!confirmed) return;
+
+  try {
+    setExportImportStatus("cacheDataStatus", "Törlés folyamatban...", "loading");
+    await invoke("clear_all_image_cache");
+    setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
+    await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
+    await updateCacheSectionStats();
+    await fetchEPG();
+  } catch (err) {
+    setExportImportStatus("cacheDataStatus", String(err), "error");
+    await showAlert(t("alert_error_title"), String(err));
+  }
 };
 
 document.getElementById("favListBtn").onclick = () => {
