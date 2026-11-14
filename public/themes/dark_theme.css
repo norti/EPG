@@ -3244,6 +3244,122 @@ input[type="text"] {
   color: #3498db;
 }
 
+/* Duplikált logó gyorsítótár kezelés */
+.logos-dedup-card {
+  background: var(--bg-modal-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 20px;
+}
+
+.logos-dedup-header h4 {
+  margin: 0 0 6px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.logos-dedup-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 14px 0;
+  line-height: 1.4;
+}
+
+.logos-dedup-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.logo-dedup-results {
+  background: var(--bg-modal-card-sub);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.logo-dedup-summary {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.logo-dedup-list {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.logo-dedup-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.logo-dedup-thumb {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #141721;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.logo-dedup-thumb img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.logo-dedup-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.logo-dedup-channels {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.logo-dedup-urls {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  word-break: break-all;
+}
+
+.logo-dedup-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: rgba(52, 152, 219, 0.2);
+  color: #3498db;
+  border-radius: 4px;
+  margin-left: 6px;
+  font-weight: normal;
+}
+
 /* Logo Search Modal (Manual Search) */
 .logo-search-modal-content {
   width: 720px;

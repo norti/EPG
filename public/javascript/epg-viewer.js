@@ -16,6 +16,70 @@ let settings = {};
 const downloadingSources = new Set();
 let isUpdatingAllSources = false;
 
+// ============================================================================
+// Fuzzy Search & Diacritics Normalization Utilities
+// ============================================================================
+
+function normalizeSearchText(str) {
+  if (!str) return "";
+  return String(str)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function levenshteinDistance(a, b) {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (a.charAt(i - 1) === b.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1,
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+function fuzzySearchMatch(target, query) {
+  if (!query) return true;
+  if (!target) return false;
+
+  const nTarget = normalizeSearchText(target);
+  const nQuery = normalizeSearchText(query);
+
+  // 1. Direct or normalized substring match (handles case and accents, e.g. "hirado" -> "Híradó")
+  if (nTarget.includes(nQuery)) return true;
+
+  // 2. Token-level matching (typo tolerance)
+  const qTokens = nQuery.split(/\s+/).filter(Boolean);
+  if (qTokens.length === 0) return true;
+
+  const tTokens = nTarget.split(/[\s\-_:.,/()]+/).filter(Boolean);
+
+  return qTokens.every((qTok) => {
+    return tTokens.some((tTok) => {
+      if (tTok.includes(qTok) || qTok.includes(tTok)) return true;
+      if (qTok.length >= 4 && tTok.length >= 4) {
+        const dist = levenshteinDistance(qTok, tTok);
+        const maxAllowed = qTok.length >= 7 ? 2 : 1;
+        return dist <= maxAllowed;
+      }
+      return false;
+    });
+  });
+}
+
 function showConfirm(title, message) {
   return new Promise((resolve) => {
     document.getElementById("customConfirmTitle").innerText = title;
@@ -1012,17 +1076,33 @@ async function fetchEPG() {
     renderEPG();
     scrollToNow();
 
-    // Cache logos in the background for channels that have a URL but no cached data
-    epgData.channels.forEach((channel) => {
-      const logoUrl = channel.customIcon || channel.icon;
-      if (logoUrl && !channel.cachedIcon) {
-        invoke("cache_logo", { url: logoUrl })
-          .then((dataUri) => {
-            channel.cachedIcon = dataUri;
-          })
-          .catch(() => {});
-      }
+    // Cache logos in the background for channels that have a URL but no cached data (throttled queue)
+    const uncachedChannels = epgData.channels.filter((c) => {
+      const logoUrl = c.customIcon || c.icon;
+      return (
+        logoUrl &&
+        !c.cachedIcon &&
+        (logoUrl.startsWith("http://") || logoUrl.startsWith("https://"))
+      );
     });
+
+    if (uncachedChannels.length > 0) {
+      (async () => {
+        const batchSize = 3;
+        for (let i = 0; i < uncachedChannels.length; i += batchSize) {
+          const batch = uncachedChannels.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (channel) => {
+              const logoUrl = channel.customIcon || channel.icon;
+              try {
+                const dataUri = await invoke("cache_logo", { url: logoUrl });
+                channel.cachedIcon = dataUri;
+              } catch (_) {}
+            }),
+          );
+        }
+      })();
+    }
     if (
       document.getElementById("settingsOverlay").classList.contains("active")
     ) {
@@ -1529,13 +1609,9 @@ function renderSingleChannelMultiDay(
     );
 
     if (filterText) {
-      const chNameMatch = String(channel.name || "")
-        .toLowerCase()
-        .includes(filterText);
+      const chNameMatch = fuzzySearchMatch(channel.name, filterText);
       const progMatch = dayProgs.some((p) =>
-        String(p.title || "")
-          .toLowerCase()
-          .includes(filterText),
+        fuzzySearchMatch(p.title, filterText),
       );
       if (!chNameMatch && !progMatch) return;
     }
@@ -1585,7 +1661,7 @@ function renderSingleChannelMultiDay(
 
       const isFav = favorites.includes(prog.title);
       const isHighlight =
-        filterText && prog.title.toLowerCase().includes(filterText);
+        filterText && fuzzySearchMatch(prog.title, filterText);
       const isActual = prog.start <= now && prog.stop > now;
 
       const progEl = document.createElement("div");
@@ -1769,13 +1845,9 @@ function renderEPG() {
     if (channelProgs.length === 0) return;
 
     if (filterText) {
-      const chNameMatch = String(channel.name || "")
-        .toLowerCase()
-        .includes(filterText);
+      const chNameMatch = fuzzySearchMatch(channel.name, filterText);
       const progMatch = channelProgs.some((p) =>
-        String(p.title || "")
-          .toLowerCase()
-          .includes(filterText),
+        fuzzySearchMatch(p.title, filterText),
       );
       if (!chNameMatch && !progMatch) return;
     }
@@ -1954,7 +2026,7 @@ function renderEPG() {
 
       const isFav = favorites.includes(prog.title);
       const isHighlight =
-        filterText && prog.title.toLowerCase().includes(filterText);
+        filterText && fuzzySearchMatch(prog.title, filterText);
       const isActual = prog.start <= now && prog.stop > now;
 
       const progEl = document.createElement("div");
@@ -3324,7 +3396,141 @@ async function loadChannelLogosTab() {
     await updateStats();
   };
 
+  setupLogoDeduplicationHandlers();
   await updateStats();
+}
+
+function formatByteSize(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+}
+
+let isLogoDedupSetup = false;
+function setupLogoDeduplicationHandlers() {
+  const findBtn = document.getElementById("findDuplicateLogosBtn");
+  const dedupBtn = document.getElementById("deduplicateLogosBtn");
+  const statusEl = document.getElementById("logoDedupStatus");
+  const resultsEl = document.getElementById("logoDedupResults");
+  const summaryEl = document.getElementById("logoDedupSummary");
+  const listEl = document.getElementById("logoDedupList");
+
+  if (!findBtn || !dedupBtn || isLogoDedupSetup) return;
+  isLogoDedupSetup = true;
+
+  findBtn.onclick = async () => {
+    findBtn.disabled = true;
+    dedupBtn.style.display = "none";
+    resultsEl.style.display = "none";
+    setExportImportStatus(
+      "logoDedupStatus",
+      t("logo_dedup_searching"),
+      "loading",
+    );
+
+    try {
+      const report = await invoke("find_duplicate_logos");
+      if (!report.duplicateGroups || report.duplicateGroups.length === 0) {
+        setExportImportStatus(
+          "logoDedupStatus",
+          t("logo_dedup_no_duplicates"),
+          "success",
+        );
+        summaryEl.textContent = t("logo_dedup_no_duplicates");
+        listEl.innerHTML = "";
+        resultsEl.style.display = "block";
+      } else {
+        const foundMsg = t("logo_dedup_found")
+          .replace("{count}", report.redundantCount)
+          .replace("{groups}", report.duplicateGroups.length)
+          .replace("{size}", formatByteSize(report.potentialSavedBytes));
+
+        setExportImportStatus("logoDedupStatus", foundMsg, "success");
+        summaryEl.textContent = foundMsg;
+        dedupBtn.style.display = "inline-block";
+
+        listEl.innerHTML = "";
+        report.duplicateGroups.forEach((g) => {
+          const groupDiv = document.createElement("div");
+          groupDiv.className = "logo-dedup-group";
+
+          const channelsLabel =
+            g.channels && g.channels.length > 0 ? g.channels.join(", ") : "N/A";
+
+          groupDiv.innerHTML = `
+            <div class="logo-dedup-thumb">
+              <img src="${g.sampleData}" alt="" onerror="this.parentElement.innerHTML='ERR'" />
+            </div>
+            <div class="logo-dedup-details">
+              <div class="logo-dedup-channels">
+                ${escapeHtml(channelsLabel)}
+                <span class="logo-dedup-badge">${g.urls.length} URLs</span>
+                <span class="logo-dedup-badge">${formatByteSize(g.byteSize)}</span>
+              </div>
+              <div class="logo-dedup-urls">
+                ${g.urls.map((u) => `<span>🔗 ${escapeHtml(u)}</span>`).join("")}
+              </div>
+            </div>
+          `;
+          listEl.appendChild(groupDiv);
+        });
+        resultsEl.style.display = "block";
+      }
+    } catch (err) {
+      console.error(err);
+      setExportImportStatus(
+        "logoDedupStatus",
+        t("logo_dedup_error") + err,
+        "error",
+      );
+    } finally {
+      findBtn.disabled = false;
+    }
+  };
+
+  dedupBtn.onclick = async () => {
+    const confirmed = await showConfirm(
+      t("btn_deduplicate_logos"),
+      "Biztosan összevonja a duplikált logókat és felszámolja a felesleges hivatkozásokat?",
+    );
+    if (!confirmed) return;
+
+    dedupBtn.disabled = true;
+    findBtn.disabled = true;
+    setExportImportStatus(
+      "logoDedupStatus",
+      "Optimalizálás folyamatban...",
+      "loading",
+    );
+
+    try {
+      const res = await invoke("deduplicate_logos");
+      const successMsg = t("logo_dedup_success")
+        .replace("{removedUrls}", res.removedUrls)
+        .replace("{removedImages}", res.removedImages)
+        .replace("{freedSize}", formatByteSize(res.freedBytes));
+
+      setExportImportStatus("logoDedupStatus", successMsg, "success");
+      await showAlert(t("alert_success_title"), successMsg);
+      resultsEl.style.display = "none";
+      dedupBtn.style.display = "none";
+
+      await fetchEPG();
+      renderEPG();
+    } catch (err) {
+      console.error(err);
+      setExportImportStatus(
+        "logoDedupStatus",
+        t("logo_dedup_error") + err,
+        "error",
+      );
+      await showAlert(t("alert_error_title"), err);
+    } finally {
+      findBtn.disabled = false;
+      dedupBtn.disabled = false;
+    }
+  };
 }
 
 let currentSettingsPresets = [];
@@ -3812,9 +4018,7 @@ async function renderChannelOrderList() {
     if (channelFilterMode === "fav" && !ch.isFavorite) return false;
     if (channelFilterMode === "hidden" && !ch.isHidden) return false;
     if (channelSearchQuery) {
-      const nameMatch = String(ch.name || "")
-        .toLowerCase()
-        .includes(channelSearchQuery);
+      const nameMatch = fuzzySearchMatch(ch.name, channelSearchQuery);
       const idMatch = String(ch.id || "")
         .toLowerCase()
         .includes(channelSearchQuery);

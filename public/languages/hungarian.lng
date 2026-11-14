@@ -242,5 +242,14 @@
   "btn_restore_languages": "NYELVI FÁJLOK VISSZAÁLLÍTÁSA",
   "status_restoring_languages": "Nyelvi fájlok visszaállítása...",
   "status_languages_restored": "Nyelvi fájlok sikeresen visszaállítva!",
-  "status_languages_restore_error": "Hiba a nyelvi fájlok visszaállításakor!"
+  "status_languages_restore_error": "Hiba a nyelvi fájlok visszaállításakor!",
+  "logo_dedup_heading": "Duplikált logó gyorsítótár kezelése",
+  "logo_dedup_desc": "Megkeresi a gyorsítótárban (images.db) azokat az azonos tartalmú logókat, amelyeket több forrás vagy csatorna különböző URL alatt tárol, és megszünteti a felesleges redundanciát.",
+  "btn_find_duplicate_logos": "🔍 Duplikátumok keresése",
+  "btn_deduplicate_logos": "🧹 Duplikátumok megszüntetése",
+  "logo_dedup_searching": "Duplikátumok keresése folyamatban...",
+  "logo_dedup_no_duplicates": "Nem található duplikált logó a gyorsítótárban. Minden tárolt kép egyedi!",
+  "logo_dedup_found": "Talált duplikátumok: {count} redundáns URL {groups} egyedi képhez. Megtakarítható hely: {size}.",
+  "logo_dedup_success": "Sikeres optimalizálás! {removedUrls} felesleges hivatkozás és {removedImages} árva kép törölve. Felszabadított tárhely: {freedSize}.",
+  "logo_dedup_error": "Hiba a duplikátumok kezelése során: "
 }
