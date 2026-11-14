@@ -902,7 +902,84 @@
                 </div>
               </div>
 
-              <!-- Szekció 3: Adatbázis törlése (Danger Zone) -->
+              <!-- Szekció 3: Képi gyorsítótár (logók és poszterek) export/import és törlés -->
+              <div class="export-section-card">
+                <div
+                  class="export-section-title"
+                  data-i18n="cache_section_title"
+                >
+                  Képi gyorsítótár kezelése (logók és poszterek)
+                </div>
+                <div
+                  class="export-section-desc"
+                  data-i18n="cache_section_desc"
+                >
+                  A gyorsítótárban (images.db) tárolt csatorna logók és nagy felbontású poszterek exportálása elnevezett tömörített ZIP archívumba (külön logos/ és posters/ almappákkal), importálása vagy törlése.
+                </div>
+
+                <!-- Gyorsítótár statisztika sáv -->
+                <div class="cache-stats-row" id="cacheStatsRow">
+                  <div class="cache-stat-item">
+                    <span class="cache-stat-label" data-i18n="cache_stat_logos">Logók:</span>
+                    <span class="cache-stat-val" id="cacheStatLogosCount">-</span>
+                    <span class="cache-stat-size" id="cacheStatLogosSize">(-)</span>
+                  </div>
+                  <div class="cache-stat-item">
+                    <span class="cache-stat-label" data-i18n="cache_stat_posters">Poszterek:</span>
+                    <span class="cache-stat-val" id="cacheStatPostersCount">-</span>
+                    <span class="cache-stat-size" id="cacheStatPostersSize">(-)</span>
+                  </div>
+                  <div class="cache-stat-item">
+                    <span class="cache-stat-label" data-i18n="cache_stat_total">Összes méret:</span>
+                    <span class="cache-stat-val" id="cacheStatTotalSize">-</span>
+                  </div>
+                </div>
+
+                <div class="export-section-actions">
+                  <button
+                    class="btn btn-blue"
+                    id="exportCacheZipBtn"
+                    data-i18n="btn_export_cache_zip"
+                  >
+                    GYORSÍTÓTÁR EXPORTÁLÁSA (.ZIP)
+                  </button>
+                  <button
+                    class="btn btn-blue"
+                    id="importCacheZipBtn"
+                    data-i18n="btn_import_cache_zip"
+                  >
+                    GYORSÍTÓTÁR IMPORTÁLÁSA (.ZIP)
+                  </button>
+                  <button
+                    class="btn btn-red"
+                    id="clearLogoCacheBtn"
+                    data-i18n="btn_clear_logo_cache"
+                  >
+                    LOGÓK TÖRLÉSE
+                  </button>
+                  <button
+                    class="btn btn-red"
+                    id="clearPosterCacheBtn"
+                    data-i18n="btn_clear_poster_cache"
+                  >
+                    POSZTEREK TÖRLÉSE
+                  </button>
+                  <button
+                    class="btn btn-red"
+                    id="clearAllCacheBtn"
+                    data-i18n="btn_clear_all_cache"
+                  >
+                    ÖSSZES KÉP TÖRLÉSE
+                  </button>
+                  <span
+                    id="cacheDataStatus"
+                    class="export-import-status"
+                    style="display: none"
+                  ></span>
+                </div>
+              </div>
+
+              <!-- Szekció 4: Adatbázis törlése (Danger Zone) -->
               <div class="export-section-card--danger">
                 <div
                   class="export-section-title--danger"

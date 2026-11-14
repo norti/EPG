@@ -1160,6 +1160,563 @@ async fn deduplicate_logos(state: tauri::State<'_, AppState>) -> Result<Deduplic
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct CacheStats {
+    pub logo_count: usize,
+    pub logo_bytes: i64,
+    pub poster_count: usize,
+    pub poster_bytes: i64,
+    pub total_bytes: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheExportResult {
+    pub cancelled: bool,
+    pub file_path: Option<String>,
+    pub exported_logos: usize,
+    pub exported_posters: usize,
+    pub total_files: usize,
+    pub file_size: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheImportResult {
+    pub cancelled: bool,
+    pub file_path: Option<String>,
+    pub imported_logos: usize,
+    pub imported_posters: usize,
+    pub total_imported: usize,
+    pub skipped_existing: usize,
+    pub restored_channels: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct CacheZipMetadataItem {
+    zip_path: String,
+    url: String,
+    image_type: String,
+    sha256: String,
+    mime_type: String,
+    original_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct CacheZipMetadata {
+    version: u32,
+    exported_at: String,
+    items: Vec<CacheZipMetadataItem>,
+}
+
+fn decode_data_uri_bytes(data: &str) -> Option<(String, Vec<u8>)> {
+    if let Some(rest) = data.strip_prefix("data:") {
+        if let Some((mime_part, b64_part)) = rest.split_once(";base64,") {
+            use base64::Engine;
+            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64_part) {
+                return Some((mime_part.to_string(), bytes));
+            }
+        }
+    }
+    None
+}
+
+fn sanitize_filename(name: &str) -> String {
+    let mut clean = String::new();
+    for c in name.chars() {
+        match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => clean.push('_'),
+            _ if c.is_control() => clean.push('_'),
+            _ => clean.push(c),
+        }
+    }
+    let trimmed = clean.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() {
+        "file".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn mime_to_extension(mime: &str) -> &'static str {
+    if mime.contains("svg") {
+        "svg"
+    } else if mime.contains("jpeg") || mime.contains("jpg") {
+        "jpg"
+    } else if mime.contains("webp") {
+        "webp"
+    } else if mime.contains("gif") {
+        "gif"
+    } else {
+        "png"
+    }
+}
+
+#[tauri::command]
+async fn get_image_cache_stats(state: tauri::State<'_, AppState>) -> Result<CacheStats, String> {
+    let conn = state.db.lock().await;
+
+    let (logo_count, logo_bytes): (usize, i64) = conn.query_row(
+        "SELECT COUNT(DISTINCT iu.url), COALESCE(SUM(img.byte_size), 0)
+         FROM images_db.image_urls iu
+         JOIN images_db.images img ON img.id = iu.image_id
+         WHERE iu.image_type = 'logo' AND iu.url NOT LIKE '%image.tmdb.org%'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).unwrap_or((0, 0));
+
+    let (poster_count, poster_bytes): (usize, i64) = conn.query_row(
+        "SELECT COUNT(DISTINCT iu.url), COALESCE(SUM(img.byte_size), 0)
+         FROM images_db.image_urls iu
+         JOIN images_db.images img ON img.id = iu.image_id
+         WHERE iu.image_type = 'poster' OR iu.url LIKE '%image.tmdb.org%'",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).unwrap_or((0, 0));
+
+    let total_bytes: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(byte_size), 0) FROM images_db.images",
+        [],
+        |r| r.get(0),
+    ).unwrap_or(0);
+
+    Ok(CacheStats {
+        logo_count,
+        logo_bytes,
+        poster_count,
+        poster_bytes,
+        total_bytes,
+    })
+}
+
+#[tauri::command]
+async fn clear_logo_cache(state: tauri::State<'_, AppState>) -> Result<usize, String> {
+    let conn = state.db.lock().await;
+    let count = conn.execute(
+        "DELETE FROM images_db.image_urls WHERE image_type = 'logo' AND url NOT LIKE '%image.tmdb.org%'",
+        [],
+    ).map_err(|e| e.to_string())?;
+
+    let _ = conn.execute(
+        "DELETE FROM images_db.images WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
+        [],
+    );
+    let _ = conn.execute("VACUUM images_db", []);
+    Ok(count)
+}
+
+#[tauri::command]
+async fn clear_poster_cache(state: tauri::State<'_, AppState>) -> Result<usize, String> {
+    let conn = state.db.lock().await;
+    let count = conn.execute(
+        "DELETE FROM images_db.image_urls WHERE image_type = 'poster' OR url LIKE '%image.tmdb.org%'",
+        [],
+    ).map_err(|e| e.to_string())?;
+
+    let _ = conn.execute(
+        "DELETE FROM images_db.images WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
+        [],
+    );
+    let _ = conn.execute("VACUUM images_db", []);
+    Ok(count)
+}
+
+#[tauri::command]
+async fn clear_all_image_cache(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    let _ = conn.execute("DELETE FROM images_db.image_urls", []);
+    let _ = conn.execute("DELETE FROM images_db.images", []);
+    let _ = conn.execute("VACUUM images_db", []);
+    Ok(())
+}
+
+#[tauri::command]
+async fn export_cache_zip(state: tauri::State<'_, AppState>) -> Result<CacheExportResult, String> {
+    use std::fs::File;
+    use std::io::{BufWriter, Write};
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
+    use std::collections::HashSet;
+
+    let date_str: String = {
+        let conn = state.db.lock().await;
+        conn.query_row("SELECT date('now', 'localtime')", [], |r| r.get(0)).unwrap_or_else(|_| "export".to_string())
+    };
+    let default_name = format!("epg-viewer-cache-{}.zip", date_str);
+
+    // 1. Natív Windows Save Dialog megnyitása
+    let file_handle = rfd::AsyncFileDialog::new()
+        .set_title("Gyorsítótár exportálása (.zip)")
+        .set_file_name(&default_name)
+        .add_filter("ZIP archívum (*.zip)", &["zip"])
+        .save_file()
+        .await;
+
+    let file_handle = match file_handle {
+        Some(h) => h,
+        None => {
+            return Ok(CacheExportResult {
+                cancelled: true,
+                file_path: None,
+                exported_logos: 0,
+                exported_posters: 0,
+                total_files: 0,
+                file_size: 0,
+            });
+        }
+    };
+
+    let target_path = file_handle.path().to_path_buf();
+    let target_path_str = target_path.to_string_lossy().to_string();
+
+    let dest_file = File::create(&target_path)
+        .map_err(|e| format!("Nem sikerült létrehozni a ZIP fájlt: {}", e))?;
+    let buf_writer = BufWriter::with_capacity(256 * 1024, dest_file);
+    let mut zip = ZipWriter::new(buf_writer);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    let mut metadata_items = Vec::new();
+    let mut used_logo_paths = HashSet::new();
+    let mut used_poster_paths = HashSet::new();
+    let mut exported_logos = 0;
+    let mut exported_posters = 0;
+
+    let conn = state.db.lock().await;
+
+    // 2. Logók közvetlen streamelése soronként (minimális RAM-használat, nincs OOM)
+    {
+        let mut stmt = conn.prepare(
+            "SELECT iu.url, img.sha256, img.mime_type, img.data,
+                    (SELECT COALESCE(NULLIF(cus.custom_name, ''), c.name)
+                     FROM channels c
+                     LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+                     WHERE COALESCE(NULLIF(cus.custom_icon, ''), c.icon) = iu.url
+                     LIMIT 1) AS ch_name
+             FROM images_db.image_urls iu
+             JOIN images_db.images img ON img.id = iu.image_id
+             WHERE iu.image_type = 'logo' AND iu.url NOT LIKE '%image.tmdb.org%'"
+        ).map_err(|e| e.to_string())?;
+
+        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let url: String = row.get(0).map_err(|e| e.to_string())?;
+            let sha256: String = row.get(1).map_err(|e| e.to_string())?;
+            let mime: String = row.get(2).map_err(|e| e.to_string())?;
+            let data_uri: String = row.get(3).map_err(|e| e.to_string())?;
+            let ch_name: Option<String> = row.get(4).unwrap_or(None);
+
+            if let Some((_, raw_bytes)) = decode_data_uri_bytes(&data_uri) {
+                let ext = mime_to_extension(&mime);
+                let base_name = if let Some(ref name) = ch_name {
+                    sanitize_filename(name)
+                } else {
+                    let url_name = url.rsplit('/').next().unwrap_or("logo");
+                    let clean_u = sanitize_filename(url_name.trim_end_matches(&format!(".{}", ext)));
+                    if clean_u.is_empty() { format!("logo_{}", &sha256[..8]) } else { clean_u }
+                };
+
+                let mut zip_path = format!("logos/{}.{}", base_name, ext);
+                let mut counter = 2;
+                while used_logo_paths.contains(&zip_path) {
+                    zip_path = format!("logos/{}_{}.{}", base_name, counter, ext);
+                    counter += 1;
+                }
+                used_logo_paths.insert(zip_path.clone());
+
+                let _ = zip.start_file(&zip_path, options);
+                let _ = zip.write_all(&raw_bytes);
+                exported_logos += 1;
+
+                metadata_items.push(CacheZipMetadataItem {
+                    zip_path,
+                    url,
+                    image_type: "logo".to_string(),
+                    sha256,
+                    mime_type: mime,
+                    original_name: ch_name,
+                });
+            }
+        }
+    }
+
+    // 3. Poszterek közvetlen streamelése soronként a ZIP-be
+    {
+        let mut stmt = conn.prepare(
+            "SELECT iu.url, img.sha256, img.mime_type, img.data,
+                    (SELECT COALESCE(NULLIF(tc.hu_title, ''), tc.title, tc.query_title)
+                     FROM tmdb_cache tc
+                     WHERE tc.poster_path IS NOT NULL AND iu.url LIKE '%' || tc.poster_path
+                     LIMIT 1) AS p_title,
+                    (SELECT substr(tc.release_date, 1, 4)
+                     FROM tmdb_cache tc
+                     WHERE tc.poster_path IS NOT NULL AND iu.url LIKE '%' || tc.poster_path
+                     LIMIT 1) AS p_year
+             FROM images_db.image_urls iu
+             JOIN images_db.images img ON img.id = iu.image_id
+             WHERE iu.image_type = 'poster' OR iu.url LIKE '%image.tmdb.org%'"
+        ).map_err(|e| e.to_string())?;
+
+        let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let url: String = row.get(0).map_err(|e| e.to_string())?;
+            let sha256: String = row.get(1).map_err(|e| e.to_string())?;
+            let mime: String = row.get(2).map_err(|e| e.to_string())?;
+            let data_uri: String = row.get(3).map_err(|e| e.to_string())?;
+            let p_title: Option<String> = row.get(4).unwrap_or(None);
+            let p_year: Option<String> = row.get(5).unwrap_or(None);
+
+            if let Some((_, raw_bytes)) = decode_data_uri_bytes(&data_uri) {
+                let ext = mime_to_extension(&mime);
+                let base_name = if let Some(ref title) = p_title {
+                    let clean_t = sanitize_filename(title);
+                    if let Some(ref yr) = p_year {
+                        format!("{} ({})", clean_t, yr)
+                    } else {
+                        clean_t
+                    }
+                } else {
+                    let url_name = url.rsplit('/').next().unwrap_or("poster");
+                    let clean_u = sanitize_filename(url_name.trim_end_matches(&format!(".{}", ext)));
+                    if clean_u.is_empty() { format!("poster_{}", &sha256[..8]) } else { clean_u }
+                };
+
+                let mut zip_path = format!("posters/{}.{}", base_name, ext);
+                let mut counter = 2;
+                while used_poster_paths.contains(&zip_path) {
+                    zip_path = format!("posters/{}_{}.{}", base_name, counter, ext);
+                    counter += 1;
+                }
+                used_poster_paths.insert(zip_path.clone());
+
+                let _ = zip.start_file(&zip_path, options);
+                let _ = zip.write_all(&raw_bytes);
+                exported_posters += 1;
+
+                metadata_items.push(CacheZipMetadataItem {
+                    zip_path,
+                    url,
+                    image_type: "poster".to_string(),
+                    sha256,
+                    mime_type: mime,
+                    original_name: p_title,
+                });
+            }
+        }
+    }
+
+    // 4. metadata.json kiírása a ZIP gyökerébe
+    let meta = CacheZipMetadata {
+        version: 1,
+        exported_at: date_str,
+        items: metadata_items,
+    };
+    if let Ok(meta_json) = serde_json::to_vec_pretty(&meta) {
+        let _ = zip.start_file("metadata.json", options);
+        let _ = zip.write_all(&meta_json);
+    }
+
+    zip.finish().map_err(|e| format!("ZIP lezárási hiba: {}", e))?;
+
+    let file_size = std::fs::metadata(&target_path).map(|m| m.len()).unwrap_or(0);
+
+    Ok(CacheExportResult {
+        cancelled: false,
+        file_path: Some(target_path_str),
+        exported_logos,
+        exported_posters,
+        total_files: exported_logos + exported_posters,
+        file_size,
+    })
+}
+
+#[tauri::command]
+async fn import_cache_zip(state: tauri::State<'_, AppState>) -> Result<CacheImportResult, String> {
+    use std::fs::File;
+    use std::io::Read;
+    use zip::ZipArchive;
+    use sha2::{Digest, Sha256};
+    use base64::Engine;
+
+    // 1. Natív Windows Open File Dialog megnyitása
+    let file_handle = rfd::AsyncFileDialog::new()
+        .set_title("Gyorsítótár importálása (.zip)")
+        .add_filter("ZIP archívum (*.zip)", &["zip"])
+        .pick_file()
+        .await;
+
+    let file_handle = match file_handle {
+        Some(h) => h,
+        None => {
+            return Ok(CacheImportResult {
+                cancelled: true,
+                file_path: None,
+                imported_logos: 0,
+                imported_posters: 0,
+                total_imported: 0,
+                skipped_existing: 0,
+                restored_channels: 0,
+            });
+        }
+    };
+
+    let source_path = file_handle.path().to_path_buf();
+    let source_path_str = source_path.to_string_lossy().to_string();
+
+    let zip_file = File::open(&source_path)
+        .map_err(|e| format!("Nem sikerült megnyitni a ZIP fájlt: {}", e))?;
+    let mut archive = ZipArchive::new(zip_file)
+        .map_err(|e| format!("Érvénytelen ZIP archívum: {}", e))?;
+
+    let mut metadata_map: std::collections::HashMap<String, CacheZipMetadataItem> = std::collections::HashMap::new();
+    if let Ok(mut meta_file) = archive.by_name("metadata.json") {
+        let mut meta_str = String::new();
+        if meta_file.read_to_string(&mut meta_str).is_ok() {
+            if let Ok(meta) = serde_json::from_str::<CacheZipMetadata>(&meta_str) {
+                for item in meta.items {
+                    metadata_map.insert(item.zip_path.clone(), item);
+                }
+            }
+        }
+    }
+
+    let mut imported_logos = 0;
+    let mut imported_posters = 0;
+    let mut skipped_existing = 0;
+    let mut restored_channels = 0;
+
+    let mut conn = state.db.lock().await;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let file_count = archive.len();
+    for i in 0..file_count {
+        let mut file = match archive.by_index(i) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+
+        let file_name = file.name().to_string();
+        if file.is_dir() || file_name == "metadata.json" {
+            continue;
+        }
+
+        let mut raw_bytes = Vec::new();
+        if file.read_to_end(&mut raw_bytes).is_err() || raw_bytes.is_empty() {
+            continue;
+        }
+
+        let is_logo = file_name.starts_with("logos/") || file_name.starts_with("logos\\");
+        let is_poster = file_name.starts_with("posters/") || file_name.starts_with("posters\\");
+
+        if !is_logo && !is_poster && !metadata_map.contains_key(&file_name) {
+            continue;
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(&raw_bytes);
+        let hash_hex = format!("{:x}", hasher.finalize());
+
+        let meta_item = metadata_map.get(&file_name);
+
+        let mime = if let Some(m) = meta_item {
+            m.mime_type.clone()
+        } else if raw_bytes.starts_with(b"<svg") || file_name.ends_with(".svg") {
+            "image/svg+xml".to_string()
+        } else if raw_bytes.starts_with(&[0xFF, 0xD8, 0xFF]) || file_name.ends_with(".jpg") || file_name.ends_with(".jpeg") {
+            "image/jpeg".to_string()
+        } else if file_name.ends_with(".webp") {
+            "image/webp".to_string()
+        } else {
+            "image/png".to_string()
+        };
+
+        let byte_size = raw_bytes.len() as i64;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&raw_bytes);
+        let data_uri = format!("data:{};base64,{}", mime, b64);
+
+        let img_type = if let Some(m) = meta_item {
+            m.image_type.clone()
+        } else if is_poster {
+            "poster".to_string()
+        } else {
+            "logo".to_string()
+        };
+
+        let existing_id: Option<i64> = tx.query_row(
+            "SELECT id FROM images_db.images WHERE sha256 = ?1",
+            params![hash_hex],
+            |r| r.get(0),
+        ).ok();
+
+        let image_id = match existing_id {
+            Some(id) => {
+                skipped_existing += 1;
+                id
+            }
+            None => {
+                let _ = tx.execute(
+                    "INSERT INTO images_db.images (sha256, mime_type, byte_size, data, created_at)
+                     VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                    params![hash_hex, mime, byte_size, data_uri],
+                );
+                tx.last_insert_rowid()
+            }
+        };
+
+        let url = if let Some(m) = meta_item {
+            m.url.clone()
+        } else {
+            let bare_name = file_name.rsplit('/').next().unwrap_or(&file_name);
+            format!("cache://{}/{}", img_type, bare_name)
+        };
+
+        let _ = tx.execute(
+            "INSERT INTO images_db.image_urls (url, image_id, image_type, created_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(url) DO UPDATE SET image_id = excluded.image_id",
+            params![url, image_id, img_type],
+        );
+
+        if img_type == "logo" {
+            imported_logos += 1;
+            let ch_name_opt = meta_item.and_then(|m| m.original_name.clone()).or_else(|| {
+                let fname = file_name.rsplit('/').next().unwrap_or(&file_name);
+                let without_ext = fname.rsplit_once('.').map(|(n, _)| n).unwrap_or(fname);
+                Some(without_ext.to_string())
+            });
+
+            if let Some(ch_name) = ch_name_opt {
+                let updated = tx.execute(
+                    "UPDATE channel_user_settings
+                     SET custom_icon = ?1
+                     WHERE (custom_icon IS NULL OR custom_icon = '')
+                       AND (source_id, channel_id) IN (
+                         SELECT c.source_id, c.id FROM channels c WHERE c.name = ?2 OR c.id = ?2
+                       )",
+                    params![url, ch_name],
+                ).unwrap_or(0);
+                restored_channels += updated;
+            }
+        } else {
+            imported_posters += 1;
+        }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(CacheImportResult {
+        cancelled: false,
+        file_path: Some(source_path_str),
+        imported_logos,
+        imported_posters,
+        total_imported: imported_logos + imported_posters,
+        skipped_existing,
+        restored_channels,
+    })
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 struct LogoSearchResult {
     url: String,
     thumb_url: String,
@@ -4068,6 +4625,12 @@ fn main() {
             get_cached_logo,
             find_duplicate_logos,
             deduplicate_logos,
+            get_image_cache_stats,
+            clear_logo_cache,
+            clear_poster_cache,
+            clear_all_image_cache,
+            export_cache_zip,
+            import_cache_zip,
             get_channel_logo_stats,
             get_missing_logo_channels,
             preload_logo_sources,
@@ -4476,6 +5039,52 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(&wal_path);
         let _ = std::fs::remove_file(&shm_path);
+    }
+
+    #[test]
+    fn test_zip_create_and_read() {
+        use std::io::{Cursor, Read, Write};
+        use zip::write::SimpleFileOptions;
+        use zip::{ZipArchive, ZipWriter};
+
+        let mut buffer = Cursor::new(Vec::new());
+        let mut zip = ZipWriter::new(&mut buffer);
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+        zip.start_file("logos/test.png", options).unwrap();
+        zip.write_all(b"PNGDATA").unwrap();
+        zip.finish().unwrap();
+
+        let zip_bytes = buffer.into_inner();
+        assert!(!zip_bytes.is_empty());
+
+        let reader = Cursor::new(zip_bytes);
+        let mut archive = ZipArchive::new(reader).unwrap();
+        assert_eq!(archive.len(), 1);
+        let mut file = archive.by_index(0).unwrap();
+        assert_eq!(file.name(), "logos/test.png");
+        let mut content = Vec::new();
+        file.read_to_end(&mut content).unwrap();
+        assert_eq!(content, b"PNGDATA");
+    }
+
+    #[test]
+    fn test_decode_data_uri_and_sanitize() {
+        use base64::Engine;
+        let original_bytes = b"TEST_IMAGE_BYTES";
+        let b64 = base64::engine::general_purpose::STANDARD.encode(original_bytes);
+        let data_uri = format!("data:image/png;base64,{}", b64);
+
+        let decoded = decode_data_uri_bytes(&data_uri);
+        assert!(decoded.is_some());
+        let (mime, bytes) = decoded.unwrap();
+        assert_eq!(mime, "image/png");
+        assert_eq!(bytes, original_bytes);
+
+        assert_eq!(sanitize_filename("M1 / HD: special*?"), "M1 _ HD_ special__");
+        assert_eq!(mime_to_extension("image/svg+xml"), "svg");
+        assert_eq!(mime_to_extension("image/jpeg"), "jpg");
+        assert_eq!(mime_to_extension("image/png"), "png");
     }
 }
 
