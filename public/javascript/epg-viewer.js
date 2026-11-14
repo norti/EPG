@@ -2135,6 +2135,7 @@ function copyText(text, badgeEl) {
 let currentModalFetchIndex = 0;
 let currentModalChannel = null;
 let currentModalPosterPath = "";
+let currentModalLargePosterSrc = "";
 let currentModalTmdbData = null;
 let fixSearchDebounce = null;
 let posterZoomDebounce = null;
@@ -2148,51 +2149,87 @@ async function preloadAndCacheLargePoster(posterPath) {
   if (!posterPath) return;
   const largeUrl = getLargePosterUrl(posterPath);
   try {
-    // Check if already in SQLite logo/image cache
     const cached = await invoke("get_cached_logo", { url: largeUrl });
-    if (!cached) {
-      // Background fetch and cache
-      invoke("cache_logo", { url: largeUrl }).catch(() => {});
+    if (cached) {
+      if (currentModalPosterPath === posterPath) {
+        currentModalLargePosterSrc = cached;
+      }
+    } else {
+      invoke("cache_logo", { url: largeUrl })
+        .then((data) => {
+          if (data && currentModalPosterPath === posterPath) {
+            currentModalLargePosterSrc = data;
+          }
+        })
+        .catch(() => {});
     }
   } catch (_) {}
 }
 
-async function showPosterZoom(e) {
+function showPosterZoom(e) {
   if (!currentModalPosterPath) return;
   const popup = document.getElementById("posterZoomPopup");
   const img = document.getElementById("posterZoomImg");
   const loader = document.getElementById("posterZoomLoader");
+  const modalPoster = document.getElementById("modalPoster");
   const largeUrl = getLargePosterUrl(currentModalPosterPath);
 
-  popup.style.display = "block";
   positionPosterZoom(e);
 
-  // Check if cached version exists
-  let srcToUse = largeUrl;
-  try {
-    const cached = await invoke("get_cached_logo", { url: largeUrl });
-    if (cached) {
-      srcToUse = cached;
-    } else {
-      // Background cache it for next time
-      invoke("cache_logo", { url: largeUrl }).catch(() => {});
-    }
-  } catch (_) {}
+  // Azonnali helyes előnézet: ha a nagy méret már a memóriában van, azt használjuk,
+  // egyébként a modálban már sikeresen betöltött w500-as posztert mutatjuk meg azonnal,
+  // így véletlenül sem jelenhet meg egy korábbi műsor képe!
+  const previewSrc =
+    currentModalLargePosterSrc ||
+    (modalPoster && modalPoster.src ? modalPoster.src : "") ||
+    `https://image.tmdb.org/t/p/w500${currentModalPosterPath}`;
 
-  if (img.src !== srcToUse) {
-    loader.style.display = "flex";
-    img.onload = () => {
+  if (img.dataset.forPosterPath !== currentModalPosterPath) {
+    img.dataset.forPosterPath = currentModalPosterPath;
+    img.src = previewSrc;
+    if (currentModalLargePosterSrc) {
       loader.style.display = "none";
-    };
-    img.onerror = () => {
-      loader.style.display = "none";
-    };
-    img.src = srcToUse;
+    } else {
+      loader.style.display = "flex";
+    }
+  }
+
+  // Ha a maximális méretű poszter még nincs a memóriában, lekérjük és zökkenőmentesen frissítjük
+  if (!currentModalLargePosterSrc) {
+    invoke("get_cached_logo", { url: largeUrl })
+      .then((cached) => {
+        if (cached) {
+          if (img.dataset.forPosterPath === currentModalPosterPath) {
+            currentModalLargePosterSrc = cached;
+            if (img.src !== cached) {
+              img.src = cached;
+            }
+            loader.style.display = "none";
+          }
+        } else {
+          invoke("cache_logo", { url: largeUrl })
+            .then((data) => {
+              if (data && img.dataset.forPosterPath === currentModalPosterPath) {
+                currentModalLargePosterSrc = data;
+                if (img.src !== data) {
+                  img.src = data;
+                }
+                loader.style.display = "none";
+              }
+            })
+            .catch(() => {
+              loader.style.display = "none";
+            });
+        }
+      })
+      .catch(() => {
+        loader.style.display = "none";
+      });
   } else {
     loader.style.display = "none";
   }
 
-  // Animate popup display
+  popup.style.display = "block";
   requestAnimationFrame(() => {
     popup.classList.add("visible");
   });
@@ -2201,9 +2238,18 @@ async function showPosterZoom(e) {
 function hidePosterZoom() {
   if (posterZoomDebounce) clearTimeout(posterZoomDebounce);
   const popup = document.getElementById("posterZoomPopup");
+  const img = document.getElementById("posterZoomImg");
+  const loader = document.getElementById("posterZoomLoader");
   if (popup) {
     popup.classList.remove("visible");
     popup.style.display = "none";
+  }
+  if (img) {
+    img.src = "";
+    img.dataset.forPosterPath = "";
+  }
+  if (loader) {
+    loader.style.display = "none";
   }
 }
 
@@ -2237,6 +2283,7 @@ function positionPosterZoom(e) {
 
 function resetModalTmdbUi() {
   hidePosterZoom();
+  currentModalLargePosterSrc = "";
   const posterCol = document.getElementById("modalPosterCol");
   const posterImg = document.getElementById("modalPoster");
   const backdrop = document.getElementById("modalBackdrop");
@@ -2424,6 +2471,7 @@ async function switchTmdbLang(tmdbData, targetLang) {
 
     if (details.posterPath) {
       currentModalPosterPath = details.posterPath;
+      currentModalLargePosterSrc = "";
       posterImg.src = `https://image.tmdb.org/t/p/w500${details.posterPath}`;
       posterCol.style.display = "block";
       preloadAndCacheLargePoster(details.posterPath);

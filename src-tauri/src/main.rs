@@ -201,16 +201,27 @@ fn open_and_init_db() -> Connection {
     let _ = conn.execute("DROP VIEW IF EXISTS images_db.logo_cache", []);
     let _ = conn.execute("DROP VIEW IF EXISTS main.logo_cache", []);
 
-    // WAL mód és teljesítmény-optimalizáló PRAGMA beállítások mindkét adatbázishoz
+    // 1. Minden korábbi WAL naplóbejegyzés azonnali beépítése az alap adatbázisfájlokba (checkpoint)
+    let _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", []);
+    let _ = conn.execute("PRAGMA images_db.wal_checkpoint(TRUNCATE)", []);
+
+    // 2. Visszaállítjuk a szabványos DELETE naplózási módot, amely automatikusan
+    // beépíti az adatokat és törli a .db-wal és .db-shm fájlokat a lemezről.
+    // Ezentúl minden adat közvetlenül és kizárólag az epg.db és images.db fájlokba kerül.
+    let _ = conn.execute("PRAGMA journal_mode = DELETE", []);
+    let _ = conn.execute("PRAGMA images_db.journal_mode = DELETE", []);
+
+    // 3. Teljesítmény-optimalizáló PRAGMA beállítások (gyors memóriagyorsítótár)
     let _ = conn.execute_batch(
-        "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;
+        "PRAGMA synchronous = NORMAL;
          PRAGMA cache_size = -64000;
          PRAGMA temp_store = MEMORY;
-         PRAGMA images_db.journal_mode = WAL;
          PRAGMA images_db.synchronous = NORMAL;
          PRAGMA images_db.cache_size = -64000;",
     );
+
+    // 4. VACUUM lefuttatása a törölt adatok helyének tényleges felszabadítására
+    let _ = conn.execute("VACUUM", []);
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS channels (
@@ -4435,6 +4446,36 @@ mod tests {
         ).unwrap();
 
         assert_eq!(data, "data:image/png;base64,sample");
+    }
+
+    #[test]
+    fn test_wal_cleanup_to_delete_mode() {
+        let temp_dir = std::env::temp_dir();
+        let db_path = temp_dir.join("epg_test_wal_cleanup.db");
+        let wal_path = temp_dir.join("epg_test_wal_cleanup.db-wal");
+        let shm_path = temp_dir.join("epg_test_wal_cleanup.db-shm");
+
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(&wal_path);
+        let _ = std::fs::remove_file(&shm_path);
+
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (x TEXT); INSERT INTO t VALUES ('hello');").unwrap();
+
+        // Checkpoint and switch back to DELETE
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode = DELETE;").unwrap();
+        drop(conn);
+
+        // WAL and SHM files should be gone or 0-byte, and DB has the data
+        let conn2 = Connection::open(&db_path).unwrap();
+        let val: String = conn2.query_row("SELECT x FROM t", [], |r| r.get(0)).unwrap();
+        assert_eq!(val, "hello");
+        drop(conn2);
+
+        assert!(!wal_path.exists() || std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(1) == 0);
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(&wal_path);
+        let _ = std::fs::remove_file(&shm_path);
     }
 }
 
