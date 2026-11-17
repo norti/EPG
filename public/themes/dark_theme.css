@@ -3107,6 +3107,13 @@ input[type="text"] {
   color: var(--text-primary);
 }
 
+.logos-control-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
 .logos-options-row {
   margin-bottom: 16px;
   padding-top: 10px;
@@ -3394,6 +3401,28 @@ input[type="text"] {
 }
 
 /* Logo Search Modal (Manual Search) */
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-modal-header);
+  border-radius: 10px 10px 0 0;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 18px 22px;
+  overflow-y: auto;
+}
+
 .logo-search-modal-content {
   width: 720px;
   max-width: 95vw;
