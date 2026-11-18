@@ -8,12 +8,12 @@
   </head>
   <body>
     <header>
-      <div class="active-channel-badge" id="activeChannelBadge" style="display: none">
+      <div class="active-channel-badge epg-only" id="activeChannelBadge" style="display: none">
         <img class="active-channel-logo" id="activeChannelLogo" src="" alt="" style="display: none" />
         <span class="active-channel-name" id="activeChannelName"></span>
       </div>
       <button
-        class="btn"
+        class="btn epg-only"
         id="allFavChannelsBtn"
         title="★ Összes kedvenc csatorna"
         data-i18n-title="all_favorites_source"
@@ -21,13 +21,14 @@
       >
         ★ Kedvenc csatornák
       </button>
-      <select id="sourceSelect"></select>
+      <select id="sourceSelect" class="epg-only"></select>
       <select
         id="headerSortSelect"
+        class="epg-only"
         title="Csatornák sorrendje"
         data-i18n-title="header_sort_title"
       ></select>
-      <div class="date-nav-group">
+      <div class="date-nav-group epg-only">
         <button
           class="btn btn-date-arrow"
           id="prevDayBtn"
@@ -46,12 +47,12 @@
           ▶
         </button>
       </div>
-      <button class="btn" id="nowBtn" data-i18n="now_btn">MOST</button>
-      <button class="btn" id="favListBtn" data-i18n="favorites_btn">
+      <button class="btn epg-only" id="nowBtn" data-i18n="now_btn">MOST</button>
+      <button class="btn epg-only" id="favListBtn" data-i18n="favorites_btn">
         ★ Kedvencek
       </button>
 
-      <select id="viewSelect">
+      <select id="viewSelect" class="epg-only">
         <option value="60" data-i18n="view_1h">1 óra</option>
         <option value="30" data-i18n="view_30m">30 perc</option>
         <option value="20" data-i18n="view_20m" selected>20 perc</option>
@@ -60,7 +61,7 @@
       </select>
 
       <button
-        class="btn"
+        class="btn epg-only"
         id="layoutToggleBtn"
         title="Váltás vízszintes nézetre"
         data-i18n-title="title_layout_toggle"
@@ -71,7 +72,7 @@
         >
       </button>
 
-      <div class="search-box">
+      <div class="search-box epg-only">
         <input
           type="text"
           id="searchInput"
@@ -91,7 +92,36 @@
         </button>
       </div>
 
+      <div id="traktHeaderControls" class="trakt-header-controls" style="display: none">
+        <button class="btn trakt-nav-btn" id="traktBackBtn">
+          <span data-icon="arrow-left" data-icon-size="16"></span>
+          <span data-i18n="trakt_btn_back_epg">Vissza az EPG-hez</span>
+        </button>
+        <button class="btn trakt-nav-btn" id="traktWatchlistViewBtn">
+          <span data-icon="trakt-watchlist-on" data-icon-size="16"></span>
+          <span data-i18n="trakt_watchlist_title">Watchlist</span>
+        </button>
+        <button class="btn trakt-nav-btn" id="traktMyCalendarBtn">
+          <span data-icon="trakt-calendar-my" data-icon-size="16"></span>
+          <span data-i18n="trakt_calendar_my_title">Saját naptár (30 nap)</span>
+        </button>
+        <button class="btn trakt-nav-btn" id="traktGlobalCalendarBtn">
+          <span data-icon="trakt-calendar-global" data-icon-size="16"></span>
+          <span data-i18n="trakt_calendar_global_title">Globális naptár</span>
+        </button>
+        <button class="btn trakt-nav-btn" id="traktSyncBtn">
+          <span data-icon="trakt-sync" data-icon-size="16"></span>
+          <span data-i18n="trakt_btn_sync">Szinkronizálás</span>
+        </button>
+        <span id="traktSyncStatus" class="trakt-sync-status"></span>
+      </div>
+
       <span id="status" data-i18n="status_starting">Indítás...</span>
+      <button class="btn trakt-header-btn" id="traktBtn" title="Trakt.tv" style="display: none">
+        <img src="images/trakt/logo.svg" alt="Trakt" class="trakt-logo-btn-img" />
+        <span>Trakt</span>
+        <span id="traktWatchlistCountBadge" class="trakt-wl-count-badge" style="display: none"></span>
+      </button>
       <button class="btn" id="settingsBtn" data-i18n="settings_btn">
         ⚙ Beállítások
       </button>
@@ -114,6 +144,8 @@
         <div class="channels-container" id="channelsContainer"></div>
       </div>
     </div>
+
+    <div class="trakt-viewport custom-scroll" id="traktViewport" style="display: none"></div>
 
     <!-- MŰSOR RÉSZLETEI MODAL -->
     <div class="modal-overlay" id="modalOverlay">
@@ -296,6 +328,14 @@
               </div>
               <div class="tmdb-overview-text" id="modalTmdbOverviewText"></div>
             </div>
+            <div id="modalTraktSection" class="modal-trakt-section" style="display: none">
+              <div id="modalTraktBadges" class="modal-trakt-badges"></div>
+              <div class="modal-trakt-actions">
+                <button type="button" id="modalTraktWatchlistBtn" class="btn" style="display: none"></button>
+                <span id="modalTraktWatchlistStatus" class="modal-trakt-wl-status" style="display: none"></span>
+              </div>
+            </div>
+            <div id="modalTraktDrawerSection" class="modal-trakt-drawer-section" style="display: none"></div>
           </div>
         </div>
       </div>
@@ -364,6 +404,10 @@
             <div class="settings-nav-item" data-tab="tmdb">
               <span>🎬</span>
               <span data-i18n="tab_tmdb">TMDB</span>
+            </div>
+            <div class="settings-nav-item" data-tab="trakt">
+              <span data-icon="trakt-settings" data-icon-size="16"></span>
+              <span data-i18n="tab_trakt">Trakt.tv</span>
             </div>
             <div class="settings-nav-item" data-tab="export">
               <span>⇄</span>
@@ -808,6 +852,54 @@
               </div>
             </div>
 
+            <!-- 4b. TRAKT.TV TAB -->
+            <div class="settings-tab-pane" id="tabPaneTrakt">
+              <div class="tmdb-header-row">
+                <h3 data-i18n="trakt_settings_heading">Trakt.tv Integráció</h3>
+                <img src="images/trakt/logo.svg" alt="Trakt" class="trakt-settings-logo" />
+              </div>
+
+              <div class="trakt-master-row">
+                <label class="logos-checkbox-label">
+                  <input type="checkbox" id="traktMasterSwitch" checked />
+                  <span data-i18n="trakt_master_switch">Trakt integráció engedélyezése</span>
+                </label>
+              </div>
+
+              <div id="traktTmdbMissingWarning" class="trakt-warning-banner" style="display: none">
+                <span data-icon="alert-triangle" data-icon-size="16"></span>
+                <span data-i18n="trakt_tmdb_key_missing_warning">TMDB API kulcs nélkül a képek és a magyar szövegek nem érhetők el</span>
+              </div>
+
+              <div id="traktSettingsAccountCard" class="trakt-settings-card"></div>
+
+              <div id="traktSettingsStatsCard" class="trakt-settings-card" style="display: none"></div>
+
+              <div class="trakt-settings-card trakt-advanced-card">
+                <h4 data-i18n="trakt_advanced_heading">Haladó API beállítások (opcionális)</h4>
+                <p class="trakt-advanced-desc" data-i18n="trakt_advanced_desc">
+                  Alapértelmezésben az alkalmazás beépített Trakt Client ID-ját használja. Csak akkor add meg, ha saját Trakt API alkalmazást szeretnél használni.
+                </p>
+                <div class="trakt-advanced-fields">
+                  <input
+                    type="text"
+                    id="traktCustomClientIdInput"
+                    placeholder="Egyéni Trakt Client ID (opcionális)"
+                    data-i18n-placeholder="trakt_custom_client_id_placeholder"
+                  />
+                  <input
+                    type="password"
+                    id="traktCustomClientSecretInput"
+                    placeholder="Egyéni Client Secret (opcionális, DPAPI titkosítva)"
+                    data-i18n-placeholder="trakt_custom_secret_placeholder"
+                  />
+                  <button type="button" class="btn btn-green" id="traktSaveCustomKeysBtn" data-i18n="tmdb_btn_save">
+                    MENTÉS
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <!-- 5. EXPORT / IMPORT TAB -->
             <div class="settings-tab-pane" id="tabPaneExport">
               <h3 data-i18n="export_heading">Exportálás és Importálás</h3>
@@ -1175,6 +1267,10 @@
     <script src="javascript/i18n.js"></script>
     <script src="javascript/countries.js"></script>
     <script src="javascript/icons.js"></script>
+    <script src="javascript/trakt-icons.js"></script>
+    <script src="javascript/trakt-dates.js"></script>
     <script src="javascript/epg-viewer.js"></script>
+    <script src="javascript/trakt-dashboard.js"></script>
+    <script src="javascript/trakt-ui.js"></script>
   </body>
 </html>

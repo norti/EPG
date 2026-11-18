@@ -29,6 +29,8 @@ A szoftver forráskódja és telepítőcsomagja nem tartalmaz előre becsomagolt
 - **tv-logo/tv-logos:** Sötét hátterekre optimalizált TV-csatorna logók (https://github.com/tv-logo/tv-logos)
 - **iptv-org/database:** Nyílt IPTV adatbázis és csatornajegyzék (https://github.com/iptv-org/database, CC0 1.0 Universal)
 - **Wikimedia Commons:** Szabad médiafájlok és vektoros SVG logók (https://commons.wikimedia.org)
+- **Trakt.tv API:** Műsorkövetés, Watchlist, naptár és értékelések (https://trakt.tv). *EPG Viewer uses Trakt but is not endorsed or certified by Trakt.*
+- **TMDB (The Movie Database):** Film- és sorozatmetaadatok, poszterek és magyar leírások (https://www.themoviedb.org). *This product uses the TMDB API but is not endorsed or certified by TMDB.*
 
 ### UI Ikonok (Icons)
 A felhasználói felületen alkalmazott vektoros ikonok a **Tabler Icons** gyűjteményből származnak (https://tabler.io/icons), melyek az MIT Licenc feltételei szerint használhatók.

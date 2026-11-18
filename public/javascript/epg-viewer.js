@@ -478,6 +478,10 @@ async function init() {
   const initialLang = settings.language || "hungarian";
   await setLanguage(initialLang);
 
+  if (window.TraktUI) {
+    await window.TraktUI.init();
+  }
+
   if (settings.view_step_min) currentStepMin = parseInt(settings.view_step_min);
   if (settings.view_minute_height)
     currentMinuteHeight = parseFloat(settings.view_minute_height);
@@ -1069,6 +1073,10 @@ async function fetchEPG() {
       p.stop = parseEPGDate(p.stop, offset);
     });
 
+    if (window.TraktUI) {
+      await window.TraktUI.prepareMatchesForEpg(epgData.programmes);
+    }
+
     document.getElementById("status").textContent = t("status_ready");
     setupDateSelector();
     renderEPG();
@@ -1535,7 +1543,7 @@ function renderProgramDetails(el) {
   const data = el._progData;
   if (!data) return;
 
-  const { prog, isFav, startStr, stopStr } = data;
+  const { prog, isFav, isTrakt, startStr, stopStr } = data;
   el.innerHTML = `
           <div class="prog-header">
               <span class="start-badge">${startStr}</span>
@@ -1543,6 +1551,7 @@ function renderProgramDetails(el) {
               <span class="fav-star ${isFav ? "active" : ""}">★</span>
           </div>
           ${prog.desc ? `<div class="prog-desc">${escapeHtml(prog.desc)}</div>` : ""}
+          ${isTrakt ? `<span class="trakt-epg-badge" data-icon="trakt-epg-badge" data-icon-size="12" title="${escapeHtml(t("trakt_on_watchlist_tooltip"))}"></span>` : ""}
         `;
 
   const star = el.querySelector(".fav-star");
@@ -1551,6 +1560,11 @@ function renderProgramDetails(el) {
       e.stopPropagation();
       toggleFavorite(prog.title);
     };
+  }
+
+  if (isTrakt && window.Icons) {
+    const badge = el.querySelector(".trakt-epg-badge");
+    if (badge) window.Icons.replace(el);
   }
 
   el.dataset.rendered = "true";
@@ -1657,12 +1671,13 @@ function renderSingleChannelMultiDay(
       if (durationMin <= 0) return;
 
       const isFav = favorites.includes(prog.title);
+      const isTrakt = window.TraktUI?.isOnWatchlist(prog.title) ?? false;
       const isHighlight =
         filterText && fuzzySearchMatch(prog.title, filterText);
       const isActual = prog.start <= now && prog.stop > now;
 
       const progEl = document.createElement("div");
-      progEl.className = `programme ${isFav ? "favorite" : ""} ${isHighlight ? "highlight" : ""} ${isActual ? "actual" : ""}`;
+      progEl.className = `programme ${isFav ? "favorite" : ""} ${isTrakt ? "trakt-watchlist" : ""} ${isHighlight ? "highlight" : ""} ${isActual ? "actual" : ""}`;
       if (isHorizontal) {
         progEl.style.left = `${startDiffMin * minuteScale}px`;
         progEl.style.width = `${Math.max(20, durationMin * minuteScale - 1)}px`;
@@ -1677,6 +1692,7 @@ function renderSingleChannelMultiDay(
       progEl._progData = {
         prog,
         isFav,
+        isTrakt,
         isHighlight,
         isActual,
         startStr,
@@ -2022,12 +2038,13 @@ function renderEPG() {
       if (durationMin <= 0) return;
 
       const isFav = favorites.includes(prog.title);
+      const isTrakt = window.TraktUI?.isOnWatchlist(prog.title) ?? false;
       const isHighlight =
         filterText && fuzzySearchMatch(prog.title, filterText);
       const isActual = prog.start <= now && prog.stop > now;
 
       const progEl = document.createElement("div");
-      progEl.className = `programme ${isFav ? "favorite" : ""} ${isHighlight ? "highlight" : ""} ${isActual ? "actual" : ""}`;
+      progEl.className = `programme ${isFav ? "favorite" : ""} ${isTrakt ? "trakt-watchlist" : ""} ${isHighlight ? "highlight" : ""} ${isActual ? "actual" : ""}`;
       if (isHorizontal) {
         progEl.style.left = `${startDiffMin * minuteScale}px`;
         progEl.style.width = `${Math.max(20, durationMin * minuteScale - 1)}px`;
@@ -2042,6 +2059,7 @@ function renderEPG() {
       progEl._progData = {
         prog,
         isFav,
+        isTrakt,
         isHighlight,
         isActual,
         startStr,
@@ -2309,6 +2327,9 @@ function resetModalTmdbUi() {
   tmdbOverview.style.display = "none";
   tmdbOverviewText.textContent = "";
   tmdbLoading.style.display = "none";
+  if (window.TraktUI) {
+    window.TraktUI.detachFromModal();
+  }
 }
 
 function renderTmdbDetailsInModal(tmdbData) {
@@ -2686,6 +2707,12 @@ async function removeTmdbMatch() {
   }
 }
 
+window.setModalContext = function (title, channel) {
+  currentModalTitle = title || "";
+  currentModalChannel = channel || null;
+  currentModalFetchIndex++;
+};
+
 async function openModal(title, time, desc, channel) {
   currentModalTitle = title;
   currentModalChannel = channel;
@@ -2726,10 +2753,26 @@ async function openModal(title, time, desc, channel) {
 
     tmdbLoading.style.display = "none";
     renderTmdbDetailsInModal(tmdbData);
+    if (window.TraktUI) {
+      window.TraktUI.attachToModal({
+        title,
+        tmdbId: tmdbData?.tmdbId ?? null,
+        mediaType: tmdbData?.mediaType ?? null,
+        tmdbData,
+      });
+    }
   } catch (e) {
     console.warn("TMDB betöltési hiba:", e);
     if (currentModalTitle === title) {
       document.getElementById("modalTmdbLoading").style.display = "none";
+      if (window.TraktUI) {
+        window.TraktUI.attachToModal({
+          title,
+          tmdbId: null,
+          mediaType: null,
+          tmdbData: null,
+        });
+      }
     }
   }
 }
@@ -2981,6 +3024,9 @@ function switchSettingsTab(tabName) {
   } else if (tabName === "tmdb") {
     document.getElementById("tabPaneTmdb").classList.add("active");
     loadTmdbSettings();
+  } else if (tabName === "trakt") {
+    document.getElementById("tabPaneTrakt").classList.add("active");
+    if (window.TraktUI) window.TraktUI.loadSettingsTab();
   } else if (tabName === "export") {
     document.getElementById("tabPaneExport").classList.add("active");
     updateCacheSectionStats();
