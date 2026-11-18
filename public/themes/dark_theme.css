@@ -166,6 +166,13 @@
   --tmdb-pill-glow: 0 0 10px rgba(1, 180, 228, 0.4);
   --tmdb-input-glow: 0 0 0 1px #01b4e4;
 
+  /* Trakt.tv Brand & Status Colors */
+  --trakt-red: #ed1c24;
+  --trakt-watched-done: #2ecc71;
+  --trakt-watchlist-active: #2196f3;
+  --trakt-watchlist-bg: rgba(33, 150, 243, 0.16);
+  --trakt-sync-spinning: #f39c12;
+
   /* Special Highlights & Multilingual Badges */
   --prog-highlight-bg: #6c7c33;
   --prog-highlight-border: #d9ff00;
@@ -3559,3 +3566,1134 @@ input[type="text"] {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-dim);
 }
+
+/* ==========================================================================
+   TRAKT.TV INTEGRATION STYLES
+   ========================================================================== */
+
+body.trakt-mode .epg-only {
+  display: none !important;
+}
+
+body.trakt-mode #epgViewport {
+  display: none !important;
+}
+
+.trakt-header-btn {
+  background-color: #241418;
+  border: 1px solid rgba(237, 28, 36, 0.55);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  white-space: nowrap;
+}
+.trakt-header-btn:hover {
+  background-color: rgba(237, 28, 36, 0.22);
+  border-color: var(--trakt-red);
+}
+.trakt-logo-btn-img {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: block;
+}
+.trakt-wl-count-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background-color: var(--trakt-red);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.trakt-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.trakt-nav-btn {
+  background-color: var(--bg-btn-secondary);
+  border: 1px solid var(--border-input);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.trakt-nav-btn:hover {
+  background-color: var(--bg-btn-layout-hover);
+  color: var(--text-primary);
+}
+.trakt-nav-btn.active {
+  background-color: var(--trakt-watchlist-active);
+  border-color: var(--accent-blue-border);
+  color: var(--text-primary);
+}
+#traktBackBtn {
+  background-color: var(--bg-surface-elevated);
+}
+
+.trakt-sync-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.trakt-sync-status.is-overdue,
+.trakt-profile-sync.is-overdue {
+  color: var(--accent-red-light);
+  font-weight: 700;
+}
+.trakt-sync-status.is-offline {
+  color: var(--accent-yellow);
+  font-weight: 600;
+}
+
+@keyframes trakt-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.trakt-sync-spinning [data-icon="trakt-sync-active"] svg,
+.trakt-sync-spinning svg {
+  animation: trakt-spin 1s linear infinite;
+  color: var(--trakt-sync-spinning);
+}
+
+/* EPG Grid Watchlist Highlight & Badge */
+.programme.trakt-watchlist {
+  background-color: var(--trakt-watchlist-bg);
+  border-left: 3px solid var(--trakt-watchlist-active);
+}
+.programme.favorite.trakt-watchlist {
+  border-left: 3px solid var(--accent-red) !important;
+  box-shadow: inset 0 0 0 1px rgba(33, 150, 243, 0.45);
+}
+.programme > .trakt-epg-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  color: var(--trakt-watchlist-active);
+  opacity: 0.9;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+/* Trakt Viewport & Dashboard (50 / 25 / 25) */
+.trakt-viewport {
+  height: calc(100vh - 60px);
+  overflow-y: auto;
+  background-color: var(--bg-app);
+  padding: 12px 16px;
+  box-sizing: border-box;
+}
+
+.trakt-loading,
+.trakt-error-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.trakt-error-box {
+  color: var(--accent-red-light);
+}
+
+.trakt-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: calc(100vh - 84px);
+}
+
+.trakt-dash-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  flex: 2 1 50%;
+  min-height: 420px;
+}
+
+.trakt-dash-panel,
+.trakt-dash-row {
+  background: var(--bg-modal-panel);
+  border: 1px solid var(--border-modal-card);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trakt-dash-row {
+  flex: 1 0 auto;
+}
+
+.trakt-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-modal-header);
+  border-bottom: 1px solid var(--border-modal-divider);
+  flex-shrink: 0;
+}
+.trakt-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.trakt-panel-range {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.trakt-panel-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-btn-secondary);
+  color: var(--text-secondary);
+}
+
+.trakt-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+  grid-auto-rows: max-content;
+  gap: 10px;
+  align-content: start;
+}
+.trakt-panel-list .trakt-empty-msg {
+  grid-column: 1 / -1;
+}
+
+.trakt-hscroll-list {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.trakt-empty-msg {
+  color: var(--text-disabled);
+  font-size: 12px;
+  padding: 16px;
+  text-align: center;
+  width: 100%;
+}
+
+/* Trakt Dashboard Vertical Poster Cards */
+.trakt-poster-card {
+  background: var(--bg-modal-card);
+  border: 1px solid var(--border-modal-card-alt);
+  border-radius: 7px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, transform 0.12s;
+  box-sizing: border-box;
+}
+.trakt-poster-card:hover {
+  border-color: var(--trakt-watchlist-active);
+  background: var(--bg-fix-card-hover);
+  transform: translateY(-1px);
+}
+.trakt-poster-card.trakt-card-watched {
+  border-color: rgba(46, 204, 113, 0.45);
+}
+
+.trakt-panel-list .trakt-poster-card-thumb,
+.trakt-hscroll-list .trakt-poster-card-thumb {
+  width: 100%;
+  height: 0;
+  padding-top: 150%;
+  flex: 0 0 auto;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--border-modal-card);
+}
+.trakt-poster-card-thumb .trakt-thumb-placeholder,
+.trakt-wl-poster .trakt-thumb-placeholder {
+  position: absolute;
+  inset: 0;
+}
+
+.trakt-hscroll-list .trakt-poster-card {
+  width: 175px;
+  min-width: 175px;
+  max-width: 175px;
+  flex-shrink: 0;
+}
+
+.trakt-poster-card-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg-modal-poster);
+}
+
+.trakt-poster-card-body {
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.trakt-pcard-show {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trakt-pcard-code {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-green);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  white-space: nowrap;
+}
+.trakt-pcard-time {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.trakt-pcard-ep {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trakt-pcard-actions {
+  margin-top: 4px;
+  display: flex;
+}
+.trakt-pcard-actions .trakt-watched-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+/* Trakt Horizontal Cards (Calendars) */
+.trakt-card {
+  background: var(--bg-modal-card);
+  border: 1px solid var(--border-modal-card-alt);
+  border-radius: 7px;
+  padding: 10px;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, transform 0.12s;
+  box-sizing: border-box;
+}
+.trakt-card:hover {
+  border-color: var(--trakt-watchlist-active);
+  background: var(--bg-fix-card-hover);
+}
+.trakt-card.trakt-card-watched {
+  border-color: rgba(46, 204, 113, 0.4);
+}
+
+.trakt-card-thumb {
+  width: 48px;
+  height: 72px;
+  border-radius: 5px;
+  background: var(--bg-modal-poster);
+  border: 1px solid var(--border-modal-card);
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.trakt-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg-modal-poster);
+  display: block;
+}
+.trakt-thumb-placeholder {
+  color: var(--text-disabled);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tabler-icon-trakt-watchlist-on,
+.tabler-icon-trakt-rating-filled,
+.tabler-icon-trakt-epg-badge,
+.tabler-icon-star-filled {
+  fill: currentColor;
+  stroke: none;
+}
+
+.trakt-watched-thumb-badge {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(16, 24, 20, 0.9);
+  border: 1.5px solid var(--trakt-watched-done);
+  color: var(--trakt-watched-done);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+  z-index: 2;
+}
+
+.trakt-card-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trakt-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.trakt-card-show {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+.trakt-card-ep {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+.trakt-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.trakt-card-time {
+  font-size: 11.5px;
+  color: var(--accent-green);
+  font-weight: 600;
+}
+.trakt-history-time {
+  color: var(--text-dim);
+}
+.trakt-card-network {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-btn-secondary);
+  color: var(--text-muted);
+}
+
+.trakt-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: auto;
+  flex-shrink: 0;
+}
+.trakt-watched-btn {
+  background: var(--bg-btn-secondary);
+  border: 1px solid var(--border-input);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+.trakt-watched-btn:hover:not(:disabled) {
+  background: var(--accent-green-bg);
+  border-color: var(--trakt-watched-done);
+  color: var(--trakt-watched-done);
+}
+.trakt-watched-btn.is-watched {
+  background: rgba(46, 204, 113, 0.15);
+  border-color: rgba(46, 204, 113, 0.45);
+  color: var(--trakt-watched-done);
+  cursor: default;
+  box-shadow: none;
+}
+.trakt-watched-btn.is-pending,
+.trakt-watched-btn.is-queued {
+  background: rgba(243, 156, 18, 0.15);
+  border-color: rgba(243, 156, 18, 0.45);
+  color: var(--trakt-sync-spinning);
+  cursor: default;
+  box-shadow: none;
+}
+
+.trakt-wl-badge-btn.is-on {
+  background: rgba(46, 204, 113, 0.15);
+  border: 1px solid rgba(46, 204, 113, 0.45);
+  color: var(--trakt-watched-done);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  font-size: 11px;
+  cursor: default;
+  box-shadow: none;
+}
+.trakt-wl-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+/* Subviews: Watchlist & Calendars */
+.trakt-subview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+.trakt-subview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--bg-modal-panel);
+  border: 1px solid var(--border-modal-card);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.trakt-subview-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.trakt-filter-pills {
+  display: flex;
+  gap: 6px;
+}
+.trakt-pill {
+  background: var(--bg-btn-secondary);
+  border: 1px solid var(--border-input);
+  color: var(--text-muted);
+  padding: 5px 10px;
+}
+.trakt-pill.active {
+  background: var(--trakt-watchlist-active);
+  border-color: var(--accent-blue-border);
+  color: var(--text-primary);
+}
+.trakt-search-input {
+  margin-left: auto;
+  min-width: 200px;
+}
+
+.trakt-watchlist-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+  grid-auto-rows: max-content;
+  align-items: start;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.trakt-wl-card {
+  background: var(--bg-modal-card);
+  border: 1px solid var(--border-modal-card-alt);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.12s;
+}
+.trakt-wl-card:hover {
+  border-color: var(--trakt-watchlist-active);
+  transform: translateY(-2px);
+}
+.trakt-wl-poster {
+  width: 100%;
+  height: 0;
+  padding-top: 150%;
+  flex: 0 0 auto;
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--border-modal-card);
+}
+.trakt-wl-poster img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg-modal-poster);
+}
+.trakt-wl-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.trakt-wl-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trakt-wl-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.trakt-rating-mini {
+  font-size: 11px;
+  color: var(--accent-yellow);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 700;
+}
+.trakt-wl-remove-btn {
+  margin-top: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.trakt-calendar-days {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.trakt-cal-day-group {
+  background: var(--bg-modal-panel);
+  border: 1px solid var(--border-modal-card);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.trakt-cal-day-header {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-yellow-light);
+  border-bottom: 1px solid var(--border-modal-divider);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+.trakt-cal-day-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 10px;
+}
+.trakt-cal-day-list .trakt-card-thumb {
+  width: 96px;
+  height: 144px;
+}
+
+/* Login Card */
+.trakt-login-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 16px;
+}
+.trakt-login-card {
+  background: var(--bg-modal-card);
+  border: 1px solid var(--border-modal);
+  border-radius: 10px;
+  padding: 24px 28px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: var(--shadow-card);
+}
+.trakt-login-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+}
+.trakt-login-card h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+.trakt-login-desc,
+.trakt-device-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-subtle);
+  line-height: 1.45;
+}
+.trakt-user-code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: var(--text-primary);
+  background: var(--bg-modal-input);
+  border: 1px solid var(--trakt-red);
+  border-radius: 8px;
+  padding: 10px 20px;
+  margin: 10px 0;
+  user-select: all;
+}
+.trakt-device-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.trakt-device-actions .btn,
+.trakt-start-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.trakt-device-waiting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.trakt-login-error {
+  color: var(--accent-red-light);
+  font-size: 12px;
+  background: var(--status-danger-bg);
+  padding: 8px 12px;
+  border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Modal Trakt Section & Progress Drawer */
+.modal-trakt-section {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(237, 28, 36, 0.07);
+  border: 1px solid rgba(237, 28, 36, 0.28);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.modal-trakt-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.trakt-modal-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.trakt-badge-logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+.trakt-badge-rating {
+  background: rgba(237, 28, 36, 0.2);
+  color: #ffb3b6;
+  border: 1px solid rgba(237, 28, 36, 0.45);
+}
+.trakt-badge-network {
+  background: var(--bg-btn-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-input);
+}
+.trakt-badge-status {
+  background: var(--badge-year-bg);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+.modal-trakt-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trakt-modal-wl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 11px;
+}
+.trakt-modal-wl-btn.is-on {
+  background: rgba(33, 150, 243, 0.2);
+  border: 1px solid var(--trakt-watchlist-active);
+  color: #90cdf4;
+}
+.modal-trakt-wl-status {
+  font-size: 11px;
+  color: var(--accent-yellow);
+}
+
+.modal-trakt-drawer-section {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.trakt-drawer-block {
+  background: var(--bg-modal-card-sub);
+  border: 1px solid var(--border-modal-card);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.trakt-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-modal-header);
+  border-bottom: 1px solid var(--border-modal-divider);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.trakt-progress-summary {
+  color: var(--trakt-watched-done);
+}
+.trakt-drawer-split {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  max-height: 260px;
+}
+.trakt-seasons-sidebar {
+  border-right: 1px solid var(--border-modal-divider);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 4px;
+}
+.trakt-season-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-dim);
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+}
+.trakt-season-btn:hover {
+  background: var(--bg-sidebar-hover);
+  color: var(--text-primary);
+}
+.trakt-season-btn.active {
+  background: var(--accent-green-bg);
+  border-color: var(--accent-green-border);
+  color: var(--accent-green-active);
+}
+.trakt-episodes-list {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trakt-ep-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: var(--bg-modal-card);
+  border: 1px solid var(--border-modal-card-alt);
+}
+.trakt-ep-row.is-watched {
+  border-color: rgba(46, 204, 113, 0.35);
+}
+.trakt-ep-status-icon {
+  color: var(--text-disabled);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.trakt-ep-row.is-watched .trakt-ep-status-icon {
+  color: var(--trakt-watched-done);
+}
+.trakt-ep-still {
+  width: 80px;
+  height: 45px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.trakt-ep-text {
+  flex: 1;
+  min-width: 0;
+}
+.trakt-ep-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.trakt-ep-overview {
+  font-size: 11px;
+  color: var(--text-subtle);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.trakt-epg-airings-list {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trakt-airing-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-modal-card);
+  border-radius: 5px;
+  font-size: 12px;
+}
+.trakt-airing-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Settings Trakt Tab */
+.trakt-settings-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.trakt-master-row {
+  margin-bottom: 12px;
+}
+.trakt-warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: var(--status-warning-bg);
+  border: 1px solid var(--accent-yellow-stat-border);
+  color: var(--accent-yellow);
+  font-size: 12px;
+}
+.trakt-settings-card {
+  background: var(--bg-tmdb-card);
+  border: 1px solid var(--border-modal-card);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.trakt-settings-card h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.trakt-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.trakt-profile-avatar,
+.trakt-profile-avatar-ph {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--bg-modal-card);
+  border: 2px solid var(--trakt-red);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.trakt-profile-info {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.trakt-profile-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+.trakt-profile-handle {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.trakt-vip-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--trakt-red);
+  color: #fff;
+}
+.trakt-profile-meta,
+.trakt-profile-sync {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+.trakt-profile-actions {
+  display: flex;
+  gap: 8px;
+}
+.trakt-profile-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.trakt-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.trakt-cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-modal-divider);
+}
+.trakt-cache-info {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.trakt-advanced-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+}
+.trakt-advanced-fields {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.trakt-advanced-fields input {
+  flex: 1;
+  min-width: 180px;
+}
+
+@media (max-width: 900px) {
+  .trakt-dashboard {
+    height: auto;
+  }
+  .trakt-dash-top {
+    grid-template-columns: 1fr;
+  }
+  .trakt-dash-panel {
+    min-height: 220px;
+    max-height: 340px;
+  }
+  .trakt-drawer-split {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+  .trakt-seasons-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border-modal-divider);
+    flex-direction: row;
+    overflow-x: auto;
+  }
+}
+

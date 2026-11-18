@@ -1,5 +1,8 @@
 ﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod migrations;
+mod trakt;
+
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -11,10 +14,11 @@ use std::path::PathBuf;
 use flate2::read::GzDecoder;
 use regex::Regex;
 
-struct AppState {
-    db: Mutex<Connection>,
-    http: reqwest::Client,
-    http_epg: reqwest::Client,
+pub struct AppState {
+    pub db: Mutex<Connection>,
+    pub http: reqwest::Client,
+    pub http_epg: reqwest::Client,
+    pub trakt: trakt::TraktState,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -101,8 +105,10 @@ fn get_images_db_path() -> PathBuf {
     get_app_db_path("images.db")
 }
 
-fn open_and_init_db() -> Connection {
-    let conn = Connection::open(get_db_path()).expect("DB megnyitási hiba");
+fn open_and_init_db() -> Result<Connection, String> {
+    let db_path = get_db_path();
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("DB megnyitási hiba: {}", e))?;
 
     // images.db csatolása külön adatbázisként
     let images_db_path = get_images_db_path();
@@ -110,7 +116,8 @@ fn open_and_init_db() -> Connection {
         "ATTACH DATABASE '{}' AS images_db",
         images_db_path.to_string_lossy().replace('\'', "''")
     );
-    conn.execute(&attach_sql, []).expect("images.db csatolási hiba");
+    conn.execute(&attach_sql, [])
+        .map_err(|e| format!("images.db csatolási hiba: {}", e))?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS images_db.images (
@@ -131,7 +138,8 @@ fn open_and_init_db() -> Connection {
             FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS images_db.idx_image_urls_image_id ON image_urls (image_id);",
-    ).expect("images_db táblák inicializálási hiba");
+    )
+    .map_err(|e| format!("images_db táblák inicializálási hiba: {}", e))?;
 
     // Ellenőrizzük, hogy létezik-e még korábbi valódi táblaként a main.logo_cache
     let is_old_table: bool = conn.query_row(
@@ -221,145 +229,16 @@ fn open_and_init_db() -> Connection {
          PRAGMA images_db.cache_size = -64000;",
     );
 
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS channels (
-            id TEXT, source_id TEXT, name TEXT, icon TEXT, PRIMARY KEY (id, source_id)
-        );
-        CREATE TABLE IF NOT EXISTS programmes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id TEXT, source_id TEXT, start TEXT, stop TEXT, title TEXT, desc TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_prog_time ON programmes (source_id, start, stop);
-        CREATE INDEX IF NOT EXISTS idx_prog_src_ch ON programmes (source_id, channel_id);
-
-        CREATE TABLE IF NOT EXISTS sources (
-            id TEXT PRIMARY KEY,
-            name TEXT,
-            url TEXT,
-            last_downloaded TEXT,
-            country_code TEXT,
-            time_offset INTEGER
-        );
-
-        CREATE TABLE IF NOT EXISTS favorites (
-            title TEXT PRIMARY KEY
-        );
-
-        CREATE TABLE IF NOT EXISTS channel_orders (
-            source_id TEXT,
-            channel_id TEXT,
-            position INTEGER,
-            PRIMARY KEY (source_id, channel_id)
-        );
-
-        CREATE TABLE IF NOT EXISTS channel_sort_presets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            channel_order TEXT NOT NULL,
-            created_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_sort_presets_src ON channel_sort_presets (source_id);
-
-        CREATE TABLE IF NOT EXISTS channel_user_settings (
-            source_id TEXT,
-            channel_id TEXT,
-            is_favorite INTEGER DEFAULT 0,
-            is_hidden INTEGER DEFAULT 0,
-            custom_icon TEXT,
-            custom_name TEXT,
-            PRIMARY KEY (source_id, channel_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_cus_src_ch ON channel_user_settings (source_id, channel_id);
-        CREATE INDEX IF NOT EXISTS idx_cus_fav ON channel_user_settings (is_favorite, is_hidden);
-
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS app_languages (
-            lang TEXT PRIMARY KEY,
-            content TEXT,
-            updated_at TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS external_logo_cache (
-            source_key TEXT PRIMARY KEY,
-            content TEXT,
-            updated_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_ext_logo_key ON external_logo_cache (source_key);
-
-        CREATE TABLE IF NOT EXISTS tmdb_cache (
-            query_title TEXT NOT NULL,
-            lang TEXT NOT NULL,
-            tmdb_id INTEGER,
-            media_type TEXT,
-            title TEXT,
-            hu_title TEXT,
-            en_title TEXT,
-            original_title TEXT,
-            original_language TEXT,
-            poster_path TEXT,
-            backdrop_path TEXT,
-            overview TEXT,
-            vote_average REAL,
-            release_date TEXT,
-            updated_at TEXT,
-            PRIMARY KEY (query_title, lang)
-        );
-        CREATE INDEX IF NOT EXISTS idx_tmdb_cache ON tmdb_cache (query_title, lang);",
-    ).unwrap();
-
-    // Meglévő adatbázis sémakorrekció, ha hiányoznának az új oszlopok
-    let _ = conn.execute("ALTER TABLE sources ADD COLUMN country_code TEXT", []);
-    let _ = conn.execute("ALTER TABLE sources ADD COLUMN time_offset INTEGER", []);
-    let _ = conn.execute("ALTER TABLE sources ADD COLUMN sort_position INTEGER", []);
-    let _ = conn.execute("ALTER TABLE channel_user_settings ADD COLUMN custom_name TEXT", []);
-    let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN hu_title TEXT", []);
-    let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN en_title TEXT", []);
-    let _ = conn.execute("ALTER TABLE tmdb_cache ADD COLUMN original_language TEXT", []);
-
-    // Egyszeri migrációs tisztítás (franchise cache javítás és régi alapértelmezett források törlése)
-    let has_migrated_legacy_cleanup: bool = conn
-        .query_row(
-            "SELECT 1 FROM settings WHERE key = 'migration_cleanup_v1'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    if !has_migrated_legacy_cleanup {
-        conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'Jurassic World' AND (title LIKE '%gefallene%' OR title LIKE '%Fallen Kingdom%')", []).ok();
-        conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'G.I. Joe' AND (title LIKE '%Megtorlás%' OR title LIKE '%Retaliation%')", []).ok();
-
-        conn.execute("DELETE FROM sources WHERE id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
-        conn.execute("DELETE FROM channels WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
-        conn.execute("DELETE FROM programmes WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
-        conn.execute("DELETE FROM channel_orders WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')", []).ok();
-
-        let _ = conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_cleanup_v1', '1')",
-            [],
-        );
+    if let Err(err) = migrations::run_migrations(&conn, Some(&db_path)) {
+        drop(conn);
+        let bak_path = db_path.with_file_name("epg.db.bak-v1");
+        if bak_path.exists() {
+            let _ = fs::copy(&bak_path, &db_path);
+        }
+        return Err(err);
     }
 
-    // Kezdeti nyelvi sablonok feltöltése, ha üres lenne
-    let lang_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM app_languages", [], |r| r.get(0))
-        .unwrap_or(0);
-    if lang_count == 0 {
-        let _ = conn.execute(
-            "INSERT OR IGNORE INTO app_languages (lang, content, updated_at) VALUES ('english', ?1, datetime('now', 'localtime'))",
-            params![EMBEDDED_ENGLISH_LNG],
-        );
-        let _ = conn.execute(
-            "INSERT OR IGNORE INTO app_languages (lang, content, updated_at) VALUES ('hungarian', ?1, datetime('now', 'localtime'))",
-            params![EMBEDDED_HUNGARIAN_LNG],
-        );
-    }
-
-    conn
+    Ok(conn)
 }
 
 async fn get_all_favorites_epg_data(state: &AppState) -> Result<EpgResponse, String> {
@@ -849,14 +728,16 @@ async fn get_cached_logo(state: tauri::State<'_, AppState>, url: String) -> Resu
     }
     let conn = state.db.lock().await;
     let res: Option<String> = conn.query_row(
-        "SELECT data FROM images_db.logo_cache WHERE url = ?1",
+        "SELECT img.data FROM images_db.image_urls iu
+         JOIN images_db.images img ON img.id = iu.image_id
+         WHERE iu.url = ?1",
         params![clean_url],
         |row| row.get(0),
     ).ok();
     Ok(res)
 }
 
-async fn cache_logo_inner(state: &AppState, url: String) -> Result<String, String> {
+pub(crate) async fn cache_logo_inner(state: &AppState, url: String) -> Result<String, String> {
     let clean_url = url.trim().to_string();
     if clean_url.is_empty() {
         return Err("Üres URL".to_string());
@@ -3207,7 +3088,7 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
     }
 
     // Settings
-    let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT key, value FROM settings WHERE key NOT LIKE 'trakt_secure_%'").map_err(|e| e.to_string())?;
     let s_iter = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     }).map_err(|e| e.to_string())?;
@@ -3299,6 +3180,9 @@ async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) 
 
     // Settings
     for (k, v) in backup.settings {
+        if k.starts_with("trakt_secure_") {
+            continue;
+        }
         tx.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -3313,7 +3197,7 @@ async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) 
 #[tauri::command]
 async fn get_settings(state: tauri::State<'_, AppState>) -> Result<HashMap<String, String>, String> {
     let conn = state.db.lock().await;
-    let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT key, value FROM settings WHERE key NOT LIKE 'trakt_secure_%'").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     }).map_err(|e| e.to_string())?;
@@ -3327,6 +3211,9 @@ async fn get_settings(state: tauri::State<'_, AppState>) -> Result<HashMap<Strin
 
 #[tauri::command]
 async fn set_setting(state: tauri::State<'_, AppState>, key: String, value: String) -> Result<(), String> {
+    if key.starts_with("trakt_secure_") {
+        return Err("Tiltott beállítási kulcs".to_string());
+    }
     let conn = state.db.lock().await;
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -3493,6 +3380,8 @@ struct TmdbRawItem {
     vote_average: Option<f64>,
     release_date: Option<String>,
     first_air_date: Option<String>,
+    #[serde(default)]
+    translations: Option<TmdbTranslationsResponse>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -3523,7 +3412,7 @@ static RE_TITLE_SLASH: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\s*(?
 static RE_TITLE_TAIL_PAREN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s*[\(\[\{][^\(\)\[\]\{\}]*[\)\]\}]\s*$").unwrap());
 static RE_YEAR_HINT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\(\[]\s*((?:19|20)\d{2})\s*[\)\]]").unwrap());
 
-fn clean_title(title: &str) -> String {
+pub(crate) fn clean_title(title: &str) -> String {
     let mut s = title.replace('\u{a0}', " ").trim().to_string();
 
     // 1. Remove year in parentheses / brackets e.g. (1999), [2021]
@@ -3585,7 +3474,7 @@ fn clean_title(title: &str) -> String {
 
 // Extract a 4-digit year from parentheses/brackets in a raw EPG title, e.g. "Film (2018)" → Some(2018).
 // Called BEFORE clean_title() so the year is not yet stripped.
-fn extract_year_hint(raw_title: &str) -> Option<u32> {
+pub(crate) fn extract_year_hint(raw_title: &str) -> Option<u32> {
     RE_YEAR_HINT
         .captures(raw_title)?
         .get(1)?
@@ -3594,25 +3483,113 @@ fn extract_year_hint(raw_title: &str) -> Option<u32> {
         .ok()
 }
 
-// Lowercase + keep only alphanumeric chars and spaces, then collapse whitespace.
-fn normalise_for_match(s: &str) -> String {
-    let mapped: String = s
-        .chars()
-        .flat_map(|c| {
-            if c.is_alphanumeric() {
-                // to_lowercase() handles Unicode (ÁáÉéŐő etc.) correctly
-                c.to_lowercase().collect::<String>().chars().collect::<Vec<_>>()
-            } else {
-                vec![' ']
+fn fold_diacritic(c: char) -> &'static str {
+    match c {
+        'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'Á' | 'À' | 'Â' | 'Ä' | 'Ã' | 'Å' => "a",
+        'é' | 'è' | 'ê' | 'ë' | 'É' | 'È' | 'Ê' | 'Ë' => "e",
+        'í' | 'ì' | 'î' | 'ï' | 'Í' | 'Ì' | 'Î' | 'Ï' => "i",
+        'ó' | 'ò' | 'ô' | 'ö' | 'ő' | 'õ' | 'ø' | 'Ó' | 'Ò' | 'Ô' | 'Ö' | 'Ő' | 'Õ' | 'Ø' => "o",
+        'ú' | 'ù' | 'û' | 'ü' | 'ű' | 'Ú' | 'Ù' | 'Û' | 'Ü' | 'Ű' => "u",
+        'ç' | 'č' | 'ć' | 'Ç' | 'Č' | 'Ć' => "c",
+        'ñ' | 'ň' | 'ń' | 'Ñ' | 'Ň' | 'Ń' => "n",
+        'ý' | 'ÿ' | 'Ý' | 'Ÿ' => "y",
+        'ž' | 'ź' | 'ż' | 'Ž' | 'Ź' | 'Ż' => "z",
+        'š' | 'ś' | 'ş' | 'Š' | 'Ś' | 'Ş' => "s",
+        'ř' | 'ŕ' | 'Ř' | 'Ŕ' => "r",
+        'ď' | 'đ' | 'Ď' | 'Đ' => "d",
+        'ť' | 'ţ' | 'Ť' | 'Ţ' => "t",
+        'ł' | 'ľ' | 'ĺ' | 'Ł' | 'Ľ' | 'Ĺ' => "l",
+        'ß' => "ss",
+        _ => "",
+    }
+}
+
+// Lowercase + fold diacritics + keep only alphanumeric chars and spaces, then collapse whitespace.
+pub fn normalise_for_match(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = true;
+    for c in s.chars() {
+        let folded = fold_diacritic(c);
+        if !folded.is_empty() {
+            out.push_str(folded);
+            prev_space = false;
+        } else if c.is_alphanumeric() {
+            for lc in c.to_lowercase() {
+                out.push(lc);
             }
-        })
-        .collect();
-    mapped.split_whitespace().collect::<Vec<_>>().join(" ")
+            prev_space = false;
+        } else if !prev_space {
+            out.push(' ');
+            prev_space = true;
+        }
+    }
+    out.trim().to_string()
+}
+
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = y - if m <= 2 { 1 } else { 0 };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+pub fn xmltv_to_epoch(ts: &str) -> Option<i64> {
+    let trimmed = ts.trim();
+    if trimmed.len() < 12 {
+        return None;
+    }
+    let digits_end = trimmed
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(trimmed.len());
+    let dt_part = &trimmed[..digits_end];
+    if dt_part.len() < 12 {
+        return None;
+    }
+
+    let y: i64 = dt_part.get(0..4)?.parse().ok()?;
+    let m: i64 = dt_part.get(4..6)?.parse().ok()?;
+    let d: i64 = dt_part.get(6..8)?.parse().ok()?;
+    let h: i64 = dt_part.get(8..10)?.parse().ok()?;
+    let min: i64 = dt_part.get(10..12)?.parse().ok()?;
+    let sec: i64 = if dt_part.len() >= 14 {
+        dt_part.get(12..14)?.parse().ok()?
+    } else {
+        0
+    };
+
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) || h > 23 || min > 59 || sec > 59 {
+        return None;
+    }
+
+    let mut tz_offset_secs: i64 = 0;
+    let rest = trimmed[digits_end..].trim();
+    if !rest.is_empty() && !rest.eq_ignore_ascii_case("Z") {
+        let sign = if rest.starts_with('-') {
+            -1
+        } else if rest.starts_with('+') {
+            1
+        } else {
+            0
+        };
+        if sign != 0 {
+            let tz_digits: String = rest[1..].chars().filter(|c| c.is_ascii_digit()).collect();
+            if tz_digits.len() >= 4 {
+                let tz_h: i64 = tz_digits[0..2].parse().ok()?;
+                let tz_m: i64 = tz_digits[2..4].parse().ok()?;
+                tz_offset_secs = sign * (tz_h * 3600 + tz_m * 60);
+            }
+        }
+    }
+
+    let days = days_from_civil(y, m, d);
+    Some(days * 86400 + h * 3600 + min * 60 + sec - tz_offset_secs)
 }
 
 // Score how well a TMDB candidate title matches the cleaned query.
 // Returns a value in roughly [0.0, 1.5]; higher is better.
-fn tmdb_title_score(
+pub(crate) fn tmdb_title_score(
     query: &str,
     cand_title: &str,
     cand_orig: Option<&str>,
@@ -3704,7 +3681,7 @@ fn is_tmdb_v4_key(key: &str) -> bool {
     key.starts_with("eyJ") || key.len() > 40
 }
 
-fn apply_tmdb_auth(req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
+pub(crate) fn apply_tmdb_auth(req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
     if is_tmdb_v4_key(api_key) {
         req.header("Authorization", format!("Bearer {}", api_key))
     } else {
@@ -3724,7 +3701,7 @@ fn build_tmdb_search_req(
     apply_tmdb_auth(req, api_key)
 }
 
-async fn get_tmdb_api_key_from_state(state: &AppState) -> Option<String> {
+pub(crate) async fn get_tmdb_api_key_from_state(state: &AppState) -> Option<String> {
     let conn = state.db.lock().await;
     let key: Option<String> = conn.query_row(
         "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
@@ -3890,6 +3867,7 @@ async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang
         &clean,
         &target_lang,
         &api_key,
+        true,
     ).await?;
 
     Ok(Some(details))
@@ -3897,51 +3875,60 @@ async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang
 
 async fn fetch_tmdb_item_details(
     state: &AppState,
-    item: TmdbRawItem,
+    mut item: TmdbRawItem,
     clean: &str,
     target_lang: &str,
     api_key: &str,
+    overwrite_cache: bool,
 ) -> Result<TmdbDetails, String> {
     let tmdb_id = item.id;
-    let media_type = item.media_type.unwrap_or_else(|| "movie".to_string());
+    let media_type = item.media_type.take().unwrap_or_else(|| "movie".to_string());
     let display_title = item.title.clone().or_else(|| item.name.clone()).unwrap_or_else(|| clean.to_string());
     let orig_title = item.original_title.clone().or_else(|| item.original_name.clone());
     let rel_date = item.release_date.clone().or_else(|| item.first_air_date.clone());
 
-    // Translations request to find hu_title and en_title
     let mut hu_title: Option<String> = None;
     let mut en_title: Option<String> = None;
     let mut hu_overview: Option<String> = None;
 
-    let trans_url = format!("https://api.themoviedb.org/3/{}/{}/translations", media_type, tmdb_id);
-    let trans_req = apply_tmdb_auth(
-        state.http.get(&trans_url).header("Accept", "application/json"),
-        api_key,
-    );
+    let trans_data_opt = if let Some(embedded) = item.translations.take() {
+        Some(embedded)
+    } else {
+        let trans_url = format!("https://api.themoviedb.org/3/{}/{}/translations", media_type, tmdb_id);
+        let trans_req = apply_tmdb_auth(
+            state.http.get(&trans_url).header("Accept", "application/json"),
+            api_key,
+        );
+        if let Ok(trans_resp) = trans_req.send().await {
+            if let Ok(trans_text) = trans_resp.text().await {
+                serde_json::from_str::<TmdbTranslationsResponse>(&trans_text).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
 
-    if let Ok(trans_resp) = trans_req.send().await {
-        if let Ok(trans_text) = trans_resp.text().await {
-            if let Ok(trans_data) = serde_json::from_str::<TmdbTranslationsResponse>(&trans_text) {
-                if let Some(translations) = trans_data.translations {
-                    for t in translations {
-                        if t.iso_639_1 == "hu" {
-                            if let Some(d) = t.data {
-                                let t_title = d.title.or(d.name).filter(|s| !s.trim().is_empty());
-                                if t_title.is_some() {
-                                    hu_title = t_title;
-                                }
-                                let t_over = d.overview.filter(|s| !s.trim().is_empty());
-                                if t_over.is_some() {
-                                    hu_overview = t_over;
-                                }
-                            }
-                        } else if t.iso_639_1 == "en" {
-                            if let Some(d) = t.data {
-                                let t_title = d.title.or(d.name).filter(|s| !s.trim().is_empty());
-                                if t_title.is_some() {
-                                    en_title = t_title;
-                                }
-                            }
+    if let Some(trans_data) = trans_data_opt {
+        if let Some(translations) = trans_data.translations {
+            for t in translations {
+                if t.iso_639_1 == "hu" {
+                    if let Some(d) = t.data {
+                        let t_title = d.title.or(d.name).filter(|s| !s.trim().is_empty());
+                        if t_title.is_some() {
+                            hu_title = t_title;
+                        }
+                        let t_over = d.overview.filter(|s| !s.trim().is_empty());
+                        if t_over.is_some() {
+                            hu_overview = t_over;
+                        }
+                    }
+                } else if t.iso_639_1 == "en" {
+                    if let Some(d) = t.data {
+                        let t_title = d.title.or(d.name).filter(|s| !s.trim().is_empty());
+                        if t_title.is_some() {
+                            en_title = t_title;
                         }
                     }
                 }
@@ -3981,13 +3968,21 @@ async fn fetch_tmdb_item_details(
         release_date: rel_date,
     };
 
-    // Save to cache
-    let conn = state.db.lock().await;
-    conn.execute(
+    let sql = if overwrite_cache {
         "INSERT OR REPLACE INTO tmdb_cache (
             query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
             original_language, poster_path, backdrop_path, overview, vote_average, release_date, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now', 'localtime'))",
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now', 'localtime'))"
+    } else {
+        "INSERT OR IGNORE INTO tmdb_cache (
+            query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
+            original_language, poster_path, backdrop_path, overview, vote_average, release_date, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now', 'localtime'))"
+    };
+
+    let conn = state.db.lock().await;
+    conn.execute(
+        sql,
         params![
             clean,
             target_lang,
@@ -4009,6 +4004,127 @@ async fn fetch_tmdb_item_details(
     Ok(details)
 }
 
+pub async fn get_tmdb_by_id(
+    state: &AppState,
+    tmdb_id: i64,
+    media_type: &str,
+    lang: &str,
+    cache_key_override: Option<&str>,
+    force_refresh: bool,
+) -> Result<TmdbDetails, String> {
+    if !force_refresh {
+        let conn = state.db.lock().await;
+        let cached = if let Some(key) = cache_key_override {
+            conn.query_row(
+                "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
+                 FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
+                params![key, lang],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<i64>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, Option<String>>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                        row.get::<_, Option<String>>(9)?,
+                        row.get::<_, Option<f64>>(10)?,
+                        row.get::<_, Option<String>>(11)?,
+                    ))
+                },
+            ).ok()
+        } else {
+            conn.query_row(
+                "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
+                 FROM tmdb_cache WHERE tmdb_id = ?1 AND media_type = ?2 AND lang = ?3 LIMIT 1",
+                params![tmdb_id, media_type, lang],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<i64>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
+                        row.get::<_, Option<String>>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                        row.get::<_, Option<String>>(9)?,
+                        row.get::<_, Option<f64>>(10)?,
+                        row.get::<_, Option<String>>(11)?,
+                    ))
+                },
+            ).ok()
+        };
+
+        if let Some((Some(cached_id), media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
+            if media.as_deref() != Some("none") {
+                return Ok(TmdbDetails {
+                    tmdb_id: cached_id,
+                    title: title.unwrap_or_default(),
+                    hu_title,
+                    en_title,
+                    original_title,
+                    original_language,
+                    media_type: media,
+                    poster_path,
+                    backdrop_path,
+                    overview,
+                    vote_average,
+                    release_date,
+                });
+            }
+        }
+    }
+
+    let api_key = match get_tmdb_api_key_from_state(state).await {
+        Some(k) => k,
+        _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
+    };
+
+    let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
+    let details_req = apply_tmdb_auth(
+        state.http.get(&details_url)
+            .header("Accept", "application/json")
+            .query(&[
+                ("language", lang),
+                ("append_to_response", "translations,external_ids"),
+            ]),
+        &api_key,
+    );
+
+    let resp = details_req.send().await.map_err(|e| format!("TMDB lekérési hiba: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("TMDB hiba ({}): {}", resp.status(), details_url));
+    }
+
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
+    raw_item.media_type = Some(media_type.to_string());
+
+    let fallback_title = raw_item
+        .title
+        .clone()
+        .or_else(|| raw_item.name.clone())
+        .unwrap_or_default();
+    let cache_key = cache_key_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| clean_title(&fallback_title));
+
+    fetch_tmdb_item_details(
+        state,
+        raw_item,
+        &cache_key,
+        lang,
+        &api_key,
+        cache_key_override.is_some(),
+    )
+    .await
+}
+
 #[tauri::command]
 async fn get_tmdb_details_for_lang(state: tauri::State<'_, AppState>, 
     tmdb_id: i64,
@@ -4021,74 +4137,7 @@ async fn get_tmdb_details_for_lang(state: tauri::State<'_, AppState>,
         if clean.is_empty() { query_title.trim().to_string() } else { clean }
     };
 
-    // Check cache first (keyed by query_title + lang)
-    let cached = {
-        let conn = state.db.lock().await;
-        conn.query_row(
-            "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
-             FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
-            params![cache_key, lang],
-            |row| {
-                let cached_id: Option<i64> = row.get(0)?;
-                let media: Option<String> = row.get(1)?;
-                let title: Option<String> = row.get(2)?;
-                let hu_title: Option<String> = row.get(3)?;
-                let en_title: Option<String> = row.get(4)?;
-                let original_title: Option<String> = row.get(5)?;
-                let original_language: Option<String> = row.get(6)?;
-                let poster_path: Option<String> = row.get(7)?;
-                let backdrop_path: Option<String> = row.get(8)?;
-                let overview: Option<String> = row.get(9)?;
-                let vote_average: Option<f64> = row.get(10)?;
-                let release_date: Option<String> = row.get(11)?;
-                Ok((cached_id, media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date))
-            }
-        ).ok()
-    };
-
-    if let Some((Some(cached_id), media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
-        if media.as_deref() != Some("none") {
-            return Ok(TmdbDetails {
-                tmdb_id: cached_id,
-                title: title.unwrap_or_else(|| cache_key.clone()),
-                hu_title,
-                en_title,
-                original_title,
-                original_language,
-                media_type: media,
-                poster_path,
-                backdrop_path,
-                overview,
-                vote_average,
-                release_date,
-            });
-        }
-    }
-
-    // Not in cache — fetch from TMDB by ID
-    let api_key = match get_tmdb_api_key_from_state(state.inner()).await {
-        Some(k) => k,
-        _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
-    };
-
-    let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
-    let details_req = apply_tmdb_auth(
-        state.http.get(&details_url)
-            .header("Accept", "application/json")
-            .query(&[("language", lang.as_str())]),
-        &api_key,
-    );
-
-    let resp = details_req.send().await.map_err(|e| format!("TMDB lekérési hiba: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("TMDB hiba ({}): {}", resp.status(), details_url));
-    }
-
-    let text = resp.text().await.map_err(|e| e.to_string())?;
-    let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
-    raw_item.media_type = Some(media_type);
-
-    fetch_tmdb_item_details(state.inner(), raw_item, &cache_key, &lang, &api_key).await
+    get_tmdb_by_id(state.inner(), tmdb_id, &media_type, &lang, Some(&cache_key), false).await
 }
 
 #[tauri::command]
@@ -4176,6 +4225,7 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
 
 #[tauri::command]
 async fn set_tmdb_match(state: tauri::State<'_, AppState>, 
+    app: tauri::AppHandle,
     query_title: String,
     tmdb_id: i64,
     media_type: String,
@@ -4188,53 +4238,37 @@ async fn set_tmdb_match(state: tauri::State<'_, AppState>,
     }
 
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
-
-    let api_key = match get_tmdb_api_key_from_state(state.inner()).await {
-        Some(k) => k,
-        _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
-    };
-
-    let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
-    let details_req = apply_tmdb_auth(
-        state.http.get(&details_url)
-            .header("Accept", "application/json")
-            .query(&[("language", target_lang.as_str())]),
-        &api_key,
-    );
-
-    let resp = details_req.send().await.map_err(|e| format!("TMDB lekérési hiba: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("TMDB hiba ({}): {}", resp.status(), details_url));
+    let details = get_tmdb_by_id(state.inner(), tmdb_id, &media_type, &target_lang, Some(&cache_key), true).await?;
+    trakt::matcher::invalidate_match_cache(state.inner()).await;
+    {
+        use tauri::Emitter;
+        let ver = state.trakt.watchlist_version.load(std::sync::atomic::Ordering::SeqCst);
+        let _ = app.emit("trakt-watchlist-changed", ver);
     }
-
-    let text = resp.text().await.map_err(|e| e.to_string())?;
-    let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
-    raw_item.media_type = Some(media_type);
-
-    let details = fetch_tmdb_item_details(
-        state.inner(),
-        raw_item,
-        &cache_key,
-        &target_lang,
-        &api_key,
-    ).await?;
-
     Ok(details)
 }
 
 #[tauri::command]
-async fn clear_tmdb_match(state: tauri::State<'_, AppState>, query_title: String, lang: Option<String>) -> Result<(), String> {
+async fn clear_tmdb_match(state: tauri::State<'_, AppState>, app: tauri::AppHandle, query_title: String, lang: Option<String>) -> Result<(), String> {
     let clean = clean_title(&query_title);
     let cache_key = if clean.is_empty() { query_title.trim().to_string() } else { clean };
     if cache_key.is_empty() {
         return Ok(());
     }
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
-    let conn = state.db.lock().await;
-    conn.execute(
-        "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
-        params![cache_key, target_lang],
-    ).map_err(|e| e.to_string())?;
+    {
+        let conn = state.db.lock().await;
+        conn.execute(
+            "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
+            params![cache_key, target_lang],
+        ).map_err(|e| e.to_string())?;
+    }
+    trakt::matcher::invalidate_match_cache(state.inner()).await;
+    {
+        use tauri::Emitter;
+        let ver = state.trakt.watchlist_version.load(std::sync::atomic::Ordering::SeqCst);
+        let _ = app.emit("trakt-watchlist-changed", ver);
+    }
     Ok(())
 }
 
@@ -4356,9 +4390,12 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
                         params![curr_ch_id, source_id, curr_ch_name, curr_ch_icon],
                     ).ok();
                 } else if name == "programme" {
+                    let title_norm = normalise_for_match(&clean_title(&curr_prog_title));
+                    let start_ts = xmltv_to_epoch(&curr_prog_start);
+                    let stop_ts = xmltv_to_epoch(&curr_prog_stop);
                     tx.execute(
-                        "INSERT INTO programmes (channel_id, source_id, start, stop, title, desc) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                        params![curr_prog_ch, source_id, curr_prog_start, curr_prog_stop, curr_prog_title, curr_prog_desc],
+                        "INSERT INTO programmes (channel_id, source_id, start, stop, title, desc, title_norm, start_ts, stop_ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                        params![curr_prog_ch, source_id, curr_prog_start, curr_prog_stop, curr_prog_title, curr_prog_desc, title_norm, start_ts, stop_ts],
                     ).ok();
                 }
                 current_tag.clear();
@@ -4412,9 +4449,75 @@ fn apply_windows_dark_titlebar(hwnd: isize) {
     }
 }
 
+fn validate_http_url(url: &str) -> Result<&str, String> {
+    let u = url.trim();
+    if !u.starts_with("http://") && !u.starts_with("https://") {
+        return Err("Csak http(s) URL nyitható meg.".to_string());
+    }
+    Ok(u)
+}
+
 #[tauri::command]
-fn open_url(url: String) {
-    let _ = open::that(url);
+fn open_url(url: String) -> Result<(), String> {
+    let u = validate_http_url(&url)?;
+    open::that(u).map_err(|e| e.to_string())
+}
+
+fn spawn_programmes_backfill(app_handle: tauri::AppHandle) {
+    use tauri::Manager;
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let state = app_handle.state::<AppState>();
+            let updated_count = {
+                let mut conn = state.db.lock().await;
+                let rows: Vec<(i64, String, String, String)> = {
+                    let mut stmt = match conn.prepare(
+                        "SELECT id, title, start, stop FROM programmes WHERE title_norm IS NULL LIMIT 5000",
+                    ) {
+                        Ok(s) => s,
+                        Err(_) => break,
+                    };
+                    let mapped = match stmt.query_map([], |r| {
+                        Ok((
+                            r.get::<_, i64>(0)?,
+                            r.get::<_, String>(1).unwrap_or_default(),
+                            r.get::<_, String>(2).unwrap_or_default(),
+                            r.get::<_, String>(3).unwrap_or_default(),
+                        ))
+                    }) {
+                        Ok(m) => m,
+                        Err(_) => break,
+                    };
+                    mapped.flatten().collect()
+                };
+
+                if rows.is_empty() {
+                    0
+                } else {
+                    let count = rows.len();
+                    if let Ok(tx) = conn.transaction() {
+                        if let Ok(mut upd) = tx.prepare(
+                            "UPDATE programmes SET title_norm = ?1, start_ts = ?2, stop_ts = ?3 WHERE id = ?4",
+                        ) {
+                            for (id, title, start, stop) in rows {
+                                let norm = normalise_for_match(&clean_title(&title));
+                                let s_ts = xmltv_to_epoch(&start);
+                                let e_ts = xmltv_to_epoch(&stop);
+                                let _ = upd.execute(params![norm, s_ts, e_ts, id]);
+                            }
+                        }
+                        let _ = tx.commit();
+                    }
+                    count
+                }
+            };
+
+            if updated_count == 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    });
 }
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/159.0.0.0 Safari/537.36 EPGViewer/1.0";
@@ -4441,11 +4544,15 @@ fn main() {
         .build()
         .expect("EPG HTTP kliens létrehozási hiba");
 
+    let db_conn = open_and_init_db().expect("Adatbázis inicializálási hiba");
+    let trakt_state = trakt::TraktState::new(&db_conn);
+
     tauri::Builder::default()
         .manage(AppState {
-            db: Mutex::new(open_and_init_db()),
+            db: Mutex::new(db_conn),
             http: http_client,
             http_epg: http_epg_client,
+            trakt: trakt_state,
         })
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -4457,6 +4564,27 @@ fn main() {
                     }
                 }
             }
+            spawn_programmes_backfill(app.handle().clone());
+            let startup_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::Manager;
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                let st = startup_handle.state::<AppState>();
+                let should_sync = {
+                    let conn = st.db.lock().await;
+                    trakt::is_trakt_enabled(&conn)
+                        && conn
+                            .query_row(
+                                "SELECT EXISTS(SELECT 1 FROM trakt_auth WHERE id = 1 AND access_blob != '')",
+                                [],
+                                |r| r.get::<_, bool>(0),
+                            )
+                            .unwrap_or(false)
+                };
+                if should_sync {
+                    let _ = trakt::sync::run_sync(st.inner(), Some(&startup_handle), false).await;
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -4519,7 +4647,32 @@ fn main() {
             search_tmdb,
             set_tmdb_match,
             clear_tmdb_match,
-            open_url
+            open_url,
+            trakt::commands::trakt_get_auth_status,
+            trakt::commands::trakt_start_login,
+            trakt::commands::trakt_cancel_login,
+            trakt::commands::trakt_logout,
+            trakt::commands::trakt_set_enabled,
+            trakt::commands::trakt_set_custom_keys,
+            trakt::commands::trakt_sync,
+            trakt::commands::trakt_get_sync_status,
+            trakt::commands::trakt_get_dashboard_data,
+            trakt::commands::trakt_mark_watched,
+            trakt::commands::trakt_watchlist_add,
+            trakt::commands::trakt_watchlist_remove,
+            trakt::commands::trakt_get_watchlist,
+            trakt::commands::trakt_get_show_seasons_progress,
+            trakt::commands::trakt_get_calendar_my,
+            trakt::commands::trakt_get_calendar_global,
+            trakt::commands::trakt_match_titles,
+            trakt::commands::trakt_find_epg_airings,
+            trakt::commands::trakt_get_stats,
+            trakt::commands::trakt_clear_cache,
+            trakt::commands::trakt_rebuild_index,
+            trakt::commands::trakt_resolve_for_title,
+            trakt::commands::trakt_resolve_tmdb_poster,
+            trakt::commands::get_tmdb_details_by_id,
+            trakt::commands::trakt_on_window_focus
         ])
         .run(tauri::generate_context!())
         .expect("Hiba a Tauri indításakor");
@@ -4894,6 +5047,74 @@ mod tests {
         assert_eq!(mime_to_extension("image/svg+xml"), "svg");
         assert_eq!(mime_to_extension("image/jpeg"), "jpg");
         assert_eq!(mime_to_extension("image/png"), "png");
+    }
+
+    #[test]
+    fn test_xmltv_to_epoch() {
+        assert_eq!(xmltv_to_epoch("19700101000000 +0000"), Some(0));
+        assert_eq!(xmltv_to_epoch("20261118200000 +0100"), xmltv_to_epoch("20261118190000 +0000"));
+        assert_eq!(xmltv_to_epoch("20261118200000 -0500"), xmltv_to_epoch("20261119010000 +0000"));
+        assert_eq!(xmltv_to_epoch("202611182000"), xmltv_to_epoch("20261118200000 +0000"));
+        assert_eq!(xmltv_to_epoch("20240229120000Z"), xmltv_to_epoch("20240229120000 +0000"));
+        assert_eq!(xmltv_to_epoch("invalid"), None);
+    }
+
+    #[test]
+    fn test_normalise_for_match_diacritics() {
+        assert_eq!(normalise_for_match("A mi kis falunk"), "a mi kis falunk");
+        assert_eq!(normalise_for_match("Őrült szerelem: 2. rész!"), "orult szerelem 2 resz");
+        assert_eq!(normalise_for_match("  Dr. Csont (Bones)  "), "dr csont bones");
+    }
+
+    #[test]
+    fn test_validate_http_url() {
+        assert!(validate_http_url("https://trakt.tv/activate").is_ok());
+        assert!(validate_http_url("http://localhost:8080").is_ok());
+        assert!(validate_http_url("file:///C:/Windows/System32/calc.exe").is_err());
+        assert!(validate_http_url("javascript:alert(1)").is_err());
+        assert!(validate_http_url("cmd.exe").is_err());
+    }
+
+    #[test]
+    fn test_get_cached_logo_query_without_view() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS images_db", []).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE images_db.images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sha256 TEXT NOT NULL UNIQUE,
+                mime_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL,
+                data TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE images_db.image_urls (
+                url TEXT PRIMARY KEY,
+                image_id INTEGER NOT NULL,
+                image_type TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );",
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO images_db.images (sha256, mime_type, byte_size, data, created_at)
+             VALUES ('abc', 'image/jpeg', 10, 'data:image/jpeg;base64,xyz', '2026-11-18')",
+            [],
+        ).unwrap();
+        let img_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO images_db.image_urls (url, image_id, image_type, created_at)
+             VALUES ('https://image.tmdb.org/t/p/original/test.jpg', ?1, 'poster', '2026-11-18')",
+            params![img_id],
+        ).unwrap();
+
+        let res: Option<String> = conn.query_row(
+            "SELECT img.data FROM images_db.image_urls iu
+             JOIN images_db.images img ON img.id = iu.image_id
+             WHERE iu.url = ?1",
+            params!["https://image.tmdb.org/t/p/original/test.jpg"],
+            |row| row.get(0),
+        ).ok();
+        assert_eq!(res.as_deref(), Some("data:image/jpeg;base64,xyz"));
     }
 }
 
