@@ -4,8 +4,7 @@
     "beforeDevCommand": "",
     "beforeBuildCommand": "",
     "devUrl": null,
-    "frontendDist": "../public",
-    "windows": { "staticVCRuntime": true }
+    "frontendDist": "../public"
   },
   "app": {
     "withGlobalTauri": true,
