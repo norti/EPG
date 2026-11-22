@@ -349,5 +349,10 @@
   "trakt_custom_client_id_placeholder": "Custom Trakt Client ID (optional)",
   "trakt_custom_secret_placeholder": "Custom Client Secret (optional, DPAPI encrypted)",
   "trakt_custom_secret_saved_placeholder": "Saved custom Client Secret (leave blank to keep)",
-  "trakt_custom_keys_saved": "Custom Trakt API keys saved!"
+  "trakt_custom_keys_saved": "Custom Trakt API keys saved!",
+  "trakt_btn_jump_epg": "Jump to programme in EPG",
+  "trakt_btn_fav_add": "Add to favorite programmes",
+  "trakt_btn_fav_remove": "Remove from favorite programmes",
+  "trakt_jumping_to_epg": "Jumping to programme in EPG...",
+  "trakt_continue_badge": "Continue"
 }

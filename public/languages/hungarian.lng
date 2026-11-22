@@ -349,5 +349,10 @@
   "trakt_custom_client_id_placeholder": "Egyéni Trakt Client ID (opcionális)",
   "trakt_custom_secret_placeholder": "Egyéni Client Secret (opcionális, DPAPI titkosítva)",
   "trakt_custom_secret_saved_placeholder": "Mentett egyéni Client Secret (hagyd üresen a megtartáshoz)",
-  "trakt_custom_keys_saved": "Egyéni Trakt API kulcsok mentve!"
+  "trakt_custom_keys_saved": "Egyéni Trakt API kulcsok mentve!",
+  "trakt_btn_jump_epg": "Ugrás a műsorhoz az EPG-ben",
+  "trakt_btn_fav_add": "Hozzáadás a kedvenc műsorokhoz",
+  "trakt_btn_fav_remove": "Eltávolítás a kedvenc műsorokból",
+  "trakt_jumping_to_epg": "Ugrás a műsorhoz az EPG-ben...",
+  "trakt_continue_badge": "Folytatás"
 }

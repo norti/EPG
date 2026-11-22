@@ -1079,8 +1079,8 @@ input[type="text"] {
   background: var(--bg-modal);
   border: 1px solid var(--border-modal);
   border-radius: 10px;
-  width: 90%;
-  max-width: 860px;
+  width: 92%;
+  max-width: 1032px;
   max-height: 88vh;
   padding: 22px;
   position: relative;
@@ -1121,9 +1121,16 @@ input[type="text"] {
   align-items: flex-start;
 }
 
-.modal-poster-col {
+.modal-left-col {
   flex-shrink: 0;
   width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-poster-col {
+  width: 100%;
   border-radius: 8px;
   overflow: hidden;
   box-shadow: var(--shadow-poster);
@@ -1133,13 +1140,37 @@ input[type="text"] {
   cursor: zoom-in;
 }
 
+.modal-poster-trakt-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.modal-poster-trakt-meta .trakt-modal-wl-btn {
+  width: 100%;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.trakt-poster-network {
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 650px) {
   .modal-inner {
     flex-direction: column;
     align-items: center;
   }
-  .modal-poster-col {
+  .modal-left-col {
     width: 140px;
+  }
+  .modal-poster-col {
+    width: 100%;
   }
 }
 .modal-poster-img {
@@ -2729,10 +2760,6 @@ input[type="text"] {
   overflow-y: auto;
 }
 
-#headerSortSelect {
-  max-width: 190px;
-}
-
 /* Channels tab */
 .channels-source-row {
   display: flex;
@@ -3892,6 +3919,13 @@ body.trakt-mode #epgViewport {
   font-weight: 500;
   white-space: nowrap;
 }
+.trakt-pcard-time.trakt-continue-pill {
+  color: var(--accent-yellow-light);
+  font-weight: 600;
+}
+.trakt-poster-card.trakt-card-continue {
+  border-color: rgba(241, 196, 15, 0.28);
+}
 .trakt-pcard-ep {
   font-size: 11px;
   color: var(--text-secondary);
@@ -4124,6 +4158,15 @@ body.trakt-mode #epgViewport {
   align-items: center;
   gap: 8px;
 }
+.trakt-cal-active-day {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-yellow-light);
+  display: inline-flex;
+  align-items: center;
+  padding-left: 6px;
+  border-left: 1px solid var(--border-modal-divider);
+}
 .trakt-filter-pills {
   display: flex;
   gap: 6px;
@@ -4226,6 +4269,8 @@ body.trakt-mode #epgViewport {
 }
 
 .trakt-calendar-days {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -4237,6 +4282,7 @@ body.trakt-mode #epgViewport {
   border: 1px solid var(--border-modal-card);
   border-radius: 8px;
   padding: 10px 12px;
+  flex-shrink: 0;
 }
 .trakt-cal-day-header {
   font-size: 13px;
@@ -4437,11 +4483,15 @@ body.trakt-mode #epgViewport {
 .trakt-drawer-split {
   display: grid;
   grid-template-columns: 160px 1fr;
+  grid-template-rows: minmax(0, 1fr);
   max-height: 260px;
+  overflow: hidden;
 }
 .trakt-seasons-sidebar {
   border-right: 1px solid var(--border-modal-divider);
   overflow-y: auto;
+  min-height: 0;
+  max-height: 260px;
   display: flex;
   flex-direction: column;
   padding: 6px;
@@ -4460,6 +4510,7 @@ body.trakt-mode #epgViewport {
   align-items: center;
   justify-content: space-between;
   text-align: left;
+  flex-shrink: 0;
 }
 .trakt-season-btn:hover {
   background: var(--bg-sidebar-hover);
@@ -4472,6 +4523,8 @@ body.trakt-mode #epgViewport {
 }
 .trakt-episodes-list {
   overflow-y: auto;
+  min-height: 0;
+  max-height: 260px;
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -4485,6 +4538,7 @@ body.trakt-mode #epgViewport {
   border-radius: 5px;
   background: var(--bg-modal-card);
   border: 1px solid var(--border-modal-card-alt);
+  flex-shrink: 0;
 }
 .trakt-ep-row.is-watched {
   border-color: rgba(46, 204, 113, 0.35);
@@ -4520,7 +4574,7 @@ body.trakt-mode #epgViewport {
   line-height: 1.35;
 }
 .trakt-epg-airings-list {
-  max-height: 160px;
+  max-height: 180px;
   overflow-y: auto;
   padding: 8px;
   display: flex;
@@ -4528,22 +4582,137 @@ body.trakt-mode #epgViewport {
   gap: 6px;
 }
 .trakt-airing-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 26px 26px 142px 92px 54px minmax(0, 1.2fr) minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 6px 8px;
   background: var(--bg-modal-card);
   border-radius: 5px;
   font-size: 12px;
+  flex-shrink: 0;
 }
-.trakt-airing-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.trakt-airing-icon-btn {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid var(--border-input);
+  background: var(--bg-btn-secondary);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.trakt-airing-jump-btn:hover {
+  background: rgba(33, 150, 243, 0.2);
+  border-color: var(--trakt-watchlist-active);
+  color: #90cdf4;
+}
+.trakt-airing-fav-btn:hover {
+  border-color: var(--accent-yellow);
+  color: var(--accent-yellow);
+}
+.trakt-airing-fav-btn.active {
+  color: var(--accent-yellow);
+  border-color: rgba(241, 196, 15, 0.5);
+  background: rgba(241, 196, 15, 0.12);
+}
+.trakt-airing-date {
   color: var(--text-primary);
   font-weight: 600;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trakt-airing-day-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-btn-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-input);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+  width: 100%;
+}
+.trakt-airing-day-pill.is-today {
+  background: rgba(46, 204, 113, 0.18);
+  border-color: rgba(46, 204, 113, 0.5);
+  color: var(--trakt-watched-done);
+}
+.trakt-airing-day-pill.is-tomorrow {
+  background: rgba(33, 150, 243, 0.18);
+  border-color: rgba(33, 150, 243, 0.5);
+  color: #90cdf4;
+}
+.trakt-airing-time-pill {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+.trakt-airing-channel {
+  margin-left: 0;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+.trakt-airing-source {
+  width: 100%;
+  box-sizing: border-box;
+}
+@keyframes trakt-jump-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--trakt-watchlist-active), 0 0 14px rgba(33, 150, 243, 0.75);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--accent-yellow), 0 0 20px rgba(241, 196, 15, 0.85);
+  }
+}
+.programme.trakt-jump-flash {
+  z-index: 30;
+  animation: trakt-jump-pulse 0.8s ease-in-out 3;
+}
+
+.jump-progress-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 18, 0.72);
+  backdrop-filter: blur(2px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.jump-progress-card {
+  background: var(--bg-modal);
+  border: 1px solid var(--trakt-watchlist-active);
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow-modal);
 }
 
 /* Settings Trakt Tab */
@@ -4687,6 +4856,7 @@ body.trakt-mode #epgViewport {
   }
   .trakt-drawer-split {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
     max-height: none;
   }
   .trakt-seasons-sidebar {
@@ -4694,6 +4864,14 @@ body.trakt-mode #epgViewport {
     border-bottom: 1px solid var(--border-modal-divider);
     flex-direction: row;
     overflow-x: auto;
+    max-height: none;
+  }
+  .trakt-episodes-list {
+    max-height: 260px;
+  }
+  .trakt-airing-row {
+    grid-template-columns: 26px 26px 118px 76px 48px minmax(0, 1fr) minmax(0, 0.9fr);
+    gap: 4px;
   }
 }
 

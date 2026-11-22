@@ -216,8 +216,9 @@
 
   function renderEpisodeCard(ep, options = {}) {
     const isPosterCard = !!options.posterCard;
+    const isContinue = !!(options.isContinueWatching || ep.isContinueWatching);
     const card = document.createElement('div');
-    card.className = `${isPosterCard ? 'trakt-poster-card' : 'trakt-card'} ${options.compact ? 'trakt-card-compact' : ''} ${ep.watched ? 'trakt-card-watched' : ''}`;
+    card.className = `${isPosterCard ? 'trakt-poster-card' : 'trakt-card'} ${options.compact ? 'trakt-card-compact' : ''} ${isContinue ? 'trakt-card-continue' : ''} ${ep.watched ? 'trakt-card-watched' : ''}`;
 
     const thumb = createThumbElement(ep.posterPath, 'w342', 'device-tv', ep.showTmdbId, 'tv');
     if (isPosterCard) {
@@ -243,6 +244,10 @@
       const locale = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
       datePrefix = d.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ';
     }
+    const continueLabel = isContinue
+      ? (ep.aired > 0 ? `${t('trakt_continue_badge')} · ${ep.completed}/${ep.aired}` : t('trakt_continue_badge'))
+      : '';
+    const rightMetaText = isContinue ? continueLabel : `${datePrefix}${localTime}`;
     const netHtml = ep.network ? `<span class="trakt-card-network">${esc(ep.network)}</span>` : '';
 
     const info = document.createElement('div');
@@ -250,9 +255,9 @@
       info.className = 'trakt-poster-card-body';
       info.innerHTML = `
         <div class="trakt-pcard-show" title="${esc(showTitle)}">${esc(showTitle)}</div>
-        <div class="trakt-pcard-code" title="${esc(epCode + ' · ' + datePrefix + localTime)}">
+        <div class="trakt-pcard-code" title="${esc(epCode + (rightMetaText ? ' · ' + rightMetaText : ''))}">
           <span>${esc(epCode)}</span>
-          <span class="trakt-pcard-time">${esc(datePrefix + localTime)}</span>
+          <span class="trakt-pcard-time ${isContinue ? 'trakt-continue-pill' : ''}">${esc(rightMetaText)}</span>
         </div>
         <div class="trakt-pcard-ep" title="${esc(epName)}">${esc(epName || '—')}</div>
       `;
@@ -262,7 +267,7 @@
         <div class="trakt-card-show" title="${esc(showTitle)}">${esc(showTitle)}</div>
         <div class="trakt-card-ep" title="${esc(epCode + epTitleSuffix)}">${esc(epCode + epTitleSuffix)}</div>
         <div class="trakt-card-meta">
-          <span class="trakt-card-time">${esc(datePrefix + localTime)}</span>
+          <span class="trakt-card-time">${esc(rightMetaText)}</span>
           ${netHtml}
         </div>
       `;
@@ -351,7 +356,7 @@
           posterPath: ep.posterPath,
           network: ep.network,
           onWatchlist: ep.onWatchlist,
-          subtitle: `${epCode}${epTitleSuffix} · ${datePrefix}${localTime}`,
+          subtitle: `${epCode}${epTitleSuffix}${rightMetaText ? ' · ' + rightMetaText : ''}`,
         });
       }
     };
@@ -414,6 +419,12 @@
         watchedAt: (res && res.watchedAt) || new Date().toISOString(),
         posterPath: ep.posterPath,
       });
+
+      if (ep.isContinueWatching && !(res && res.queued) && window.TraktUI?.refreshDashboardIfActive) {
+        setTimeout(() => {
+          window.TraktUI.refreshDashboardIfActive();
+        }, 650);
+      }
     } catch (err) {
       btn.disabled = false;
       btn.classList.remove('is-pending');
@@ -502,13 +513,40 @@
       lang
     );
 
+    const todayEpIds = new Set(split.today.map((e) => e.episodeTraktId));
+    const todayShowEpKeys = new Set(
+      split.today.map((e) => `${e.showTraktId}:${e.season}:${e.number}`)
+    );
+    const nowMs = Date.now();
+    const continueItems = (data.continueWatching || [])
+      .filter((cw) => {
+        if (
+          todayEpIds.has(cw.episodeTraktId) ||
+          todayShowEpKeys.has(`${cw.showTraktId}:${cw.season}:${cw.number}`)
+        ) {
+          return false;
+        }
+        if (!cw.firstAired) return false;
+        const airedMs = new Date(cw.firstAired).getTime();
+        return !isNaN(airedMs) && airedMs <= nowMs;
+      })
+      .map((cw) => ({
+        ...cw,
+        watched: false,
+        isContinueWatching: true,
+      }));
+    const todayCombined = [
+      ...split.today.map((ep) => ({ ...ep, isContinueWatching: false })),
+      ...continueItems,
+    ];
+
     viewport.innerHTML = `
       <div class="trakt-dashboard">
         <div class="trakt-dash-top">
           <section class="trakt-dash-panel trakt-dash-today">
             <div class="trakt-panel-header">
               <span class="trakt-panel-title">${esc(t('trakt_today_title'))}</span>
-              <span class="trakt-panel-count">${split.today.length}</span>
+              <span class="trakt-panel-count">${todayCombined.length}</span>
             </div>
             <div class="trakt-panel-list custom-scroll" id="traktTodayList"></div>
           </section>
@@ -544,11 +582,17 @@
     ensureImageObserver(viewport);
 
     const todayList = document.getElementById('traktTodayList');
-    if (split.today.length === 0) {
+    if (todayCombined.length === 0) {
       todayList.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_no_today_premieres'))}</div>`;
     } else {
-      split.today.forEach((ep) =>
-        todayList.appendChild(renderEpisodeCard(ep, { showWatched: true, posterCard: true }))
+      todayCombined.forEach((ep) =>
+        todayList.appendChild(
+          renderEpisodeCard(ep, {
+            showWatched: true,
+            posterCard: true,
+            isContinueWatching: !!ep.isContinueWatching,
+          })
+        )
       );
     }
 
@@ -765,6 +809,7 @@
       <div class="trakt-subview">
         <div class="trakt-subview-toolbar">
           <h2 class="trakt-subview-title">${iconHtml(iconName, 20)} ${esc(t(titleKey))}</h2>
+          <span class="trakt-cal-active-day" id="traktCalActiveDay" style="display:none;"></span>
           <span class="trakt-panel-count">${filtered.length}</span>
         </div>
         <div class="trakt-calendar-days custom-scroll" id="traktCalendarDays"></div>
@@ -802,6 +847,7 @@
         today: t('day_today'),
         tomorrow: t('day_tomorrow'),
       });
+      section.dataset.dayHeading = heading;
 
       section.innerHTML = `<div class="trakt-cal-day-header">${esc(heading)}</div>`;
       const list = document.createElement('div');
@@ -819,6 +865,37 @@
       section.appendChild(list);
       container.appendChild(section);
     });
+
+    const activeDayEl = document.getElementById('traktCalActiveDay');
+    const updateActiveDay = () => {
+      if (!activeDayEl || !container.isConnected) return;
+      if (container.scrollTop <= 8) {
+        activeDayEl.style.display = 'none';
+        activeDayEl.textContent = '';
+        return;
+      }
+      const containerTop = container.getBoundingClientRect().top;
+      const groups = container.querySelectorAll('.trakt-cal-day-group');
+      let currentHeading = '';
+      for (const g of groups) {
+        const rect = g.getBoundingClientRect();
+        if (rect.top <= containerTop + 24) {
+          currentHeading = g.dataset.dayHeading || '';
+        } else {
+          break;
+        }
+      }
+      if (!currentHeading && groups.length > 0) {
+        currentHeading = groups[0].dataset.dayHeading || '';
+      }
+      if (currentHeading) {
+        activeDayEl.textContent = currentHeading;
+        activeDayEl.style.display = 'inline-flex';
+      } else {
+        activeDayEl.style.display = 'none';
+      }
+    };
+    container.addEventListener('scroll', updateActiveDay, { passive: true });
   }
 
   async function renderProgressAndAiringsInto(containerEl, item, isStale) {
@@ -943,24 +1020,92 @@
       airingsEl.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_no_epg_airings'))}</div>`;
     } else {
       const lang = typeof currentLang !== 'undefined' ? currentLang : 'hungarian';
+      const locale = lang === 'english' ? 'en-US' : 'hu-HU';
+      const todayMid = new Date();
+      todayMid.setHours(0, 0, 0, 0);
+      const daysArr = typeof t === 'function' ? t('days') : null;
+
+      const updateFavButtonsForTitle = (progTitle, isFav) => {
+        airingsEl.querySelectorAll('.trakt-airing-fav-btn').forEach((btn) => {
+          if (btn.dataset.progTitle === progTitle) {
+            btn.classList.toggle('active', isFav);
+            btn.title = isFav ? t('trakt_btn_fav_remove') : t('trakt_btn_fav_add');
+            btn.innerHTML = iconHtml(isFav ? 'star-filled' : 'star', 15);
+          }
+        });
+      };
+
       airings.forEach((a) => {
         const startDate = typeof parseEPGDate === 'function' ? parseEPGDate(a.start, a.timeOffset || 0) : new Date(a.startTs * 1000);
-        const stopDate = typeof parseEPGDate === 'function' ? parseEPGDate(a.stop, a.timeOffset || 0) : new Date(a.stopTs * 1000);
-        const dateStr = startDate.toLocaleDateString(lang === 'english' ? 'en-US' : 'hu-HU', {
-          month: 'short',
+        const fullDateStr = startDate.toLocaleDateString(locale, {
+          year: 'numeric',
+          month: 'long',
           day: 'numeric',
-          weekday: 'short',
         });
-        const timeStr = `${startDate.toTimeString().substring(0, 5)} – ${stopDate.toTimeString().substring(0, 5)}`;
+
+        const targetMid = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+        const diffDays = Math.round((targetMid - todayMid) / 86400000);
+        let dayPillText =
+          Array.isArray(daysArr) && daysArr[startDate.getDay()]
+            ? daysArr[startDate.getDay()]
+            : startDate.toLocaleDateString(locale, { weekday: 'long' });
+        let dayPillClass = 'trakt-airing-day-pill';
+        if (diffDays === 0) {
+          dayPillText = t('day_today');
+          dayPillClass += ' is-today';
+        } else if (diffDays === 1) {
+          dayPillText = t('day_tomorrow');
+          dayPillClass += ' is-tomorrow';
+        } else if (diffDays === -1) {
+          dayPillText = t('day_yesterday');
+        }
+
+        const startTimeStr = `${pad2(startDate.getHours())}:${pad2(startDate.getMinutes())}`;
+        const isFav = window.EpgApp ? window.EpgApp.isFavoriteTitle(a.title) : false;
 
         const row = document.createElement('div');
         row.className = 'trakt-airing-row';
+        row.title = a.title || '';
         row.innerHTML = `
-          <span class="start-badge">${esc(dateStr)} ${esc(timeStr)}</span>
-          <span class="trakt-airing-title">${esc(a.title)}</span>
-          <span class="channel-badge">${esc(a.channelName)}</span>
-          <span class="channel-source-badge">${esc(a.sourceName)}</span>
+          <button type="button" class="trakt-airing-icon-btn trakt-airing-jump-btn" title="${esc(t('trakt_btn_jump_epg'))}${a.title ? ' – ' + esc(a.title) : ''}">
+            ${iconHtml('trakt-jump-epg', 15)}
+          </button>
+          <button type="button" class="trakt-airing-icon-btn trakt-airing-fav-btn ${isFav ? 'active' : ''}" title="${esc(isFav ? t('trakt_btn_fav_remove') : t('trakt_btn_fav_add'))}">
+            ${iconHtml(isFav ? 'star-filled' : 'star', 15)}
+          </button>
+          <span class="trakt-airing-date" title="${esc(fullDateStr)}">${esc(fullDateStr)}</span>
+          <span class="${dayPillClass}" title="${esc(dayPillText)}">${esc(dayPillText)}</span>
+          <span class="start-badge trakt-airing-time-pill">${esc(startTimeStr)}</span>
+          <span class="channel-badge trakt-airing-channel" title="${esc(a.channelName)}">${esc(a.channelName)}</span>
+          <span class="channel-source-badge trakt-airing-source" title="${esc(a.sourceName)}">${esc(a.sourceName)}</span>
         `;
+
+        const jumpBtn = row.querySelector('.trakt-airing-jump-btn');
+        if (jumpBtn) {
+          jumpBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (window.EpgApp && typeof window.EpgApp.jumpToEpgAiring === 'function') {
+              window.EpgApp.jumpToEpgAiring(a);
+            }
+          };
+        }
+
+        const favBtn = row.querySelector('.trakt-airing-fav-btn');
+        if (favBtn) {
+          favBtn.dataset.progTitle = a.title || '';
+          favBtn.onclick = async (e) => {
+            e.stopPropagation();
+            if (!a.title || !window.EpgApp || typeof window.EpgApp.toggleFavorite !== 'function') return;
+            favBtn.disabled = true;
+            try {
+              const newFav = await window.EpgApp.toggleFavorite(a.title);
+              updateFavButtonsForTitle(a.title, !!newFav);
+            } finally {
+              favBtn.disabled = false;
+            }
+          };
+        }
+
         airingsEl.appendChild(row);
       });
     }

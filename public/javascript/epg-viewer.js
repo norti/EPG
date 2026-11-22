@@ -897,71 +897,8 @@ function formatDateLabel(dateStr) {
   return `${dayName} - ${date.getFullYear()}. ${months[date.getMonth()]} ${dayNum}.`;
 }
 
-let currentSourcePresets = [];
-
 async function updateHeaderSortDropdown() {
-  const select = document.getElementById("headerSortSelect");
-  if (!select) return;
-  select.innerHTML = "";
-
-  const defaultOpt = document.createElement("option");
-  defaultOpt.value = "default";
-  defaultOpt.textContent = t("sort_option_default");
-  select.appendChild(defaultOpt);
-
-  const azOpt = document.createElement("option");
-  azOpt.value = "az";
-  azOpt.textContent = t("sort_option_az");
-  select.appendChild(azOpt);
-
-  if (currentSourceId === "__ALL_FAVORITES__") {
-    const srcAzOpt = document.createElement("option");
-    srcAzOpt.value = "source_az";
-    srcAzOpt.textContent = t("sort_option_source_az");
-    select.appendChild(srcAzOpt);
-  }
-
-  if (currentSourceId) {
-    try {
-      currentSourcePresets = await invoke("get_sort_presets", {
-        sourceId: currentSourceId,
-      });
-      if (currentSourcePresets.length > 0) {
-        const optgroup = document.createElement("optgroup");
-        optgroup.label = t("sort_presets_group");
-        currentSourcePresets.forEach((p) => {
-          const opt = document.createElement("option");
-          opt.value = `preset_${p.id}`;
-          opt.textContent = p.name;
-          optgroup.appendChild(opt);
-        });
-        select.appendChild(optgroup);
-      }
-    } catch (e) {
-      console.error("Failed to load presets for header dropdown:", e);
-    }
-  }
-
-  const savedMode =
-    (settings && settings[`sort_mode_${currentSourceId}`]) || "default";
-  if (Array.from(select.options).some((o) => o.value === savedMode)) {
-    select.value = savedMode;
-  } else {
-    select.value = "default";
-  }
-
-  select.onchange = async () => {
-    const mode = select.value;
-    if (settings) {
-      settings[`sort_mode_${currentSourceId}`] = mode;
-    }
-    await invoke("set_setting", {
-      key: `sort_mode_${currentSourceId}`,
-      value: mode,
-    });
-    applyActiveSortToEpgChannels();
-    renderEPG();
-  };
+  // Header sort selector removed; channel sorting is managed in Settings -> Channels.
 }
 
 function applyActiveSortToEpgChannels() {
@@ -969,68 +906,10 @@ function applyActiveSortToEpgChannels() {
   if (!epgData.rawChannels) {
     epgData.rawChannels = [...epgData.channels];
   }
-
-  const headerSelect = document.getElementById("headerSortSelect");
-  const mode = headerSelect
-    ? headerSelect.value
-    : (settings && settings[`sort_mode_${currentSourceId}`]) || "default";
-
-  if (mode === "az") {
-    epgData.channels = [...epgData.rawChannels].sort((a, b) => {
-      if (
-        currentSourceId !== "__ALL_FAVORITES__" &&
-        a.isFavorite !== b.isFavorite
-      ) {
-        return a.isFavorite ? -1 : 1;
-      }
-      const nameA = a.name || a.originalName || "";
-      const nameB = b.name || b.originalName || "";
-      return nameA.localeCompare(
-        nameB,
-        currentLang === "hungarian" ? "hu" : "en",
-        LOCALE_COMPARE_OPTIONS,
-      );
-    });
-  } else if (mode === "source_az" && currentSourceId === "__ALL_FAVORITES__") {
-    epgData.channels = [...epgData.rawChannels].sort((a, b) => {
-      const srcA = a.sourceName || a.countryCode || a.sourceId || "";
-      const srcB = b.sourceName || b.countryCode || b.sourceId || "";
-      const srcCmp = srcA.localeCompare(
-        srcB,
-        currentLang === "hungarian" ? "hu" : "en",
-        LOCALE_COMPARE_OPTIONS,
-      );
-      if (srcCmp !== 0) return srcCmp;
-      const nameA = a.name || a.originalName || "";
-      const nameB = b.name || b.originalName || "";
-      return nameA.localeCompare(
-        nameB,
-        currentLang === "hungarian" ? "hu" : "en",
-        LOCALE_COMPARE_OPTIONS,
-      );
-    });
-  } else if (mode.startsWith("preset_")) {
-    const presetId = parseInt(mode.replace("preset_", ""), 10);
-    const preset = currentSourcePresets.find((p) => p.id === presetId);
-    if (preset && preset.channelOrder) {
-      const order = preset.channelOrder;
-      epgData.channels = [...epgData.rawChannels].sort((a, b) => {
-        const idxA = order.indexOf(a.id);
-        const idxB = order.indexOf(b.id);
-        if (idxA === -1 && idxB === -1) return 0;
-        if (idxA === -1) return 1;
-        if (idxB === -1) return -1;
-        return idxA - idxB;
-      });
-    } else {
-      epgData.channels = [...epgData.rawChannels];
-    }
-  } else {
-    epgData.channels = [...epgData.rawChannels];
-  }
+  epgData.channels = [...epgData.rawChannels];
 }
 
-async function fetchEPG() {
+async function fetchEPG(options = {}) {
   if (!currentSourceId) {
     renderEmptySourcesState();
     return;
@@ -1078,9 +957,11 @@ async function fetchEPG() {
     }
 
     document.getElementById("status").textContent = t("status_ready");
-    setupDateSelector();
+    setupDateSelector(options.targetDateStr || null);
     renderEPG();
-    scrollToNow();
+    if (!options.skipScrollToNow) {
+      scrollToNow();
+    }
 
     // Cache logos in the background for channels that have a URL but no cached data (throttled queue)
     const uncachedChannels = epgData.channels.filter((c) => {
@@ -1360,7 +1241,7 @@ function navigateDate(delta) {
   }
 }
 
-function setupDateSelector() {
+function setupDateSelector(preferredDateStr = null) {
   const dateSelect = document.getElementById("dateSelect");
   if (!dateSelect) return;
   const dates = new Set();
@@ -1386,7 +1267,9 @@ function setupDateSelector() {
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  if (sortedDates.includes(todayStr)) {
+  if (preferredDateStr && sortedDates.includes(preferredDateStr)) {
+    selectedDateStr = preferredDateStr;
+  } else if (sortedDates.includes(todayStr)) {
     selectedDateStr = todayStr;
   } else if (sortedDates.length > 0) {
     selectedDateStr = sortedDates[0];
@@ -2107,7 +1990,171 @@ async function toggleFavorite(title) {
   updateModalFavStar();
   renderEPG();
   renderFavoritesList();
+  return isFav;
 }
+
+async function jumpToEpgAiring(airing) {
+  if (!airing || !airing.sourceId || !airing.channelId) return;
+
+  const jumpOverlay = document.getElementById("epgJumpOverlay");
+  const jumpOverlayText = document.getElementById("epgJumpOverlayText");
+  if (jumpOverlayText) {
+    const details = [airing.channelName, airing.sourceName].filter(Boolean).join(" · ");
+    jumpOverlayText.textContent = details
+      ? `${t("trakt_jumping_to_epg")} (${details})`
+      : t("trakt_jumping_to_epg");
+  }
+  if (jumpOverlay) {
+    jumpOverlay.style.display = "flex";
+  }
+
+  // Yield a frame so the progress layer paints immediately before heavy DOM/IPC work
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+
+  try {
+    const startDate = parseEPGDate(airing.start, airing.timeOffset || 0);
+    const targetDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}-${String(startDate.getDate()).padStart(2, "0")}`;
+    const startMin = startDate.getHours() * 60 + startDate.getMinutes();
+
+    hidePosterZoom();
+    closeFixOverlay();
+    if (window.TraktUI) {
+      window.TraktUI.detachFromModal();
+    }
+    document.getElementById("modalOverlay").classList.remove("active");
+
+    if (window.TraktUI && window.TraktUI.isTraktMode()) {
+      window.TraktUI.exitTraktMode({ skipRender: true });
+    }
+
+    activeSingleChannelId = null;
+
+    const searchInput = document.getElementById("searchInput");
+    if (searchInput && searchInput.value.trim()) {
+      const q = searchInput.value.trim();
+      if (
+        !fuzzySearchMatch(airing.title || "", q) &&
+        !fuzzySearchMatch(airing.channelName || "", q)
+      ) {
+        searchInput.value = "";
+      }
+    }
+
+    if (currentSourceId !== airing.sourceId) {
+      currentSourceId = airing.sourceId;
+      const sourceSelect = document.getElementById("sourceSelect");
+      if (sourceSelect) sourceSelect.value = currentSourceId;
+      updateAllFavBtnState();
+      invoke("set_setting", {
+        key: "current_source_id",
+        value: currentSourceId,
+      }).catch(() => {});
+      await fetchEPG({ skipScrollToNow: true, targetDateStr });
+    } else {
+      const dateSelect = document.getElementById("dateSelect");
+      if (dateSelect) {
+        const hasDate = Array.from(dateSelect.options).some(
+          (o) => o.value === targetDateStr,
+        );
+        if (hasDate) {
+          selectedDateStr = targetDateStr;
+          dateSelect.value = targetDateStr;
+          updateDateNavBtns();
+        }
+      } else {
+        selectedDateStr = targetDateStr;
+      }
+      renderEPG();
+    }
+
+    const scrollToTarget = () => {
+      const viewport = document.getElementById("epgViewport");
+      if (!viewport) return;
+
+      const wrappers = Array.from(
+        document.querySelectorAll(
+          currentLayout === "horizontal"
+            ? ".channel-row-wrapper"
+            : ".channel-column-wrapper",
+        ),
+      );
+      const wrapper = wrappers.find(
+        (w) =>
+          w.dataset.channelId === airing.channelId ||
+          (w.dataset.channelId &&
+            w.dataset.channelId.endsWith(`::${airing.channelId}`)),
+      );
+
+      let targetProgEl = null;
+      if (wrapper) {
+        const progs = Array.from(wrapper.querySelectorAll(".programme"));
+        let bestDiff = Infinity;
+        for (const el of progs) {
+          const pd = el._progData;
+          if (!pd || !pd.prog) continue;
+          if (pd.prog.title === airing.title) {
+            const diff = Math.abs(pd.prog.start.getTime() - startDate.getTime());
+            if (diff < bestDiff) {
+              bestDiff = diff;
+              targetProgEl = el;
+            }
+          }
+        }
+        if (targetProgEl && !targetProgEl.dataset.rendered) {
+          renderProgramDetails(targetProgEl);
+        }
+      }
+
+      if (currentLayout === "horizontal") {
+        const minuteScale = getEffectiveMinuteScale();
+        const targetLeft = targetProgEl
+          ? targetProgEl.offsetLeft
+          : startMin * minuteScale;
+        viewport.scrollLeft = Math.max(0, targetLeft - 220);
+        if (wrapper) {
+          viewport.scrollTop = Math.max(0, wrapper.offsetTop - 80);
+        }
+      } else {
+        const targetTop = targetProgEl
+          ? targetProgEl.offsetTop
+          : startMin * currentMinuteHeight;
+        viewport.scrollTop = Math.max(0, targetTop - 120);
+        if (wrapper) {
+          viewport.scrollLeft = Math.max(0, wrapper.offsetLeft - 80);
+        }
+      }
+
+      if (targetProgEl) {
+        targetProgEl.classList.remove("trakt-jump-flash");
+        void targetProgEl.offsetWidth;
+        targetProgEl.classList.add("trakt-jump-flash");
+        setTimeout(() => {
+          if (targetProgEl.isConnected) {
+            targetProgEl.classList.remove("trakt-jump-flash");
+          }
+        }, 2600);
+      }
+    };
+
+    scrollToTarget();
+    await new Promise((resolve) =>
+      requestAnimationFrame(() => {
+        scrollToTarget();
+        resolve();
+      }),
+    );
+  } finally {
+    if (jumpOverlay) {
+      jumpOverlay.style.display = "none";
+    }
+  }
+}
+
+window.EpgApp = {
+  isFavoriteTitle: (title) => favorites.includes(title),
+  toggleFavorite,
+  jumpToEpgAiring,
+};
 
 function getTmdbLang(countryCode) {
   const code = (countryCode || "").toUpperCase();
@@ -2296,6 +2343,17 @@ function positionPosterZoom(e) {
   popup.style.top = `${top}px`;
 }
 
+function updateModalLeftColVisibility() {
+  const leftCol = document.getElementById("modalLeftCol");
+  const posterCol = document.getElementById("modalPosterCol");
+  const posterTraktMeta = document.getElementById("modalPosterTraktMeta");
+  if (!leftCol) return;
+  const hasPoster = posterCol && posterCol.style.display !== "none";
+  const hasTraktMeta =
+    posterTraktMeta && posterTraktMeta.style.display !== "none";
+  leftCol.style.display = hasPoster || hasTraktMeta ? "flex" : "none";
+}
+
 function resetModalTmdbUi(preserveTrakt = false) {
   hidePosterZoom();
   currentModalLargePosterSrc = "";
@@ -2330,6 +2388,7 @@ function resetModalTmdbUi(preserveTrakt = false) {
   if (!preserveTrakt && window.TraktUI) {
     window.TraktUI.detachFromModal();
   }
+  updateModalLeftColVisibility();
 }
 
 function renderTmdbDetailsInModal(tmdbData, options = {}) {
@@ -2355,6 +2414,7 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
     currentModalTmdbData = tmdbData;
     posterImg.src = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
     posterCol.style.display = "block";
+    updateModalLeftColVisibility();
     preloadAndCacheLargePoster(tmdbData.posterPath);
   } else {
     currentModalPosterPath = "";

@@ -89,6 +89,10 @@
     'external-link': {
       paths: '<path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6" /><path d="M11 13l9 -9" /><path d="M15 4h5v5" />',
       filled: false
+    },
+    'trakt-jump-epg': {
+      paths: '<path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M14 12l-10 0" /><path d="M14 12l-4 4" /><path d="M14 12l-4 -4" /><path d="M20 4l0 3m0 13l0 -3m0 -3.5l0 -3" />',
+      filled: false
     }
   };
 

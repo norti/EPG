@@ -514,3 +514,110 @@ async fn test_sync_watched_shows_preserves_pending_history_add() {
         .unwrap();
     assert_eq!(e25.as_deref(), Some("2026-11-18T13:05:00Z"), "Pending offline episode must be preserved");
 }
+
+#[tokio::test]
+async fn test_run_sync_populates_continue_watching_and_respects_hidden() {
+    let base = spawn_mock_server(move |method, path, _body| {
+        if method == "GET" && path == "/sync/last_activities" {
+            return (
+                200,
+                vec![],
+                r#"{"episodes":{"watched_at":"2026-11-22T08:00:00Z"},"movies":{"watched_at":"2026-11-10T10:00:00Z"},"watchlist":{"updated_at":"2026-11-22T08:00:00Z"}}"#.to_string(),
+            );
+        }
+        if method == "GET" && path.starts_with("/sync/watchlist/") {
+            return (200, vec![], "[]".to_string());
+        }
+        if method == "GET" && path.starts_with("/users/me/history/") {
+            return (200, vec![], "[]".to_string());
+        }
+        if method == "GET" && path == "/sync/watched/shows" {
+            return (
+                200,
+                vec![],
+                r#"[
+                    {"show":{"title":"Started Show","year":2024,"ids":{"trakt":101,"tmdb":1101}},"seasons":[{"number":1,"episodes":[{"number":1,"last_watched_at":"2026-11-20T10:00:00Z"}]}]},
+                    {"show":{"title":"Future Show","year":2025,"ids":{"trakt":303,"tmdb":3303}},"seasons":[{"number":1,"episodes":[{"number":1,"last_watched_at":"2026-11-21T10:00:00Z"}]}]},
+                    {"show":{"title":"Hidden Show","year":2023,"ids":{"trakt":202,"tmdb":2202}},"seasons":[{"number":1,"episodes":[{"number":1,"last_watched_at":"2026-11-19T10:00:00Z"}]}]}
+                ]"#.to_string(),
+            );
+        }
+        if method == "GET" && path.starts_with("/users/hidden/progress_watched") {
+            return (
+                200,
+                vec![],
+                r#"[{"type":"show","show":{"title":"Hidden Show","ids":{"trakt":202,"tmdb":2202}}}]"#.to_string(),
+            );
+        }
+        if method == "GET" && path.starts_with("/shows/101/progress/watched") {
+            return (
+                200,
+                vec![],
+                r#"{"aired":8,"completed":1,"last_watched_at":"2026-11-20T10:00:00Z","next_episode":{"season":1,"number":2,"title":"Next Ep","first_aired":"2026-11-21T08:00:00Z","ids":{"trakt":9002}},"seasons":[{"number":1,"episodes":[{"number":1,"completed":true,"last_watched_at":"2026-11-20T10:00:00Z"},{"number":2,"completed":false}]}]}"#.to_string(),
+            );
+        }
+        if method == "GET" && path.starts_with("/shows/303/progress/watched") {
+            return (
+                200,
+                vec![],
+                r#"{"aired":2,"completed":1,"last_watched_at":"2026-11-21T10:00:00Z","next_episode":{"season":1,"number":2,"title":"Future Ep","first_aired":"2026-11-25T08:00:00Z","ids":{"trakt":9003}},"seasons":[{"number":1,"episodes":[{"number":1,"completed":true,"last_watched_at":"2026-11-21T10:00:00Z"},{"number":2,"completed":false}]}]}"#.to_string(),
+            );
+        }
+        if method == "GET" && path.starts_with("/calendars/my/shows/") {
+            return (200, vec![], "[]".to_string());
+        }
+        if method == "GET" && path == "/users/settings" {
+            return (200, vec![], r#"{"user":{"username":"tester"}}"#.to_string());
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+
+    let state = make_test_state(base.clone(), base);
+    let store = default_secret_store();
+    {
+        let mut conn = state.db.lock().await;
+        save_tokens_tx(
+            &mut conn,
+            store.as_ref(),
+            "valid_acc",
+            "valid_ref",
+            now_epoch_secs() + 3600,
+        )
+        .unwrap();
+    }
+
+    crate::trakt::sync::run_sync(&state, None, true).await.unwrap();
+
+    let conn = state.db.lock().await;
+    let (next_id, next_s, next_e, next_title, next_fa, hidden): (Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<String>, i64) = conn
+        .query_row(
+            "SELECT next_episode_trakt_id, next_season, next_episode, next_episode_title, next_episode_first_aired, hidden_from_progress
+             FROM trakt_show_progress WHERE show_trakt_id = 101",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        )
+        .unwrap();
+    assert_eq!(next_id, Some(9002));
+    assert_eq!(next_s, Some(1));
+    assert_eq!(next_e, Some(2));
+    assert_eq!(next_title.as_deref(), Some("Next Ep"));
+    assert_eq!(next_fa.as_deref(), Some("2026-11-21T08:00:00Z"));
+    assert_eq!(hidden, 0);
+
+    let hidden_flag: i64 = conn
+        .query_row(
+            "SELECT hidden_from_progress FROM trakt_show_progress WHERE show_trakt_id = 202",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(hidden_flag, 1);
+
+    // At 2026-11-22T09:00:00Z, only Started Show (aired 2026-11-21) should appear; Future Show (2026-11-25) must be excluded
+    let now_2026_11_22 = crate::trakt::iso_utc_to_epoch("2026-11-22T09:00:00Z").unwrap();
+    let cw = crate::trakt::commands::query_continue_watching(&conn, now_2026_11_22).unwrap();
+    assert_eq!(cw.len(), 1);
+    assert_eq!(cw[0].show_trakt_id, 101);
+    assert_eq!(cw[0].episode_trakt_id, 9002);
+}

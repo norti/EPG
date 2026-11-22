@@ -51,11 +51,11 @@ pub struct SyncSummary {
 }
 
 #[derive(Deserialize, Debug)]
-struct TraktMediaIds {
-    trakt: i64,
-    tmdb: Option<i64>,
-    imdb: Option<String>,
-    slug: Option<String>,
+pub struct TraktMediaIds {
+    pub trakt: i64,
+    pub tmdb: Option<i64>,
+    pub imdb: Option<String>,
+    pub slug: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -106,10 +106,29 @@ struct TraktAlias {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct TraktProgressNextEpisode {
+    pub season: i64,
+    pub number: i64,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub first_aired: Option<String>,
+    pub ids: TraktMediaIds,
+}
+
+#[derive(Deserialize, Debug)]
+struct TraktEpisodeExtended {
+    #[serde(default)]
+    first_aired: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct TraktProgressResponse {
     pub aired: Option<i64>,
     pub completed: Option<i64>,
     pub last_watched_at: Option<String>,
+    #[serde(default)]
+    pub next_episode: Option<TraktProgressNextEpisode>,
     #[serde(default)]
     pub seasons: Vec<TraktProgressSeason>,
 }
@@ -139,7 +158,17 @@ struct TraktWatchedShowEntry {
 
 #[derive(Deserialize, Debug)]
 struct TraktWatchedShowRef {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    year: Option<i64>,
     ids: TraktMediaIds,
+}
+
+#[derive(Deserialize, Debug)]
+struct TraktHiddenEntry {
+    #[serde(default)]
+    show: Option<TraktWatchedShowRef>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -333,7 +362,7 @@ pub async fn run_sync(
     let activities: LastActivities = serde_json::from_str(&act_resp.body)
         .map_err(|e| format!("last_activities JSON hiba: {}", e))?;
 
-    let (stored_act, wl_empty, hist_empty, has_profile, history_dirty, watched_shows_synced) = {
+    let (stored_act, wl_empty, hist_empty, has_profile, history_dirty, watched_shows_synced, cw_synced) = {
         let conn = state.db.lock().await;
         let stored: Option<LastActivities> = get_sync_state_val(&conn, "last_activities")
             .and_then(|s| serde_json::from_str(&s).ok());
@@ -353,7 +382,9 @@ pub async fn run_sync(
         let dirty = get_sync_state_val(&conn, "history_dirty").as_deref() == Some("1");
         let ws_synced =
             get_sync_state_val(&conn, "watched_shows_synced_v1").as_deref() == Some("1");
-        (stored, wl_empty, hist_empty, has_prof, dirty, ws_synced)
+        let cw_done =
+            get_sync_state_val(&conn, "continue_watching_premiered_v1").as_deref() == Some("1");
+        (stored, wl_empty, hist_empty, has_prof, dirty, ws_synced, cw_done)
     };
 
     if !has_profile {
@@ -411,23 +442,64 @@ pub async fn run_sync(
         }
     };
 
-    // Refresh progress summary for shows appearing in the user's calendar (up to 15 shows)
-    let cal_show_ids: Vec<i64> = {
+    if hist_changed || !cw_synced {
+        let hidden_ids = fetch_hidden_progress_show_ids(state, app).await;
+        let conn = state.db.lock().await;
+        let _ = conn.execute(
+            "UPDATE trakt_show_progress SET hidden_from_progress = 0 WHERE hidden_from_progress != 0",
+            [],
+        );
+        for hid in hidden_ids {
+            let _ = conn.execute(
+                "INSERT INTO trakt_show_progress (show_trakt_id, hidden_from_progress, updated_at)
+                 VALUES (?1, 1, ?2)
+                 ON CONFLICT(show_trakt_id) DO UPDATE SET hidden_from_progress = 1",
+                params![hid, now_iso_utc()],
+            );
+        }
+    }
+
+    // Refresh progress & next_episode for calendar shows and started (continue watching) shows
+    let progress_show_ids: Vec<i64> = {
         let conn = state.db.lock().await;
         let mut stmt = conn
             .prepare(
-                "SELECT DISTINCT c.show_trakt_id
-                 FROM trakt_calendar_cache c
-                 WHERE c.scope = 'my'
-                 LIMIT 15",
+                "SELECT show_trakt_id FROM (
+                    SELECT c.show_trakt_id AS show_trakt_id, 0 AS prio, MAX(c.first_aired) AS sort_ts
+                    FROM trakt_calendar_cache c
+                    WHERE c.scope = 'my'
+                    GROUP BY c.show_trakt_id
+                    UNION ALL
+                    SELECT e.show_trakt_id AS show_trakt_id,
+                           CASE
+                               WHEN p.show_trakt_id IS NULL THEN 1
+                               WHEN p.next_episode_trakt_id IS NOT NULL OR COALESCE(p.completed, 0) < COALESCE(p.aired, 1) THEN 2
+                               ELSE 3
+                           END AS prio,
+                           MAX(e.watched_at) AS sort_ts
+                    FROM trakt_episodes e
+                    LEFT JOIN trakt_show_progress p ON p.show_trakt_id = e.show_trakt_id
+                    WHERE e.watched_at IS NOT NULL
+                      AND COALESCE(p.hidden_from_progress, 0) = 0
+                    GROUP BY e.show_trakt_id
+                )
+                GROUP BY show_trakt_id
+                ORDER BY MIN(prio) ASC, MAX(sort_ts) DESC
+                LIMIT 35",
             )
             .map_err(|e| e.to_string())?;
         let mapped = stmt.query_map([], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?;
         mapped.flatten().collect()
     };
 
-    for show_id in cal_show_ids {
-        let _ = sync_show_progress(state, app, show_id, hist_changed).await;
+    for show_id in progress_show_ids {
+        let _ = sync_show_progress(state, app, show_id, hist_changed || !cw_synced).await;
+    }
+
+    if hist_changed || !cw_synced {
+        enrich_missing_continue_watching_tmdb(state).await;
+        let conn = state.db.lock().await;
+        let _ = set_sync_state_val(&conn, "continue_watching_premiered_v1", "1");
     }
 
     let now_ok = now_iso_utc();
@@ -914,8 +986,26 @@ pub async fn sync_watched_shows(
             )
             .map_err(|e| e.to_string())?;
 
+        let mut show_stmt = tx
+            .prepare(
+                "INSERT INTO trakt_cache (
+                    media_type, trakt_id, tmdb_id, imdb_id, slug, title, year, not_found, updated_at
+                ) VALUES ('show', ?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)
+                ON CONFLICT(media_type, trakt_id) DO UPDATE SET
+                    tmdb_id = COALESCE(excluded.tmdb_id, trakt_cache.tmdb_id),
+                    imdb_id = COALESCE(excluded.imdb_id, trakt_cache.imdb_id),
+                    slug = COALESCE(excluded.slug, trakt_cache.slug),
+                    title = COALESCE(NULLIF(excluded.title, ''), trakt_cache.title),
+                    year = COALESCE(excluded.year, trakt_cache.year),
+                    not_found = 0",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let mut watched_show_ids: HashSet<i64> = HashSet::new();
+
         for entry in &entries {
             let show_id = entry.show.ids.trakt;
+            let mut has_active_ep = false;
             for season in &entry.seasons {
                 for ep in &season.episodes {
                     let after_reset = match (&entry.reset_at, &ep.last_watched_at) {
@@ -925,6 +1015,7 @@ pub async fn sync_watched_shows(
                     if !after_reset {
                         continue;
                     }
+                    has_active_ep = true;
                     let watched_at = ep.last_watched_at.as_deref().unwrap_or(&now);
                     let _ = ep_stmt.execute(params![
                         show_id,
@@ -934,6 +1025,39 @@ pub async fn sync_watched_shows(
                         now,
                     ]);
                 }
+            }
+            if has_active_ep {
+                watched_show_ids.insert(show_id);
+                if let Some(ref title) = entry.show.title {
+                    let _ = show_stmt.execute(params![
+                        show_id,
+                        entry.show.ids.tmdb,
+                        entry.show.ids.imdb,
+                        entry.show.ids.slug,
+                        title,
+                        entry.show.year,
+                        now,
+                    ]);
+                }
+            }
+        }
+
+        // Clear next_episode for shows that no longer have any watched episodes
+        let existing_prog_ids: Vec<i64> = {
+            let mut p_stmt = tx
+                .prepare("SELECT show_trakt_id FROM trakt_show_progress WHERE next_episode_trakt_id IS NOT NULL")
+                .map_err(|e| e.to_string())?;
+            let mapped = p_stmt.query_map([], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?;
+            mapped.flatten().collect()
+        };
+        for pid in existing_prog_ids {
+            if !watched_show_ids.contains(&pid) {
+                let _ = tx.execute(
+                    "UPDATE trakt_show_progress
+                     SET completed = 0, next_episode_trakt_id = NULL, next_season = NULL, next_episode = NULL, next_episode_title = NULL, next_episode_first_aired = NULL, updated_at = ?1
+                     WHERE show_trakt_id = ?2",
+                    params![now, pid],
+                );
             }
         }
     }
@@ -948,6 +1072,79 @@ pub async fn sync_watched_shows(
     Ok(())
 }
 
+async fn fetch_hidden_progress_show_ids(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+) -> HashSet<i64> {
+    let mut hidden = HashSet::new();
+    let mut page = 1u32;
+    loop {
+        let path = format!(
+            "/users/hidden/progress_watched?type=show&page={}&limit=100",
+            page
+        );
+        let Ok(resp) = trakt_get_cached(state, app, &path, true, 3600, false).await else {
+            break;
+        };
+        let Ok(entries) = serde_json::from_str::<Vec<TraktHiddenEntry>>(&resp.body) else {
+            break;
+        };
+        if entries.is_empty() {
+            break;
+        }
+        for entry in entries {
+            if let Some(show) = entry.show {
+                hidden.insert(show.ids.trakt);
+            }
+        }
+        let total_pages = resp.page_count.unwrap_or(1);
+        if page >= total_pages {
+            break;
+        }
+        page += 1;
+    }
+    hidden
+}
+
+async fn enrich_missing_continue_watching_tmdb(state: &AppState) {
+    if get_tmdb_api_key_from_state(state).await.is_none() {
+        return;
+    }
+
+    let missing_tmdb_ids: Vec<i64> = {
+        let conn = state.db.lock().await;
+        let mut stmt = match conn.prepare(
+            "SELECT DISTINCT tc.tmdb_id
+             FROM trakt_show_progress p
+             JOIN trakt_cache tc ON tc.media_type = 'show' AND tc.trakt_id = p.show_trakt_id
+             WHERE p.hidden_from_progress = 0
+               AND p.completed > 0
+               AND p.next_episode_trakt_id IS NOT NULL
+               AND tc.tmdb_id IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM tmdb_cache tm
+                   WHERE tm.tmdb_id = tc.tmdb_id
+                     AND tm.media_type = 'tv'
+                     AND tm.poster_path IS NOT NULL
+                     AND tm.poster_path != ''
+               )
+             LIMIT 20",
+        ) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let mapped = match stmt.query_map([], |r| r.get::<_, i64>(0)) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        mapped.flatten().collect()
+    };
+
+    for tmdb_id in missing_tmdb_ids {
+        let _ = get_tmdb_by_id(state, tmdb_id, "tv", "hu-HU", None, false).await;
+    }
+}
+
 pub async fn sync_show_progress(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
@@ -955,7 +1152,7 @@ pub async fn sync_show_progress(
     force_refresh: bool,
 ) -> Result<TraktProgressResponse, String> {
     let path = format!(
-        "/shows/{}/progress/watched?hidden=false&specials=false&count_specials=false",
+        "/shows/{}/progress/watched?hidden=false&specials=false&count_specials=false&extended=full",
         show_trakt_id
     );
     let resp = trakt_get_cached(state, app, &path, true, 600, force_refresh)
@@ -965,23 +1162,83 @@ pub async fn sync_show_progress(
     let progress: TraktProgressResponse = serde_json::from_str(&resp.body)
         .map_err(|e| format!("Progress JSON hiba: {}", e))?;
 
+    let mut next_first_aired: Option<String> = None;
+    if progress.completed.unwrap_or(0) > 0 {
+        if let Some(ref ne) = progress.next_episode {
+            next_first_aired = ne.first_aired.clone();
+            if next_first_aired.is_none() {
+                let cal_fa: Option<String> = {
+                    let conn = state.db.lock().await;
+                    conn.query_row(
+                        "SELECT first_aired FROM trakt_calendar_cache WHERE episode_trakt_id = ?1 LIMIT 1",
+                        params![ne.ids.trakt],
+                        |r| r.get(0),
+                    )
+                    .ok()
+                };
+                next_first_aired = cal_fa;
+            }
+            if next_first_aired.is_none() {
+                let ep_path = format!(
+                    "/shows/{}/seasons/{}/episodes/{}?extended=full",
+                    show_trakt_id, ne.season, ne.number
+                );
+                if let Ok(ep_resp) =
+                    trakt_get_cached(state, app, &ep_path, false, 86400, false).await
+                {
+                    if let Ok(ep_ext) = serde_json::from_str::<TraktEpisodeExtended>(&ep_resp.body) {
+                        next_first_aired = ep_ext.first_aired;
+                    }
+                }
+            }
+        }
+    }
+
     let now = now_iso_utc();
     let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
 
+    let (next_ep_id, next_season, next_ep_num, next_ep_title, next_ep_aired) =
+        if progress.completed.unwrap_or(0) > 0 {
+            match progress.next_episode.as_ref() {
+                Some(ne) => (
+                    Some(ne.ids.trakt),
+                    Some(ne.season),
+                    Some(ne.number),
+                    ne.title.clone(),
+                    next_first_aired,
+                ),
+                None => (None, None, None, None, None),
+            }
+        } else {
+            (None, None, None, None, None)
+        };
+
     tx.execute(
-        "INSERT INTO trakt_show_progress (show_trakt_id, aired, completed, last_watched_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO trakt_show_progress (
+            show_trakt_id, aired, completed, last_watched_at,
+            next_episode_trakt_id, next_season, next_episode, next_episode_title, next_episode_first_aired, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
          ON CONFLICT(show_trakt_id) DO UPDATE SET
             aired = excluded.aired,
             completed = excluded.completed,
             last_watched_at = excluded.last_watched_at,
+            next_episode_trakt_id = excluded.next_episode_trakt_id,
+            next_season = excluded.next_season,
+            next_episode = excluded.next_episode,
+            next_episode_title = excluded.next_episode_title,
+            next_episode_first_aired = excluded.next_episode_first_aired,
             updated_at = excluded.updated_at",
         params![
             show_trakt_id,
             progress.aired,
             progress.completed,
             progress.last_watched_at,
+            next_ep_id,
+            next_season,
+            next_ep_num,
+            next_ep_title,
+            next_ep_aired,
             now,
         ],
     )

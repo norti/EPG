@@ -6,7 +6,7 @@ pub type MigFn = fn(&Connection) -> rusqlite::Result<()>;
 pub const EMBEDDED_ENGLISH_LNG: &str = include_str!("../../public/languages/english.lng");
 pub const EMBEDDED_HUNGARIAN_LNG: &str = include_str!("../../public/languages/hungarian.lng");
 
-pub const MIGRATIONS: &[MigFn] = &[migrate_v1, migrate_v2];
+pub const MIGRATIONS: &[MigFn] = &[migrate_v1, migrate_v2, migrate_v3, migrate_v4];
 
 pub fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
     let sql = format!("PRAGMA table_info({})", table);
@@ -375,6 +375,25 @@ fn migrate_v2(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+fn migrate_v3(conn: &Connection) -> rusqlite::Result<()> {
+    add_column_if_missing(conn, "trakt_show_progress", "next_episode_trakt_id", "INTEGER")?;
+    add_column_if_missing(conn, "trakt_show_progress", "next_season", "INTEGER")?;
+    add_column_if_missing(conn, "trakt_show_progress", "next_episode", "INTEGER")?;
+    add_column_if_missing(conn, "trakt_show_progress", "next_episode_title", "TEXT")?;
+    add_column_if_missing(
+        conn,
+        "trakt_show_progress",
+        "hidden_from_progress",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    Ok(())
+}
+
+fn migrate_v4(conn: &Connection) -> rusqlite::Result<()> {
+    add_column_if_missing(conn, "trakt_show_progress", "next_episode_first_aired", "TEXT")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,17 +404,23 @@ mod tests {
         run_migrations(&conn, None).unwrap();
 
         let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver, 2);
+        assert_eq!(ver, 4);
 
         assert!(column_exists(&conn, "programmes", "title_norm").unwrap());
         assert!(column_exists(&conn, "programmes", "start_ts").unwrap());
         assert!(column_exists(&conn, "programmes", "stop_ts").unwrap());
         assert!(column_exists(&conn, "sources", "sort_position").unwrap());
+        assert!(column_exists(&conn, "trakt_show_progress", "next_episode_trakt_id").unwrap());
+        assert!(column_exists(&conn, "trakt_show_progress", "next_season").unwrap());
+        assert!(column_exists(&conn, "trakt_show_progress", "next_episode").unwrap());
+        assert!(column_exists(&conn, "trakt_show_progress", "next_episode_title").unwrap());
+        assert!(column_exists(&conn, "trakt_show_progress", "hidden_from_progress").unwrap());
+        assert!(column_exists(&conn, "trakt_show_progress", "next_episode_first_aired").unwrap());
 
         let trakt_tables = [
             "trakt_auth",
             "trakt_sync_state",
-            "trakt_http_cache",
+            "trakt_cache",
             "trakt_watchlist_cache",
             "trakt_history_cache",
             "trakt_calendar_cache",
@@ -418,7 +443,7 @@ mod tests {
         // Idempotent second run
         run_migrations(&conn, None).unwrap();
         let ver2: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver2, 2);
+        assert_eq!(ver2, 4);
     }
 
     #[test]
@@ -435,7 +460,7 @@ mod tests {
         run_migrations(&conn, None).unwrap();
 
         let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver, 2);
+        assert_eq!(ver, 4);
 
         let src_name: String = conn
             .query_row("SELECT name FROM sources WHERE id = 's1'", [], |r| r.get(0))
@@ -447,6 +472,8 @@ mod tests {
             .unwrap();
         assert_eq!(prog_title, "Stranger Things");
         assert!(column_exists(&conn, "programmes", "title_norm").unwrap());
+        assert!(column_exists(&conn, "trakt_show_progress", "next_episode_trakt_id").unwrap());
+        assert!(column_exists(&conn, "trakt_show_progress", "next_episode_first_aired").unwrap());
     }
 
     #[test]
@@ -463,7 +490,7 @@ mod tests {
             conn.execute_batch("PRAGMA user_version = 1;").unwrap();
             run_migrations(&conn, Some(&db_path)).unwrap();
             let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-            assert_eq!(ver, 2);
+            assert_eq!(ver, 4);
         }
 
         assert!(bak_path.exists(), "Backup file should exist before v2 migration");

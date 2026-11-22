@@ -338,7 +338,7 @@
     await loadActiveTraktView();
   }
 
-  function exitTraktMode() {
+  function exitTraktMode(options = {}) {
     isTraktMode = false;
     document.body.classList.remove('trakt-mode');
     document.getElementById('traktViewport').style.display = 'none';
@@ -350,7 +350,7 @@
       activeDeviceFlow = null;
       invoke('trakt_cancel_login').catch(() => {});
     }
-    if (typeof renderEPG === 'function') {
+    if (!options.skipRender && typeof renderEPG === 'function') {
       renderEPG();
     }
   }
@@ -419,11 +419,14 @@
     modalAttachSeq++;
     const sec = document.getElementById('modalTraktSection');
     const badges = document.getElementById('modalTraktBadges');
+    const posterMeta = document.getElementById('modalPosterTraktMeta');
     const wlBtn = document.getElementById('modalTraktWatchlistBtn');
     const wlStatus = document.getElementById('modalTraktWatchlistStatus');
+    const netBadge = document.getElementById('modalTraktNetworkBadge');
     const drawer = document.getElementById('modalTraktDrawerSection');
     if (sec) sec.style.display = 'none';
     if (badges) badges.innerHTML = '';
+    if (posterMeta) posterMeta.style.display = 'none';
     if (wlBtn) {
       wlBtn.style.display = 'none';
       wlBtn.onclick = null;
@@ -432,21 +435,38 @@
       wlStatus.style.display = 'none';
       wlStatus.textContent = '';
     }
+    if (netBadge) {
+      netBadge.style.display = 'none';
+      netBadge.textContent = '';
+    }
     if (drawer) {
       drawer.style.display = 'none';
       drawer.innerHTML = '';
+    }
+    if (typeof updateModalLeftColVisibility === 'function') {
+      updateModalLeftColVisibility();
     }
   }
 
   function renderModalTraktSection(data, tmdbData) {
     const sec = document.getElementById('modalTraktSection');
     const badges = document.getElementById('modalTraktBadges');
+    const posterMeta = document.getElementById('modalPosterTraktMeta');
     const wlBtn = document.getElementById('modalTraktWatchlistBtn');
     const wlStatus = document.getElementById('modalTraktWatchlistStatus');
+    const netBadge = document.getElementById('modalTraktNetworkBadge');
     if (!sec || !badges || !wlBtn) return;
 
     if (!data) {
       sec.style.display = 'none';
+      if (posterMeta) posterMeta.style.display = 'none';
+      if (netBadge) {
+        netBadge.style.display = 'none';
+        netBadge.textContent = '';
+      }
+      if (typeof updateModalLeftColVisibility === 'function') {
+        updateModalLeftColVisibility();
+      }
       return;
     }
 
@@ -458,13 +478,11 @@
         ${iconHtml('trakt-rating-filled', 12)} ${data.rating.toFixed(1)} / 10${esc(votesStr)}
       </span>`;
     }
-    if (data.network) {
-      badgesHtml += `<span class="trakt-modal-badge trakt-badge-network">${esc(data.network)}</span>`;
-    }
     if (data.status) {
       badgesHtml += `<span class="trakt-modal-badge trakt-badge-status">${esc(data.status)}</span>`;
     }
     badges.innerHTML = badgesHtml;
+    sec.style.display = badgesHtml ? 'flex' : 'none';
 
     if (data.loggedIn) {
       wlBtn.style.display = 'inline-flex';
@@ -525,10 +543,23 @@
       wlBtn.style.display = 'none';
     }
 
-    if (badgesHtml || data.loggedIn) {
-      sec.style.display = 'flex';
-    } else {
-      sec.style.display = 'none';
+    const hasNetwork = !!(data.network && String(data.network).trim());
+    if (netBadge) {
+      if (hasNetwork) {
+        netBadge.textContent = data.network;
+        netBadge.title = data.network;
+        netBadge.style.display = 'inline-flex';
+      } else {
+        netBadge.textContent = '';
+        netBadge.style.display = 'none';
+      }
+    }
+
+    if (posterMeta) {
+      posterMeta.style.display = data.loggedIn || hasNetwork ? 'flex' : 'none';
+    }
+    if (typeof updateModalLeftColVisibility === 'function') {
+      updateModalLeftColVisibility();
     }
   }
 
@@ -986,6 +1017,27 @@
     }
   }
 
+  async function refreshDashboardIfActive() {
+    if (!isTraktMode || currentSubView !== 'dashboard') return;
+    const viewport = document.getElementById('traktViewport');
+    if (!viewport) return;
+    const todayList = document.getElementById('traktTodayList');
+    const prevScrollLeft = todayList ? todayList.scrollLeft : 0;
+    try {
+      const startDate = window.TraktDates.getLocalYesterdayYmd();
+      const data = await invoke('trakt_get_dashboard_data', {
+        startDate,
+        forceRefresh: false,
+      });
+      if (!isTraktMode || currentSubView !== 'dashboard') return;
+      window.TraktDashboard.renderDashboard(viewport, data);
+      const newTodayList = document.getElementById('traktTodayList');
+      if (newTodayList && prevScrollLeft > 0) {
+        newTodayList.scrollLeft = prevScrollLeft;
+      }
+    } catch (_) {}
+  }
+
   window.TraktUI = {
     init,
     enterTraktMode,
@@ -996,6 +1048,7 @@
     detachFromModal,
     openTraktItemModal,
     loadSettingsTab,
+    refreshDashboardIfActive,
     showTraktError,
     showToast,
     isTraktMode: () => isTraktMode,

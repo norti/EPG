@@ -13,7 +13,7 @@ use crate::trakt::sync::{
     enrich_missing_history_posters, get_sync_state_val, is_sync_overdue, local_yesterday_ymd,
     run_sync, sync_show_progress, SyncSummary,
 };
-use crate::trakt::{is_trakt_enabled, now_epoch_millis, now_epoch_secs, now_iso_utc};
+use crate::trakt::{is_trakt_enabled, iso_utc_to_epoch, now_epoch_millis, now_epoch_secs, now_iso_utc};
 use crate::{
     apply_tmdb_auth, cache_logo_inner, clean_title, extract_year_hint,
     get_tmdb_api_key_from_state, get_tmdb_by_id, normalise_for_match, tmdb_title_score, AppState,
@@ -50,8 +50,30 @@ pub struct TraktHistoryItem {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct ContinueWatchingItem {
+    pub episode_trakt_id: i64,
+    pub show_trakt_id: i64,
+    pub show_tmdb_id: Option<i64>,
+    pub show_title: String,
+    pub show_title_hu: Option<String>,
+    pub season: i64,
+    pub number: i64,
+    pub episode_title: Option<String>,
+    pub first_aired: Option<String>,
+    pub network: Option<String>,
+    pub poster_path: Option<String>,
+    pub overview: Option<String>,
+    pub aired: i64,
+    pub completed: i64,
+    pub last_watched_at: Option<String>,
+    pub on_watchlist: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct TraktDashboardData {
     pub calendar_episodes: Vec<CalendarEpisodeItem>,
+    pub continue_watching: Vec<ContinueWatchingItem>,
     pub history: Vec<TraktHistoryItem>,
     pub last_sync_ok_at: Option<String>,
     pub overdue: bool,
@@ -288,6 +310,77 @@ pub async fn trakt_get_sync_status(
     })
 }
 
+pub fn query_continue_watching(
+    conn: &rusqlite::Connection,
+    now_secs: i64,
+) -> Result<Vec<ContinueWatchingItem>, String> {
+    let mut cw_stmt = conn
+        .prepare(
+            "SELECT p.next_episode_trakt_id,
+                    p.show_trakt_id,
+                    COALESCE(w.tmdb_id, tc.tmdb_id) AS tmdb_id,
+                    COALESCE(tc.title, w.title, '') AS show_title,
+                    COALESCE(w.title_hu, (SELECT tm.hu_title FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(w.tmdb_id, tc.tmdb_id) AND tm.media_type = 'tv' AND tm.hu_title IS NOT NULL LIMIT 1)) AS show_title_hu,
+                    p.next_season,
+                    p.next_episode,
+                    p.next_episode_title,
+                    COALESCE(p.next_episode_first_aired, (SELECT c.first_aired FROM trakt_calendar_cache c WHERE c.episode_trakt_id = p.next_episode_trakt_id LIMIT 1)) AS first_aired,
+                    tc.network,
+                    COALESCE(w.poster_path, (SELECT tm.poster_path FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(w.tmdb_id, tc.tmdb_id) AND tm.media_type = 'tv' AND tm.poster_path IS NOT NULL LIMIT 1)) AS poster_path,
+                    COALESCE(tc.overview, (SELECT tm.overview FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(w.tmdb_id, tc.tmdb_id) AND tm.media_type = 'tv' AND tm.overview IS NOT NULL LIMIT 1)) AS overview,
+                    COALESCE(p.aired, 0),
+                    COALESCE(p.completed, 0),
+                    p.last_watched_at,
+                    CASE WHEN w.trakt_id IS NOT NULL THEN 1 ELSE 0 END AS on_watchlist
+             FROM trakt_show_progress p
+             LEFT JOIN trakt_cache tc ON tc.media_type = 'show' AND tc.trakt_id = p.show_trakt_id
+             LEFT JOIN trakt_watchlist_cache w ON w.trakt_id = p.show_trakt_id
+             LEFT JOIN trakt_episodes e ON e.show_trakt_id = p.show_trakt_id AND e.season = p.next_season AND e.episode = p.next_episode
+             WHERE p.hidden_from_progress = 0
+               AND COALESCE(p.completed, 0) > 0
+               AND p.next_episode_trakt_id IS NOT NULL
+               AND p.next_season IS NOT NULL
+               AND p.next_episode IS NOT NULL
+               AND e.watched_at IS NULL
+             ORDER BY p.last_watched_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let items: Vec<ContinueWatchingItem> = cw_stmt
+        .query_map([], |r| {
+            let wl_int: i32 = r.get(15)?;
+            Ok(ContinueWatchingItem {
+                episode_trakt_id: r.get(0)?,
+                show_trakt_id: r.get(1)?,
+                show_tmdb_id: r.get(2)?,
+                show_title: r.get(3)?,
+                show_title_hu: r.get(4)?,
+                season: r.get(5)?,
+                number: r.get(6)?,
+                episode_title: r.get(7)?,
+                first_aired: r.get(8)?,
+                network: r.get(9)?,
+                poster_path: r.get(10)?,
+                overview: r.get(11)?,
+                aired: r.get(12)?,
+                completed: r.get(13)?,
+                last_watched_at: r.get(14)?,
+                on_watchlist: wl_int == 1,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .filter(|item| {
+            item.first_aired
+                .as_deref()
+                .and_then(iso_utc_to_epoch)
+                .map_or(false, |aired_ts| aired_ts <= now_secs)
+        })
+        .collect();
+
+    Ok(items)
+}
+
 #[tauri::command]
 pub async fn trakt_get_dashboard_data(
     state: tauri::State<'_, AppState>,
@@ -315,6 +408,7 @@ pub async fn trakt_get_dashboard_data(
 
     let conn = state.db.lock().await;
     let calendar_episodes = query_calendar_episodes(&conn, "my", false)?;
+    let continue_watching = query_continue_watching(&conn, now_epoch_secs())?;
 
     let mut hist_stmt = conn
         .prepare(
@@ -356,6 +450,7 @@ pub async fn trakt_get_dashboard_data(
 
     Ok(TraktDashboardData {
         calendar_episodes,
+        continue_watching,
         history,
         last_sync_ok_at,
         overdue,
@@ -486,9 +581,26 @@ pub async fn trakt_mark_watched(
                 params![prefix],
             )
             .ok();
+            if queued {
+                if let (Some(s_num), Some(e_num)) = (season, episode) {
+                    tx.execute(
+                        "UPDATE trakt_show_progress
+                         SET next_episode_trakt_id = NULL, next_season = NULL, next_episode = NULL, next_episode_title = NULL, next_episode_first_aired = NULL
+                         WHERE show_trakt_id = ?1 AND next_season = ?2 AND next_episode = ?3",
+                        params![sid, s_num, e_num],
+                    )
+                    .ok();
+                }
+            }
         }
 
         tx.commit().map_err(|e| e.to_string())?;
+    }
+
+    if !queued && media_type == "episode" {
+        if let Some(sid) = show_trakt_id {
+            let _ = sync_show_progress(state.inner(), Some(&app), sid, true).await;
+        }
     }
 
     Ok(MarkWatchedResult {

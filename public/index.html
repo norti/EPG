@@ -22,12 +22,6 @@
         ★ Kedvenc csatornák
       </button>
       <select id="sourceSelect" class="epg-only"></select>
-      <select
-        id="headerSortSelect"
-        class="epg-only"
-        title="Csatornák sorrendje"
-        data-i18n-title="header_sort_title"
-      ></select>
       <div class="date-nav-group epg-only">
         <button
           class="btn btn-date-arrow"
@@ -232,17 +226,24 @@
         </div>
 
         <div class="modal-inner">
-          <div
-            class="modal-poster-col"
-            id="modalPosterCol"
-            style="display: none"
-          >
-            <img
-              class="modal-poster-img"
-              id="modalPoster"
-              src=""
-              alt="Poster"
-            />
+          <div class="modal-left-col" id="modalLeftCol" style="display: none">
+            <div
+              class="modal-poster-col"
+              id="modalPosterCol"
+              style="display: none"
+            >
+              <img
+                class="modal-poster-img"
+                id="modalPoster"
+                src=""
+                alt="Poster"
+              />
+            </div>
+            <div id="modalPosterTraktMeta" class="modal-poster-trakt-meta" style="display: none">
+              <button type="button" id="modalTraktWatchlistBtn" class="btn trakt-modal-wl-btn" style="display: none"></button>
+              <span id="modalTraktWatchlistStatus" class="modal-trakt-wl-status" style="display: none"></span>
+              <div id="modalTraktNetworkBadge" class="trakt-modal-badge trakt-badge-network trakt-poster-network" style="display: none"></div>
+            </div>
           </div>
           <div class="modal-details-col">
             <div class="modal-header-row">
@@ -330,10 +331,6 @@
             </div>
             <div id="modalTraktSection" class="modal-trakt-section" style="display: none">
               <div id="modalTraktBadges" class="modal-trakt-badges"></div>
-              <div class="modal-trakt-actions">
-                <button type="button" id="modalTraktWatchlistBtn" class="btn" style="display: none"></button>
-                <span id="modalTraktWatchlistStatus" class="modal-trakt-wl-status" style="display: none"></span>
-              </div>
             </div>
             <div id="modalTraktDrawerSection" class="modal-trakt-drawer-section" style="display: none"></div>
           </div>
@@ -1261,6 +1258,14 @@
           <div class="logo-search-status" id="logoSearchStatus" style="display: none;"></div>
           <div class="logo-search-results-grid custom-scroll" id="logoSearchResultsGrid"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- UGRÁS FOLYAMATJELZŐ LAYER -->
+    <div class="jump-progress-overlay" id="epgJumpOverlay" style="display: none">
+      <div class="jump-progress-card">
+        <span class="spinner-small"></span>
+        <span id="epgJumpOverlayText" data-i18n="trakt_jumping_to_epg">Ugrás a műsorhoz az EPG-ben...</span>
       </div>
     </div>
 
