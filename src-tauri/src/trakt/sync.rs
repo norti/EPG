@@ -128,6 +128,34 @@ pub struct TraktProgressEpisode {
     pub last_watched_at: Option<String>,
 }
 
+#[derive(Deserialize, Debug)]
+struct TraktWatchedShowEntry {
+    #[serde(default)]
+    reset_at: Option<String>,
+    show: TraktWatchedShowRef,
+    #[serde(default)]
+    seasons: Vec<TraktWatchedSeason>,
+}
+
+#[derive(Deserialize, Debug)]
+struct TraktWatchedShowRef {
+    ids: TraktMediaIds,
+}
+
+#[derive(Deserialize, Debug)]
+struct TraktWatchedSeason {
+    number: i64,
+    #[serde(default)]
+    episodes: Vec<TraktWatchedEpisode>,
+}
+
+#[derive(Deserialize, Debug)]
+struct TraktWatchedEpisode {
+    number: i64,
+    #[serde(default)]
+    last_watched_at: Option<String>,
+}
+
 fn emit_sync_state(
     app: Option<&tauri::AppHandle>,
     status: &str,
@@ -305,7 +333,7 @@ pub async fn run_sync(
     let activities: LastActivities = serde_json::from_str(&act_resp.body)
         .map_err(|e| format!("last_activities JSON hiba: {}", e))?;
 
-    let (stored_act, wl_empty, hist_empty, has_profile) = {
+    let (stored_act, wl_empty, hist_empty, has_profile, history_dirty, watched_shows_synced) = {
         let conn = state.db.lock().await;
         let stored: Option<LastActivities> = get_sync_state_val(&conn, "last_activities")
             .and_then(|s| serde_json::from_str(&s).ok());
@@ -322,7 +350,10 @@ pub async fn run_sync(
             .unwrap_or(0)
             == 0;
         let has_prof = get_sync_state_val(&conn, "profile_json").is_some();
-        (stored, wl_empty, hist_empty, has_prof)
+        let dirty = get_sync_state_val(&conn, "history_dirty").as_deref() == Some("1");
+        let ws_synced =
+            get_sync_state_val(&conn, "watched_shows_synced_v1").as_deref() == Some("1");
+        (stored, wl_empty, hist_empty, has_prof, dirty, ws_synced)
     };
 
     if !has_profile {
@@ -338,6 +369,8 @@ pub async fn run_sync(
 
     let hist_changed = force
         || hist_empty
+        || history_dirty
+        || !watched_shows_synced
         || stored_act.as_ref().map_or(true, |s| {
             s.episodes.as_ref().and_then(|e| e.watched_at.as_ref())
                 != activities.episodes.as_ref().and_then(|e| e.watched_at.as_ref())
@@ -359,6 +392,13 @@ pub async fn run_sync(
             emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
             return Err(e);
         }
+        if let Err(e) = sync_watched_shows(state, app).await {
+            emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
+            return Err(e);
+        }
+        let conn = state.db.lock().await;
+        let _ = set_sync_state_val(&conn, "history_dirty", "0");
+        let _ = set_sync_state_val(&conn, "watched_shows_synced_v1", "1");
     }
 
     emit_sync_state(app, "syncing", "calendar", last_ok_prev.as_deref(), None);
@@ -371,18 +411,15 @@ pub async fn run_sync(
         }
     };
 
-    // Refresh progress for shows appearing in the user's calendar (up to 15 shows)
+    // Refresh progress summary for shows appearing in the user's calendar (up to 15 shows)
     let cal_show_ids: Vec<i64> = {
         let conn = state.db.lock().await;
-        // Sync progress for shows in personal calendar AND all watchlisted shows
-        // so that watch-history removals on Trakt.tv are reflected locally.
         let mut stmt = conn
             .prepare(
-                "SELECT DISTINCT show_trakt_id FROM (
-                    SELECT c.show_trakt_id FROM trakt_calendar_cache c WHERE c.scope = 'my'
-                    UNION
-                    SELECT w.trakt_id FROM trakt_watchlist_cache w WHERE w.media_type = 'show'
-                ) LIMIT 40",
+                "SELECT DISTINCT c.show_trakt_id
+                 FROM trakt_calendar_cache c
+                 WHERE c.scope = 'my'
+                 LIMIT 15",
             )
             .map_err(|e| e.to_string())?;
         let mapped = stmt.query_map([], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?;
@@ -782,6 +819,133 @@ pub async fn enrich_missing_history_posters(state: &AppState) {
             }
         }
     }
+}
+
+pub async fn sync_watched_shows(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+) -> Result<(), String> {
+    let resp = trakt_get_raw(state, app, "/sync/watched/shows", true)
+        .await
+        .map_err(|e| e.to_user_string())?;
+
+    let entries: Vec<TraktWatchedShowEntry> = serde_json::from_str(&resp.body)
+        .map_err(|e| format!("Watched shows JSON hiba: {}", e))?;
+
+    let now = now_iso_utc();
+    let mut conn = state.db.lock().await;
+
+    // Preserve any locally queued offline history_add episode IDs
+    let mut pending_ep_ids: HashSet<i64> = HashSet::new();
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT payload_json FROM trakt_pending_actions WHERE action = 'history_add'",
+    ) {
+        if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+            for payload_str in rows.flatten() {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&payload_str) {
+                    if let Some(eps) = val.get("episodes").and_then(|v| v.as_array()) {
+                        for ep in eps {
+                            if let Some(id) = ep
+                                .get("ids")
+                                .and_then(|i| i.get("trakt"))
+                                .and_then(|t| t.as_i64())
+                            {
+                                pending_ep_ids.insert(id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    if pending_ep_ids.is_empty() {
+        tx.execute(
+            "UPDATE trakt_episodes SET watched_at = NULL, updated_at = ?1 WHERE watched_at IS NOT NULL",
+            params![now],
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        let mut clear_stmt = tx
+            .prepare(
+                "SELECT show_trakt_id, season, episode, episode_trakt_id
+                 FROM trakt_episodes WHERE watched_at IS NOT NULL",
+            )
+            .map_err(|e| e.to_string())?;
+        let to_clear: Vec<(i64, i64, i64)> = clear_stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .filter(|(_, _, _, ep_id)| {
+                ep_id.map_or(true, |id| !pending_ep_ids.contains(&id))
+            })
+            .map(|(s, se, ep, _)| (s, se, ep))
+            .collect();
+        drop(clear_stmt);
+
+        let mut upd = tx
+            .prepare(
+                "UPDATE trakt_episodes SET watched_at = NULL, updated_at = ?1
+                 WHERE show_trakt_id = ?2 AND season = ?3 AND episode = ?4",
+            )
+            .map_err(|e| e.to_string())?;
+        for (sid, s_num, e_num) in to_clear {
+            let _ = upd.execute(params![now, sid, s_num, e_num]);
+        }
+    }
+
+    {
+        let mut ep_stmt = tx
+            .prepare(
+                "INSERT INTO trakt_episodes (show_trakt_id, season, episode, episode_trakt_id, title, watched_at, updated_at)
+                 VALUES (?1, ?2, ?3, NULL, NULL, ?4, ?5)
+                 ON CONFLICT(show_trakt_id, season, episode) DO UPDATE SET
+                    watched_at = excluded.watched_at,
+                    updated_at = excluded.updated_at",
+            )
+            .map_err(|e| e.to_string())?;
+
+        for entry in &entries {
+            let show_id = entry.show.ids.trakt;
+            for season in &entry.seasons {
+                for ep in &season.episodes {
+                    let after_reset = match (&entry.reset_at, &ep.last_watched_at) {
+                        (Some(r), Some(w)) => w.as_str() >= r.as_str(),
+                        _ => true,
+                    };
+                    if !after_reset {
+                        continue;
+                    }
+                    let watched_at = ep.last_watched_at.as_deref().unwrap_or(&now);
+                    let _ = ep_stmt.execute(params![
+                        show_id,
+                        season.number,
+                        ep.number,
+                        watched_at,
+                        now,
+                    ]);
+                }
+            }
+        }
+    }
+
+    tx.execute(
+        "DELETE FROM trakt_http_cache WHERE key LIKE '/shows/%/progress/watched%'",
+        [],
+    )
+    .ok();
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub async fn sync_show_progress(

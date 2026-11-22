@@ -2296,7 +2296,7 @@ function positionPosterZoom(e) {
   popup.style.top = `${top}px`;
 }
 
-function resetModalTmdbUi() {
+function resetModalTmdbUi(preserveTrakt = false) {
   hidePosterZoom();
   currentModalLargePosterSrc = "";
   const posterCol = document.getElementById("modalPosterCol");
@@ -2327,13 +2327,13 @@ function resetModalTmdbUi() {
   tmdbOverview.style.display = "none";
   tmdbOverviewText.textContent = "";
   tmdbLoading.style.display = "none";
-  if (window.TraktUI) {
+  if (!preserveTrakt && window.TraktUI) {
     window.TraktUI.detachFromModal();
   }
 }
 
-function renderTmdbDetailsInModal(tmdbData) {
-  resetModalTmdbUi();
+function renderTmdbDetailsInModal(tmdbData, options = {}) {
+  resetModalTmdbUi(!!options.preserveTrakt);
   if (!tmdbData) return;
 
   const posterCol = document.getElementById("modalPosterCol");
@@ -2681,6 +2681,14 @@ function renderFixResults(items) {
         });
         renderTmdbDetailsInModal(updatedDetails);
         closeFixOverlay();
+        if (window.TraktUI) {
+          window.TraktUI.attachToModal({
+            title: currentModalTitle,
+            tmdbId: updatedDetails?.tmdbId ?? null,
+            mediaType: updatedDetails?.mediaType ?? null,
+            tmdbData: updatedDetails,
+          });
+        }
       } catch (err) {
         console.error("Hiba a TMDB egyezés mentésekor:", err);
         card.classList.remove("selecting");
@@ -2702,6 +2710,14 @@ async function removeTmdbMatch() {
     });
     resetModalTmdbUi();
     closeFixOverlay();
+    if (window.TraktUI) {
+      window.TraktUI.attachToModal({
+        title: currentModalTitle,
+        tmdbId: null,
+        mediaType: null,
+        tmdbData: null,
+      });
+    }
   } catch (e) {
     console.error("Hiba a TMDB egyezés törlésekor:", e);
   }
@@ -5059,6 +5075,9 @@ document.getElementById("settingsClose").onclick = () => {
 document.getElementById("modalClose").onclick = () => {
   hidePosterZoom();
   closeFixOverlay();
+  if (window.TraktUI) {
+    window.TraktUI.detachFromModal();
+  }
   document.getElementById("modalOverlay").classList.remove("active");
 };
 

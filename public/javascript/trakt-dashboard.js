@@ -821,28 +821,37 @@
     });
   }
 
-  async function renderProgressAndAiringsInto(containerEl, item) {
+  async function renderProgressAndAiringsInto(containerEl, item, isStale) {
     if (!containerEl) return;
-    containerEl.style.display = 'block';
+    containerEl.style.display = 'flex';
     containerEl.innerHTML = `<div class="trakt-drawer-loading"><span class="spinner-small"></span> ${esc(t('trakt_loading'))}</div>`;
 
     if (!item.traktId && !item.showTraktId) {
+      containerEl.style.display = 'none';
       containerEl.innerHTML = '';
       return;
     }
 
     const showTraktId = item.traktId || item.showTraktId;
-    const titlesToSearch = [item.title, item.originalTitle, ...(item.aliases || [])].filter(Boolean);
+    const isShow = item.mediaType === 'show' || item.mediaType === 'tv';
+    const lang = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
+    const titlesToSearch = Array.from(
+      new Set([item.title, item.originalTitle, ...(item.aliases || [])].filter(Boolean))
+    );
 
     const [progressRes, airingsRes] = await Promise.allSettled([
-      item.mediaType === 'show'
+      isShow
         ? invoke('trakt_get_show_seasons_progress', {
             showTraktId,
             tmdbId: item.tmdbId || null,
+            lang,
           })
         : Promise.resolve(null),
       invoke('trakt_find_epg_airings', { titles: titlesToSearch }),
     ]);
+
+    if (typeof isStale === 'function' && isStale()) return;
+    if (!containerEl.isConnected) return;
 
     if (progressRes.status === 'rejected') {
       console.warn('[Trakt] trakt_get_show_seasons_progress error:', progressRes.reason);

@@ -311,9 +311,206 @@ fn test_global_calendar_merges_my_calendar_events() {
         [],
     ).unwrap();
 
-    let merged = crate::trakt::calendar::query_global_calendar_merged(&conn).unwrap();
+    let mut merged = crate::trakt::calendar::query_global_calendar_merged(&conn).unwrap();
     assert_eq!(merged.len(), 2);
     assert_eq!(merged[0].episode_trakt_id, 2002);
     assert_eq!(merged[0].show_title, "Ázsia Expressz");
+    assert!(!merged[0].on_watchlist);
     assert_eq!(merged[1].episode_trakt_id, 1001);
+
+    // Adding show 20 to watchlist (or matching by tmdb_id) marks it on_watchlist in global calendar
+    conn.execute(
+        "INSERT INTO trakt_watchlist_cache (trakt_id, media_type, title, tmdb_id, listed_at, updated_at)
+         VALUES (20, 'show', 'Ázsia Expressz', 220, '2026-11-18T10:00:00Z', '2026-11-18T10:00:00Z')",
+        [],
+    ).unwrap();
+    merged = crate::trakt::calendar::query_global_calendar_merged(&conn).unwrap();
+    assert!(merged[0].on_watchlist);
+}
+
+#[tokio::test]
+async fn test_sync_watched_shows_clears_unwatched_episodes_and_respects_history_dirty() {
+    let base = spawn_mock_server(move |method, path, _body| {
+        if method == "GET" && path == "/sync/last_activities" {
+            return (
+                200,
+                vec![],
+                r#"{"episodes":{"watched_at":"2026-11-18T12:39:00Z"},"movies":{"watched_at":"2026-11-10T10:00:00Z"},"watchlist":{"updated_at":"2026-11-18T10:00:00Z"}}"#.to_string(),
+            );
+        }
+        if method == "GET" && path.starts_with("/users/me/history/") {
+            return (200, vec![], "[]".to_string());
+        }
+        if method == "GET" && path == "/sync/watched/shows" {
+            // S07E23 is watched, S07E24 was removed on Trakt.tv
+            return (
+                200,
+                vec![],
+                r#"[{"show":{"ids":{"trakt":164896}},"seasons":[{"number":7,"episodes":[{"number":23,"last_watched_at":"2026-11-18T12:39:00Z"}]}]}]"#.to_string(),
+            );
+        }
+        if method == "GET" && path.starts_with("/calendars/my/shows/") {
+            return (200, vec![], "[]".to_string());
+        }
+        if method == "GET" && path == "/users/settings" {
+            return (200, vec![], r#"{"user":{"username":"tester"}}"#.to_string());
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+
+    let state = make_test_state(base.clone(), base);
+    let store = default_secret_store();
+    {
+        let mut conn = state.db.lock().await;
+        save_tokens_tx(
+            &mut conn,
+            store.as_ref(),
+            "valid_acc",
+            "valid_ref",
+            now_epoch_secs() + 3600,
+        )
+        .unwrap();
+        // Seed watchlist & history so wl_empty/hist_empty are false, and matching last_activities
+        conn.execute(
+            "INSERT INTO trakt_watchlist_cache (trakt_id, media_type, title, listed_at, updated_at)
+             VALUES (164896, 'show', 'Asia Express', '2026-11-18T10:00:00Z', '2026-11-18T10:00:00Z')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO trakt_history_cache (history_id, trakt_id, media_type, show_trakt_id, show_title, season, episode, watched_at)
+             VALUES (1, 999, 'episode', 164896, 'Asia Express', 7, 23, '2026-11-18T12:39:00Z')",
+            [],
+        ).unwrap();
+        // Simulate accidental local mark-watched on S07E24 (unaired) + history_dirty = '1'
+        conn.execute(
+            "INSERT INTO trakt_episodes (show_trakt_id, season, episode, episode_trakt_id, watched_at, updated_at)
+             VALUES (164896, 7, 24, 8888, '2026-11-18T13:00:00Z', '2026-11-18T13:00:00Z')",
+            [],
+        ).unwrap();
+        // Also simulate a pending offline history_add for S07E25 that must NOT be cleared
+        conn.execute(
+            "INSERT INTO trakt_episodes (show_trakt_id, season, episode, episode_trakt_id, watched_at, updated_at)
+             VALUES (164896, 7, 25, 9999, '2026-11-18T13:05:00Z', '2026-11-18T13:05:00Z')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO trakt_sync_state (key, value) VALUES ('last_activities', '{\"episodes\":{\"watched_at\":\"2026-11-18T12:39:00Z\"},\"movies\":{\"watched_at\":\"2026-11-10T10:00:00Z\"},\"watchlist\":{\"updated_at\":\"2026-11-18T10:00:00Z\"}}')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO trakt_sync_state (key, value) VALUES ('history_dirty', '1')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO trakt_sync_state (key, value) VALUES ('watched_shows_synced_v1', '1')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO trakt_sync_state (key, value) VALUES ('profile_json', '{\"username\":\"tester\"}')",
+            [],
+        ).unwrap();
+    }
+
+    // Non-forced sync (like focus sync) must still detect history_dirty and clear S07E24
+    let summary = crate::trakt::sync::run_sync(&state, None, false).await.unwrap();
+    assert!(summary.history_updated);
+
+    let conn = state.db.lock().await;
+    let s07e24_watched: Option<String> = conn
+        .query_row(
+            "SELECT watched_at FROM trakt_episodes WHERE show_trakt_id = 164896 AND season = 7 AND episode = 24",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(s07e24_watched.is_none(), "S07E24 should be cleared to unwatched");
+
+    let s07e23_watched: Option<String> = conn
+        .query_row(
+            "SELECT watched_at FROM trakt_episodes WHERE show_trakt_id = 164896 AND season = 7 AND episode = 23",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(s07e23_watched.as_deref(), Some("2026-11-18T12:39:00Z"));
+
+    let s07e25_watched: Option<String> = conn
+        .query_row(
+            "SELECT watched_at FROM trakt_episodes WHERE show_trakt_id = 164896 AND season = 7 AND episode = 25",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(s07e25_watched.is_none(), "S07E25 without pending action should also be cleared");
+
+    let dirty_after: String = conn
+        .query_row(
+            "SELECT value FROM trakt_sync_state WHERE key = 'history_dirty'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(dirty_after, "0");
+}
+
+#[tokio::test]
+async fn test_sync_watched_shows_preserves_pending_history_add() {
+    let base = spawn_mock_server(move |method, path, _body| {
+        if method == "GET" && path == "/sync/watched/shows" {
+            return (200, vec![], "[]".to_string());
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+
+    let state = make_test_state(base.clone(), base);
+    let store = default_secret_store();
+    {
+        let mut conn = state.db.lock().await;
+        save_tokens_tx(
+            &mut conn,
+            store.as_ref(),
+            "valid_acc",
+            "valid_ref",
+            now_epoch_secs() + 3600,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO trakt_episodes (show_trakt_id, season, episode, episode_trakt_id, watched_at, updated_at)
+             VALUES (164896, 7, 24, 8888, '2026-11-18T13:00:00Z', '2026-11-18T13:00:00Z')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO trakt_episodes (show_trakt_id, season, episode, episode_trakt_id, watched_at, updated_at)
+             VALUES (164896, 7, 25, 9999, '2026-11-18T13:05:00Z', '2026-11-18T13:05:00Z')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO trakt_pending_actions (action, payload_json, created_at, attempts, last_error)
+             VALUES ('history_add', '{\"episodes\":[{\"ids\":{\"trakt\":9999}}]}', ?1, 0, 'offline')",
+            params![now_iso_utc()],
+        ).unwrap();
+    }
+
+    crate::trakt::sync::sync_watched_shows(&state, None).await.unwrap();
+
+    let conn = state.db.lock().await;
+    let e24: Option<String> = conn
+        .query_row(
+            "SELECT watched_at FROM trakt_episodes WHERE show_trakt_id = 164896 AND season = 7 AND episode = 24",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(e24.is_none(), "Non-pending episode should be cleared");
+
+    let e25: Option<String> = conn
+        .query_row(
+            "SELECT watched_at FROM trakt_episodes WHERE show_trakt_id = 164896 AND season = 7 AND episode = 25",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(e25.as_deref(), Some("2026-11-18T13:05:00Z"), "Pending offline episode must be preserved");
 }

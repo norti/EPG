@@ -15,6 +15,7 @@
   let activeDeviceFlow = null;
   let loginPollFallbackTimer = null;
   let modalAttachSeq = 0;
+  let manualSyncInFlight = false;
 
   function stopLoginFallbackTimer() {
     if (loginPollFallbackTimer) {
@@ -356,6 +357,7 @@
 
   async function triggerManualSync() {
     if (!authStatus.loggedIn) return;
+    manualSyncInFlight = true;
     syncStatus.status = 'syncing';
     updateSyncStatusUi();
     try {
@@ -375,6 +377,8 @@
       syncStatus.offline = syncStatus.status === 'offline';
       updateSyncStatusUi();
       showTraktError(err);
+    } finally {
+      manualSyncInFlight = false;
     }
   }
 
@@ -544,13 +548,27 @@
       if (data && data.traktId) {
         const drawer = document.getElementById('modalTraktDrawerSection');
         if (drawer && window.TraktDashboard?.renderProgressAndAiringsInto) {
-          window.TraktDashboard.renderProgressAndAiringsInto(drawer, {
-            traktId: data.traktId,
-            tmdbId: data.tmdbId || null,
-            mediaType: data.mediaType,
-            title: data.title,
-            aliases: [],
-          });
+          const aliases = Array.from(
+            new Set(
+              [
+                title,
+                tmdbData?.huTitle,
+                tmdbData?.enTitle,
+                tmdbData?.originalTitle,
+              ].filter(Boolean)
+            )
+          );
+          window.TraktDashboard.renderProgressAndAiringsInto(
+            drawer,
+            {
+              traktId: data.traktId,
+              tmdbId: data.tmdbId || tmdbData?.tmdbId || null,
+              mediaType: data.mediaType,
+              title: data.title,
+              aliases,
+            },
+            () => seq !== modalAttachSeq
+          );
         }
       }
     } catch (e) {
@@ -589,7 +607,7 @@
         if (seq !== modalAttachSeq) return;
         if (tmdbLoading) tmdbLoading.style.display = 'none';
         if (tmdbData && typeof renderTmdbDetailsInModal === 'function') {
-          renderTmdbDetailsInModal(tmdbData);
+          renderTmdbDetailsInModal(tmdbData, { preserveTrakt: true });
         }
       } catch (_) {
         if (tmdbLoading) tmdbLoading.style.display = 'none';
@@ -599,15 +617,16 @@
     if (seq !== modalAttachSeq) return;
 
     // Resolve Trakt metadata (rating, votes, status, watchlist state)
+    let resolvedTrakt = null;
     try {
-      const traktData = await invoke('trakt_resolve_for_title', {
+      resolvedTrakt = await invoke('trakt_resolve_for_title', {
         title: item.originalTitle || item.title,
         tmdbId: item.tmdbId || null,
         mediaType: item.mediaType === 'movie' ? 'movie' : 'tv',
       });
       if (seq !== modalAttachSeq) return;
       renderModalTraktSection(
-        traktData || {
+        resolvedTrakt || {
           traktId: item.traktId,
           tmdbId: item.tmdbId,
           mediaType: item.mediaType || 'show',
@@ -625,13 +644,33 @@
       );
     } catch (_) {}
 
+    if (seq !== modalAttachSeq) return;
+
     // Render Season/Episode Progress Drawer + EPG Airings
     const drawerEl = document.getElementById('modalTraktDrawerSection');
     if (drawerEl && window.TraktDashboard) {
-      window.TraktDashboard.renderProgressAndAiringsInto(drawerEl, {
-        ...item,
-        tmdbId: item.tmdbId || tmdbData?.tmdbId || null,
-      });
+      const aliases = Array.from(
+        new Set(
+          [
+            item.title,
+            item.originalTitle,
+            tmdbData?.huTitle,
+            tmdbData?.enTitle,
+            tmdbData?.originalTitle,
+            ...(item.aliases || []),
+          ].filter(Boolean)
+        )
+      );
+      window.TraktDashboard.renderProgressAndAiringsInto(
+        drawerEl,
+        {
+          ...item,
+          traktId: item.traktId || resolvedTrakt?.traktId,
+          tmdbId: item.tmdbId || tmdbData?.tmdbId || resolvedTrakt?.tmdbId || null,
+          aliases,
+        },
+        () => seq !== modalAttachSeq
+      );
     }
   }
 
@@ -889,14 +928,18 @@
         }
       }).catch((e) => console.warn('[Trakt] listen trakt-login-state failed:', e));
 
-      listen('trakt-sync-state', (event) => {
+      listen('trakt-sync-state', async (event) => {
         const payload = event.payload || {};
+        const prevStatus = syncStatus.status;
         syncStatus.status = payload.status || 'idle';
         syncStatus.offline = payload.status === 'offline';
         if (payload.lastSyncOkAt) {
           syncStatus.lastSyncOkAt = payload.lastSyncOkAt;
         }
         updateSyncStatusUi();
+        if (prevStatus === 'syncing' && syncStatus.status === 'idle' && !manualSyncInFlight && isTraktMode) {
+          await loadActiveTraktView();
+        }
       }).catch((e) => console.warn('[Trakt] listen trakt-sync-state failed:', e));
 
       listen('trakt-watchlist-changed', async () => {
@@ -908,9 +951,19 @@
         } else {
           updateWatchlistCountBadge();
         }
-        // Refresh the global calendar view so watchlist state reflects the change
-        if (isTraktMode && currentSubView === 'calendar_global') {
+        // Refresh the global calendar or watchlist view so watchlist state reflects the change
+        if (isTraktMode && (currentSubView === 'calendar_global' || currentSubView === 'watchlist')) {
+          const scrollEl =
+            document.getElementById('traktCalendarDays') ||
+            document.getElementById('traktWatchlistGrid');
+          const prevScroll = scrollEl ? scrollEl.scrollTop : 0;
           await loadActiveTraktView();
+          const newScrollEl =
+            document.getElementById('traktCalendarDays') ||
+            document.getElementById('traktWatchlistGrid');
+          if (newScrollEl && prevScroll > 0) {
+            newScrollEl.scrollTop = prevScroll;
+          }
         }
       }).catch((e) => console.warn('[Trakt] listen trakt-watchlist-changed failed:', e));
     }

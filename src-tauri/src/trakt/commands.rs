@@ -472,6 +472,22 @@ pub async fn trakt_mark_watched(
         )
         .ok();
 
+        tx.execute(
+            "INSERT INTO trakt_sync_state (key, value) VALUES ('history_dirty', '1')
+             ON CONFLICT(key) DO UPDATE SET value = '1'",
+            [],
+        )
+        .ok();
+
+        if let Some(sid) = show_trakt_id {
+            let prefix = format!("/shows/{}/progress/watched%", sid);
+            tx.execute(
+                "DELETE FROM trakt_http_cache WHERE key LIKE ?1",
+                params![prefix],
+            )
+            .ok();
+        }
+
         tx.commit().map_err(|e| e.to_string())?;
     }
 
@@ -705,7 +721,12 @@ pub async fn trakt_get_show_seasons_progress(
     app: tauri::AppHandle,
     show_trakt_id: i64,
     tmdb_id: Option<i64>,
+    lang: Option<String>,
 ) -> Result<TraktShowSeasonsProgress, String> {
+    let tmdb_lang = lang
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "hu-HU".to_string());
+
     // 1. Check if we have any episode data in DB for this show
     let has_local_episodes: bool = {
         let conn = state.db.lock().await;
@@ -722,7 +743,7 @@ pub async fn trakt_get_show_seasons_progress(
         .await
         .ok();
 
-    // 2. Fetch Trakt seasons + episodes (24h TTL) for episode Trakt IDs and fallback titles
+    // 3. Fetch Trakt seasons + episodes (24h TTL) for episode Trakt IDs and fallback titles
     let seasons_path = format!("/shows/{}/seasons?extended=episodes", show_trakt_id);
     let trakt_seasons: Vec<TraktSeasonApi> =
         match trakt_get_cached(state.inner(), Some(&app), &seasons_path, false, 86400, false).await
@@ -769,7 +790,7 @@ pub async fn trakt_get_show_seasons_progress(
     let mut season_groups: Vec<TraktSeasonGroup> = Vec::new();
 
     for ts in trakt_seasons {
-        if ts.number == 0 && ts.episodes.is_empty() {
+        if ts.episodes.is_empty() {
             continue;
         }
 
@@ -777,7 +798,7 @@ pub async fn trakt_get_show_seasons_progress(
         let mut tmdb_ep_map: HashMap<i64, TmdbSeasonEpisodeApi> = HashMap::new();
         let mut tmdb_season_name: Option<String> = None;
         if let (Some(tid), Some(ref key)) = (resolved_tmdb_id, &tmdb_key) {
-            let cache_key = format!("tmdb_season:{}:{}:hu-HU", tid, ts.number);
+            let cache_key = format!("tmdb_season:{}:{}:{}", tid, ts.number, tmdb_lang);
             let cached_body: Option<String> = {
                 let conn = state.db.lock().await;
                 conn.query_row(
@@ -808,7 +829,7 @@ pub async fn trakt_get_show_seasons_progress(
                         .http
                         .get(&url)
                         .header("Accept", "application/json")
-                        .query(&[("language", "hu-HU")]),
+                        .query(&[("language", tmdb_lang.as_str())]),
                     key,
                 );
                 if let Ok(resp) = req.send().await {
@@ -957,6 +978,29 @@ pub async fn trakt_get_calendar_global(
         .filter(|s| s.trim().len() >= 10)
         .unwrap_or_else(local_yesterday_ymd);
     let force = force_refresh.unwrap_or(false);
+
+    let should_sync_wl = {
+        let conn = state.db.lock().await;
+        let logged_in: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM trakt_auth WHERE id = 1 AND access_blob != '')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        let never_synced = get_sync_state_val(&conn, "last_sync_ok_at").is_none();
+        let wl_empty: bool = conn
+            .query_row("SELECT COUNT(*) FROM trakt_watchlist_cache", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap_or(0)
+            == 0;
+        logged_in && never_synced && wl_empty
+    };
+    if should_sync_wl {
+        let _ = crate::trakt::sync::sync_watchlist(state.inner(), Some(&app)).await;
+    }
+
     fetch_and_cache_global_calendar(state.inner(), Some(&app), &start, force).await?;
     // Best-effort refresh of personal calendar so user's own shows are always included in Global Calendar
     let _ = fetch_and_cache_my_calendar(state.inner(), Some(&app), &start, force).await;
@@ -1191,7 +1235,7 @@ pub async fn trakt_resolve_for_title(
             if let Some(tid) = tmdb_id {
                 refs.iter()
                     .find(|r| r.tmdb_id == Some(tid))
-                    .or_else(|| refs.first())
+                    .or_else(|| refs.iter().find(|r| r.tmdb_id.is_none()))
                     .map(|r| (r.trakt_id, r.media_type.clone()))
             } else if crate::trakt::matcher::check_title_against_index(&conn, &idx, &title) {
                 refs.first().map(|r| (r.trakt_id, r.media_type.clone()))
@@ -1210,7 +1254,9 @@ pub async fn trakt_resolve_for_title(
     }
 
     // 2. Check trakt_cache by (media_type, tmdb_id)
-    let trakt_mt_opt = media_type.as_deref().map(|m| if m == "tv" { "show" } else { "movie" });
+    let trakt_mt_opt = media_type
+        .as_deref()
+        .map(|m| if m == "tv" || m == "show" { "show" } else { "movie" });
     if let (Some(tid), Some(tmt)) = (tmdb_id, trakt_mt_opt) {
         let cached_row: Option<(i64, bool)> = {
             let conn = state.db.lock().await;

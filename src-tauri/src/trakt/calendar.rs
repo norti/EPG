@@ -278,7 +278,12 @@ pub fn query_global_calendar_merged(conn: &Connection) -> Result<Vec<CalendarEpi
             COALESCE(w.poster_path, (SELECT tm.poster_path FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id) AND tm.media_type = 'tv' AND tm.poster_path IS NOT NULL LIMIT 1)) AS poster_path,
             COALESCE(tc.overview, (SELECT tm.overview FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id) AND tm.media_type = 'tv' AND tm.overview IS NOT NULL LIMIT 1)) AS overview,
             CASE WHEN e.watched_at IS NOT NULL THEN 1 ELSE 0 END AS watched,
-            CASE WHEN w.trakt_id IS NOT NULL THEN 1 ELSE 0 END AS on_watchlist
+            CASE WHEN w.trakt_id IS NOT NULL OR (
+                c.show_tmdb_id IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM trakt_watchlist_cache w2
+                    WHERE w2.media_type = 'show' AND w2.tmdb_id = c.show_tmdb_id
+                )
+            ) THEN 1 ELSE 0 END AS on_watchlist
          FROM trakt_calendar_cache c
          LEFT JOIN trakt_watchlist_cache w ON w.trakt_id = c.show_trakt_id
          LEFT JOIN trakt_episodes e ON e.show_trakt_id = c.show_trakt_id AND e.season = c.season AND e.episode = c.number
