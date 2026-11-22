@@ -63,6 +63,8 @@ struct OAuthErrorBody {
 #[serde(rename_all = "camelCase")]
 pub struct TraktProfile {
     pub username: String,
+    #[serde(default)]
+    pub slug: Option<String>,
     pub name: Option<String>,
     pub vip: bool,
     pub vip_ep: bool,
@@ -546,6 +548,12 @@ pub async fn fetch_and_save_profile(state: &AppState) -> Result<TraktProfile, St
         .and_then(|v| v.as_str())
         .unwrap_or("Trakt User")
         .to_string();
+    let slug = user
+        .pointer("/ids/slug")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some(username.clone()));
     let name = user
         .get("name")
         .and_then(|v| v.as_str())
@@ -567,6 +575,7 @@ pub async fn fetch_and_save_profile(state: &AppState) -> Result<TraktProfile, St
 
     let profile = TraktProfile {
         username,
+        slug,
         name,
         vip,
         vip_ep,

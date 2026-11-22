@@ -21,6 +21,10 @@ const LOCALE_COMPARE_OPTIONS = Object.freeze({
   numeric: true,
 });
 
+function iconHtml(name, size = 16) {
+  return window.Icons ? window.Icons.get(name, { size }) : "";
+}
+
 // ============================================================================
 // Fuzzy Search & Diacritics Normalization Utilities
 // ============================================================================
@@ -406,7 +410,10 @@ function updateGridCornerButton() {
   if (activeSingleChannelId) {
     btn.classList.add("back-mode");
     btn.title = t("grid_back_btn_title");
-    if (iconEl) iconEl.textContent = "◀";
+    if (iconEl) {
+      iconEl.setAttribute("data-icon", "arrow-left");
+      iconEl.innerHTML = iconHtml("arrow-left", 18);
+    }
     if (labelEl) {
       if (currentLayout === "horizontal") {
         labelEl.textContent = t("grid_back_btn_label");
@@ -419,7 +426,10 @@ function updateGridCornerButton() {
   } else {
     btn.classList.remove("back-mode");
     btn.title = t("grid_home_btn_title");
-    if (iconEl) iconEl.textContent = "⌂";
+    if (iconEl) {
+      iconEl.setAttribute("data-icon", "home");
+      iconEl.innerHTML = iconHtml("home", 18);
+    }
     if (labelEl) {
       if (currentLayout === "horizontal") {
         labelEl.textContent = t("grid_home_btn_label");
@@ -530,10 +540,19 @@ async function init() {
 function updateAllFavBtnState() {
   const btn = document.getElementById("allFavChannelsBtn");
   if (btn) {
+    const iconEl = document.getElementById("allFavChannelsIcon");
     if (currentSourceId === "__ALL_FAVORITES__") {
       btn.classList.add("active");
+      if (iconEl) {
+        iconEl.setAttribute("data-icon", "star-filled");
+        iconEl.innerHTML = iconHtml("star-filled", 15);
+      }
     } else {
       btn.classList.remove("active");
+      if (iconEl) {
+        iconEl.setAttribute("data-icon", "star");
+        iconEl.innerHTML = iconHtml("star", 15);
+      }
     }
   }
 }
@@ -546,14 +565,20 @@ function updateLayoutButtonUi() {
 
   if (currentLayout === "horizontal") {
     btn.classList.add("horizontal-active");
-    if (icon) icon.textContent = "☷";
+    if (icon) {
+      icon.setAttribute("data-icon", "layout-columns");
+      icon.innerHTML = iconHtml("layout-columns", 16);
+    }
     if (label) {
       label.textContent = t("btn_layout_vertical");
     }
     btn.title = t("title_layout_toggle_vert");
   } else {
     btn.classList.remove("horizontal-active");
-    if (icon) icon.textContent = "☷";
+    if (icon) {
+      icon.setAttribute("data-icon", "layout-rows");
+      icon.innerHTML = iconHtml("layout-rows", 16);
+    }
     if (label) {
       label.textContent = t("btn_layout_horizontal");
     }
@@ -678,14 +703,14 @@ function loadSourcesDropdown() {
     item.innerHTML = `
                     <div class="source-row-header">
                         <div class="source-title-group">
-                            <span class="source-drag-handle" title="${t("sources_drag_hint")}">☰</span>
+                            <span class="source-drag-handle" title="${t("sources_drag_hint")}">${iconHtml("grip-vertical", 16)}</span>
                             <span class="source-order-index">${idx + 1}</span>
                             <strong class="source-name">${s.name} <span class="source-country-badge">${s.countryCode || "HU"}</span> <span class="source-offset-badge">(Offset: ${s.timeOffset >= 0 ? "+" : ""}${s.timeOffset || 0}h)</span></strong>
                         </div>
                         <div class="source-header-actions">
                             <div class="source-reorder-btns">
-                                <button class="btn-order-arrow btn-up" title="Feljebb">▲</button>
-                                <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
+                                <button class="btn-order-arrow btn-up" title="Feljebb">${iconHtml("caret-up-filled", 13)}</button>
+                                <button class="btn-order-arrow btn-down" title="Lejjebb">${iconHtml("caret-down-filled", 13)}</button>
                             </div>
                             <div class="source-actions">
                                 <button class="btn btn-green btn-source-update" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${isDownloading ? t("status_updating") : t("btn_update")}</button>
@@ -1431,7 +1456,7 @@ function renderProgramDetails(el) {
           <div class="prog-header">
               <span class="start-badge">${startStr}</span>
               <span class="prog-title" title="${escapeHtml(prog.title)}">${escapeHtml(prog.title)}</span>
-              <span class="fav-star ${isFav ? "active" : ""}">★</span>
+              <span class="fav-star ${isFav ? "active" : ""}">${iconHtml(isFav ? "star-filled" : "star", 15)}</span>
           </div>
           ${prog.desc ? `<div class="prog-desc">${escapeHtml(prog.desc)}</div>` : ""}
           ${isTrakt ? `<span class="trakt-epg-badge" data-icon="trakt-epg-badge" data-icon-size="12" title="${escapeHtml(t("trakt_on_watchlist_tooltip"))}"></span>` : ""}
@@ -1779,11 +1804,11 @@ function renderEPG() {
           ${nameTextGroup}
       </div>
       <div class="channel-header-btns-row">
-          <button class="channel-header-rename-btn" title="✏">...</button>
-          <button class="channel-header-fav-btn ${channel.isFavorite ? "active" : ""}" title="${channel.isFavorite ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+          <button class="channel-header-rename-btn" title="${escapeHtml(t("channel_edit_title"))}">${iconHtml("dots", 16)}</button>
+          <button class="channel-header-fav-btn ${channel.isFavorite ? "active" : ""}" title="${channel.isFavorite ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">${iconHtml(channel.isFavorite ? "star-filled" : "star", 18)}</button>
       </div>
       <button class="channel-all-progs-badge" title="${t("all_programs_badge_title")}">
-          <span>📅 ${t("all_programs_badge")}</span>
+          <span>${iconHtml("calendar", 12)} ${t("all_programs_badge")}</span>
       </button>
       <div class="channel-header-source-col">
           ${sourceBadgeHtml}
@@ -2183,10 +2208,10 @@ function copyText(text, badgeEl) {
       .writeText(text)
       .then(() => {
         if (badgeEl) {
-          const origText = badgeEl.textContent;
-          badgeEl.textContent = `✓ ${t("tmdb_copied_to_clipboard")}`;
+          const origHtml = badgeEl.innerHTML;
+          badgeEl.innerHTML = `${iconHtml("check", 13)} ${escapeHtml(t("tmdb_copied_to_clipboard"))}`;
           setTimeout(() => {
-            badgeEl.textContent = origText;
+            badgeEl.innerHTML = origHtml;
           }, 1400);
         }
       })
@@ -2436,7 +2461,7 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
 
   // Rating badge
   if (tmdbData.voteAverage && tmdbData.voteAverage > 0) {
-    ratingBadge.textContent = `★ ${tmdbData.voteAverage.toFixed(1)} / 10`;
+    ratingBadge.innerHTML = `${iconHtml("star-filled", 12)} ${tmdbData.voteAverage.toFixed(1)} / 10`;
     ratingBadge.style.display = "inline-flex";
   }
 
@@ -2468,7 +2493,7 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
     tmdbData.originalTitle !== tmdbData.huTitle &&
     tmdbData.originalTitle !== tmdbData.enTitle
   ) {
-    origBadge.textContent = `🌐 ${t("badge_orig")} ${tmdbData.originalTitle}`;
+    origBadge.innerHTML = `${iconHtml("world", 13)} ${escapeHtml(t("badge_orig"))} ${escapeHtml(tmdbData.originalTitle)}`;
     origBadge.style.display = "inline-flex";
     const origLang = tmdbData.originalLanguage
       ? langCodeToTmdbLang(tmdbData.originalLanguage)
@@ -2670,7 +2695,7 @@ function renderFixResults(items) {
     } else {
       const placeholder = document.createElement("div");
       placeholder.className = "fix-result-poster-placeholder";
-      placeholder.textContent = item.mediaType === "tv" ? "📺" : "🎬";
+      placeholder.innerHTML = iconHtml(item.mediaType === "tv" ? "device-tv" : "movie", 22);
       card.appendChild(placeholder);
     }
 
@@ -2712,7 +2737,7 @@ function renderFixResults(items) {
     if (item.voteAverage && item.voteAverage > 0) {
       const ratingBadge = document.createElement("span");
       ratingBadge.className = "tmdb-badge tmdb-badge-rating";
-      ratingBadge.textContent = `★ ${item.voteAverage.toFixed(1)}`;
+      ratingBadge.innerHTML = `${iconHtml("star-filled", 11)} ${item.voteAverage.toFixed(1)}`;
       badges.appendChild(ratingBadge);
     }
 
@@ -2855,11 +2880,14 @@ async function openModal(title, time, desc, channel) {
 
 function updateModalFavStar() {
   const star = document.getElementById("modalFavStar");
-  if (favorites.includes(currentModalTitle)) {
+  if (!star) return;
+  const isFav = favorites.includes(currentModalTitle);
+  if (isFav) {
     star.classList.add("active");
   } else {
     star.classList.remove("active");
   }
+  star.innerHTML = iconHtml(isFav ? "star-filled" : "star", 18);
 }
 
 document.getElementById("modalFavStar").onclick = () => {
@@ -2869,6 +2897,10 @@ document.getElementById("modalFavStar").onclick = () => {
 async function loadTmdbSettings() {
   const statusBadge = document.getElementById("tmdbKeyStatusBadge");
   const keyInput = document.getElementById("tmdbApiKeyInput");
+  const toggleBtn = document.getElementById("toggleTmdbKeyBtn");
+  if (toggleBtn && keyInput) {
+    toggleBtn.innerHTML = iconHtml(keyInput.type === "password" ? "eye" : "eye-off", 16);
+  }
   try {
     const key = await invoke("get_tmdb_api_key");
     if (key && key.trim()) {
@@ -3115,7 +3147,12 @@ document.querySelectorAll(".settings-nav-item").forEach((item) => {
 
 function renderFavoritesList() {
   const content = document.getElementById("favListContent");
+  const activeDayEl = document.getElementById("favActiveDay");
   content.innerHTML = "";
+  if (activeDayEl) {
+    activeDayEl.style.display = "none";
+    activeDayEl.textContent = "";
+  }
 
   if (favorites.length === 0) {
     content.innerHTML = `<p style="color:#8e94a8; font-size:13px;">${t("no_favorites")}</p>`;
@@ -3145,7 +3182,7 @@ function renderFavoritesList() {
       row.className = "fav-item-row";
       row.innerHTML = `
                         <span class="fav-item-title">${favTitle}</span>
-                        <button class="btn btn-red" style="padding: 2px 6px; margin-left: 6px;">X</button>
+                        <button class="btn btn-red btn-icon-only" style="padding: 3px 6px; margin-left: 6px;">${iconHtml("trash", 14)}</button>
                     `;
       row.querySelector("button").onclick = () => toggleFavorite(favTitle);
       content.appendChild(row);
@@ -3156,6 +3193,7 @@ function renderFavoritesList() {
   for (const [dayHeader, progs] of Object.entries(groupedByDay)) {
     const groupDiv = document.createElement("div");
     groupDiv.className = "fav-day-group";
+    groupDiv.dataset.dayHeading = dayHeader;
 
     const header = document.createElement("div");
     header.className = "fav-day-header";
@@ -3173,13 +3211,23 @@ function renderFavoritesList() {
                         <span class="start-badge">${startStr}</span>
                         <span class="fav-item-title">${prog.title}</span>
                         <span class="channel-badge">${chName}</span>
-                        <button class="btn btn-red" style="padding: 2px 6px; margin-left: 6px;">X</button>
+                        <button class="btn btn-red btn-icon-only" style="padding: 3px 6px; margin-left: 6px;">${iconHtml("trash", 14)}</button>
                     `;
       row.querySelector("button").onclick = () => toggleFavorite(prog.title);
       groupDiv.appendChild(row);
     });
 
     content.appendChild(groupDiv);
+  }
+
+  if (
+    activeDayEl &&
+    window.TraktDates &&
+    typeof window.TraktDates.attachStickyDayHeader === "function"
+  ) {
+    window.TraktDates.attachStickyDayHeader(content, activeDayEl, {
+      groupSelector: ".fav-day-group",
+    });
   }
 }
 
@@ -3256,13 +3304,12 @@ async function loadChannelLogosTab() {
     isAutoMatchRunning = running;
     if (running) {
       autoMatchBtn.className = "btn btn-red";
-      autoMatchBtn.textContent = t("btn_stop_auto_match") || "⏹ Leállítás";
+      autoMatchBtn.innerHTML = `<span data-icon="player-stop" data-icon-size="15">${iconHtml("player-stop", 15)}</span><span>${escapeHtml(t("btn_stop_auto_match") || "Leállítás")}</span>`;
       autoMatchBtn.disabled = false;
       select.disabled = true;
     } else {
       autoMatchBtn.className = "btn btn-green";
-      autoMatchBtn.textContent =
-        t("btn_auto_match_logos") || "⚡ Hiányzó logók automatikus keresése";
+      autoMatchBtn.innerHTML = `<span data-icon="bolt" data-icon-size="15">${iconHtml("bolt", 15)}</span><span data-i18n="btn_auto_match_logos">${escapeHtml(t("btn_auto_match_logos") || "Hiányzó logók automatikus keresése")}</span>`;
       select.disabled = false;
     }
   };
@@ -3616,7 +3663,7 @@ function setupLogoDeduplicationHandlers() {
 
         setExportImportStatus("logoDedupStatus", foundMsg, "success");
         summaryEl.textContent = foundMsg;
-        dedupBtn.style.display = "inline-block";
+        dedupBtn.style.display = "inline-flex";
 
         listEl.innerHTML = "";
         report.duplicateGroups.forEach((g) => {
@@ -3637,7 +3684,7 @@ function setupLogoDeduplicationHandlers() {
                 <span class="logo-dedup-badge">${formatByteSize(g.byteSize)}</span>
               </div>
               <div class="logo-dedup-urls">
-                ${g.urls.map((u) => `<span>🔗 ${escapeHtml(u)}</span>`).join("")}
+                ${g.urls.map((u) => `<span>${iconHtml("link", 13)} ${escapeHtml(u)}</span>`).join("")}
               </div>
             </div>
           `;
@@ -4266,7 +4313,7 @@ async function renderChannelOrderList() {
       : "TV";
     item.innerHTML = `
             <div class="channel-item-main">
-              <span class="drag-handle" title="${t("channels_drag_hint")}">☰</span>
+              <span class="drag-handle" title="${t("channels_drag_hint")}">${iconHtml("grip-vertical", 16)}</span>
               <span class="order-index">${idx + 1}</span>
               <div class="channel-order-logo-preview">
                 ${effectiveLogo ? `<img src="${effectiveLogo}" alt="" onerror="this.style.display='none'" />` : `<span class="logo-preview-placeholder">${tvPlaceholderSvg}</span>`}
@@ -4275,13 +4322,13 @@ async function renderChannelOrderList() {
               ${sourceBadgeHtml}
               <span class="channel-tag">ID: ${actualChannelId}</span>
               ${isHidden ? `<span class="badge-hidden">${t("channel_hidden_badge")}</span>` : ""}
-              <button class="btn-channel-fav ${isFav ? "active" : ""}" title="${isFav ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">★</button>
+              <button class="btn-channel-fav ${isFav ? "active" : ""}" title="${isFav ? t("channel_fav_toggle_on") : t("channel_fav_toggle_off")}">${iconHtml(isFav ? "star-filled" : "star", 17)}</button>
               <button class="btn-channel-hide ${isHidden ? "is-hidden" : ""}" title="${isHidden ? t("channel_unhide_toggle") : t("channel_hide_toggle")}">
-                ${isHidden ? "🚫" : "👁"}
+                ${iconHtml(isHidden ? "eye-off" : "eye", 16)}
               </button>
               <div class="channel-reorder-btns">
-                <button class="btn-order-arrow btn-up" title="Feljebb">▲</button>
-                <button class="btn-order-arrow btn-down" title="Lejjebb">▼</button>
+                <button class="btn-order-arrow btn-up" title="Feljebb">${iconHtml("caret-up-filled", 13)}</button>
+                <button class="btn-order-arrow btn-down" title="Lejjebb">${iconHtml("caret-down-filled", 13)}</button>
               </div>
             </div>
             <div class="channel-edit-fields-container">
@@ -4290,14 +4337,14 @@ async function renderChannelOrderList() {
                 <input type="text" class="channel-rename-input" placeholder="${t("channel_name_placeholder")}" value="${ch.customName || ""}" />
                 <div class="channel-edit-fields-actions">
                   <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
-                  ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
+                  ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red btn-icon-only" title="${t("btn_rename_reset")}">${iconHtml("x", 13)}</button>` : ""}
                 </div>
               </div>
               <div class="channel-logo-row">
                 <span class="channel-logo-label">${t("channel_logo_label")}</span>
                 <div class="channel-edit-input-group" style="flex:1;">
                   <input type="text" class="channel-logo-input" placeholder="${t("channel_logo_placeholder")}" value="${ch.customIcon || ""}" />
-                  <button type="button" class="btn btn-blue btn-channel-logo-search" title="${t("btn_search_logo_title")}">🔍</button>
+                  <button type="button" class="btn btn-blue btn-icon-only btn-channel-logo-search" title="${t("btn_search_logo_title")}">${iconHtml("photo-search", 15)}</button>
                 </div>
               </div>
             </div>
@@ -4448,7 +4495,7 @@ async function renderChannelOrderList() {
       if (actionsWrap) {
         actionsWrap.innerHTML = `
                 <button class="btn-logo-action btn-channel-data-save btn btn-green">${t("btn_rename_save")}</button>
-                ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red" title="${t("btn_rename_reset")}">✕</button>` : ""}
+                ${ch.customName || ch.customIcon ? `<button class="btn-logo-action btn-channel-data-reset btn btn-red btn-icon-only" title="${t("btn_rename_reset")}">${iconHtml("x", 13)}</button>` : ""}
               `;
         const newSaveBtn = actionsWrap.querySelector(".btn-channel-data-save");
         if (newSaveBtn)
@@ -5296,7 +5343,12 @@ document.getElementById("testTmdbKeyBtn").onclick = testTmdbKey;
 document.getElementById("clearTmdbCacheBtn").onclick = clearTmdbCache;
 document.getElementById("toggleTmdbKeyBtn").onclick = () => {
   const input = document.getElementById("tmdbApiKeyInput");
-  input.type = input.type === "password" ? "text" : "password";
+  const isHidden = input.type === "password";
+  input.type = isHidden ? "text" : "password";
+  const btn = document.getElementById("toggleTmdbKeyBtn");
+  if (btn) {
+    btn.innerHTML = iconHtml(isHidden ? "eye-off" : "eye", 16);
+  }
 };
 
 let epgScrollRaf = null;

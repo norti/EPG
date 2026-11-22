@@ -157,6 +157,53 @@
     return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }) + ' ' + formatLocalTime(isoStr);
   }
 
+  function attachStickyDayHeader(scrollContainer, activeDayEl, options) {
+    if (!scrollContainer || !activeDayEl) return;
+    const opts = options || {};
+    const groupSelector = opts.groupSelector || '.trakt-cal-day-group';
+    const headingAttr = opts.headingAttr || 'dayHeading';
+    const threshold = typeof opts.threshold === 'number' ? opts.threshold : 8;
+    const topOffset = typeof opts.topOffset === 'number' ? opts.topOffset : 24;
+
+    if (scrollContainer._stickyDayScrollHandler) {
+      scrollContainer.removeEventListener('scroll', scrollContainer._stickyDayScrollHandler);
+    }
+
+    const updateActiveDay = () => {
+      if (!activeDayEl.isConnected || !scrollContainer.isConnected) return;
+      if (scrollContainer.scrollTop <= threshold) {
+        activeDayEl.style.display = 'none';
+        activeDayEl.textContent = '';
+        return;
+      }
+      const containerTop = scrollContainer.getBoundingClientRect().top;
+      const groups = scrollContainer.querySelectorAll(groupSelector);
+      let currentHeading = '';
+      for (const g of groups) {
+        const rect = g.getBoundingClientRect();
+        if (rect.top <= containerTop + topOffset) {
+          currentHeading = g.dataset[headingAttr] || '';
+        } else {
+          break;
+        }
+      }
+      if (!currentHeading && groups.length > 0) {
+        currentHeading = groups[0].dataset[headingAttr] || '';
+      }
+      if (currentHeading) {
+        activeDayEl.textContent = currentHeading;
+        activeDayEl.style.display = 'inline-flex';
+      } else {
+        activeDayEl.style.display = 'none';
+        activeDayEl.textContent = '';
+      }
+    };
+
+    scrollContainer._stickyDayScrollHandler = updateActiveDay;
+    scrollContainer.addEventListener('scroll', updateActiveDay, { passive: true });
+    updateActiveDay();
+  }
+
   return {
     toLocalYmd,
     addLocalDays,
@@ -168,5 +215,6 @@
     formatShortDateRange,
     formatDayHeading,
     formatRelativeTime,
+    attachStickyDayHeader,
   };
 });

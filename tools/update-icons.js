@@ -3,7 +3,7 @@
  *
  * Használat:
  *   node tools/update-icons.js build         -> Újraépíti a public/javascript/icons.js fájlt az alapértelmezett ikonokkal
- *   node tools/update-icons.js add <név...>   -> Új ikont ad a public/javascript/icons.js-hez a helyi icons/tabler-icons/ gyűjteményből
+ *   node tools/update-icons.js add <név...>   -> Új ikont ad a public/javascript/icons.js-hez a helyi TODO/tabler-icons/ gyűjteményből
  *   node tools/update-icons.js search <kulcsszó> -> Keresés a helyi >6000 Tabler SVG ikon között
  *   node tools/update-icons.js list          -> Kilistázza a public/javascript/icons.js-ben elérhető ikonokat
  */
@@ -12,8 +12,8 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const OUTLINE_DIR = path.join(ROOT_DIR, 'icons', 'tabler-icons', 'outline');
-const FILLED_DIR = path.join(ROOT_DIR, 'icons', 'tabler-icons', 'filled');
+const OUTLINE_DIR = path.join(ROOT_DIR, 'TODO', 'tabler-icons', 'outline');
+const FILLED_DIR = path.join(ROOT_DIR, 'TODO', 'tabler-icons', 'filled');
 const OUTPUT_FILE = path.join(ROOT_DIR, 'public', 'javascript', 'icons.js');
 
 // Az alkalmazásban használt és a PRE-PLAN 2.1 alapján szükséges ikonok alapértelmezett listája
@@ -22,7 +22,10 @@ const DEFAULT_ICONS = [
   'star-filled',
   'chevron-left',
   'chevron-right',
+  'arrow-left',
   'layout-grid',
+  'layout-columns',
+  'layout-rows',
   'table',
   'x',
   'settings',
@@ -39,6 +42,9 @@ const DEFAULT_ICONS = [
   'ban',
   'arrow-up',
   'arrow-down',
+  'caret-up-filled',
+  'caret-down-filled',
+  'grip-vertical',
   'pencil',
   'dots',
   'trash',
@@ -49,7 +55,13 @@ const DEFAULT_ICONS = [
   'reload',
   'download',
   'info-circle',
-  'alert-triangle'
+  'alert-triangle',
+  'plus',
+  'shield-check',
+  'player-stop',
+  'wand',
+  'link',
+  'world'
 ];
 
 function findIconSvg(iconName) {

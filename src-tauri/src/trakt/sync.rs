@@ -1063,7 +1063,7 @@ pub async fn sync_watched_shows(
     }
 
     tx.execute(
-        "DELETE FROM trakt_http_cache WHERE key LIKE '/shows/%/progress/watched%'",
+        "DELETE FROM trakt_http_cache WHERE key LIKE '/shows/%/progress/watched%' OR key LIKE '/users/%/stats'",
         [],
     )
     .ok();

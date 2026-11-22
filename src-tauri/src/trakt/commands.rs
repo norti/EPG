@@ -594,6 +594,12 @@ pub async fn trakt_mark_watched(
             }
         }
 
+        tx.execute(
+            "DELETE FROM trakt_http_cache WHERE key LIKE '/users/%/stats'",
+            [],
+        )
+        .ok();
+
         tx.commit().map_err(|e| e.to_string())?;
     }
 
@@ -1209,36 +1215,7 @@ pub async fn trakt_find_epg_airings(
 #[tauri::command]
 pub async fn trakt_get_stats(
     state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
 ) -> Result<TraktStatsResponse, String> {
-    let mut episodes_watched = 0i64;
-    let mut movies_watched = 0i64;
-    let mut total_minutes = 0i64;
-
-    if let Ok(resp) =
-        trakt_get_cached(state.inner(), Some(&app), "/users/me/stats", true, 3600, false).await
-    {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&resp.body) {
-            episodes_watched = val
-                .pointer("/episodes/watched")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            movies_watched = val
-                .pointer("/movies/watched")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            let ep_min = val
-                .pointer("/episodes/minutes")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            let mov_min = val
-                .pointer("/movies/minutes")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            total_minutes = ep_min + mov_min;
-        }
-    }
-
     let conn = state.db.lock().await;
     let watchlist_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM trakt_watchlist_cache", [], |r| r.get(0))
@@ -1261,9 +1238,9 @@ pub async fn trakt_get_stats(
 
     Ok(TraktStatsResponse {
         watchlist_count,
-        episodes_watched,
-        movies_watched,
-        total_minutes,
+        episodes_watched: 0,
+        movies_watched: 0,
+        total_minutes: 0,
         cache_items_count,
         cache_calendar_count,
         cache_history_count,

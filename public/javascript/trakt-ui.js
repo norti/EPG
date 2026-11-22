@@ -816,30 +816,8 @@
 
     if (statsCard) {
       if (authStatus.loggedIn && stats) {
-        const hours = Math.floor((stats.totalMinutes || 0) / 60);
-        const days = Math.floor(hours / 24);
-        const timeStr = days > 0 ? `${days}d ${hours % 24}h` : `${hours}h`;
         statsCard.style.display = 'block';
         statsCard.innerHTML = `
-          <h4>${esc(t('trakt_stats_heading'))}</h4>
-          <div class="trakt-stats-grid">
-            <div class="logo-stat-card">
-              <div class="logo-stat-number">${stats.watchlistCount}</div>
-              <div class="logo-stat-label">${esc(t('trakt_stat_watchlist'))}</div>
-            </div>
-            <div class="logo-stat-card">
-              <div class="logo-stat-number">${stats.episodesWatched}</div>
-              <div class="logo-stat-label">${esc(t('trakt_stat_episodes_watched'))}</div>
-            </div>
-            <div class="logo-stat-card">
-              <div class="logo-stat-number">${stats.moviesWatched}</div>
-              <div class="logo-stat-label">${esc(t('trakt_stat_movies_watched'))}</div>
-            </div>
-            <div class="logo-stat-card">
-              <div class="logo-stat-number">${esc(timeStr)}</div>
-              <div class="logo-stat-label">${esc(t('trakt_stat_time_spent'))}</div>
-            </div>
-          </div>
           <div class="trakt-cache-row">
             <span class="trakt-cache-info">
               ${esc(t('trakt_cache_records'))}: ${stats.cacheItemsCount} meta · ${stats.cacheCalendarCount} cal · ${stats.cacheHistoryCount} hist · ${stats.cacheEpisodesCount} ep

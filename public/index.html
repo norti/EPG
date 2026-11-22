@@ -17,33 +17,34 @@
         id="allFavChannelsBtn"
         title="★ Összes kedvenc csatorna"
         data-i18n-title="all_favorites_source"
-        data-i18n="all_favorites_btn"
       >
-        ★ Kedvenc csatornák
+        <span id="allFavChannelsIcon" data-icon="star" data-icon-size="15"></span>
+        <span data-i18n="all_favorites_btn">Kedvenc csatornák</span>
       </button>
       <select id="sourceSelect" class="epg-only"></select>
       <div class="date-nav-group epg-only">
         <button
-          class="btn btn-date-arrow"
+          class="btn btn-date-arrow btn-icon-only"
           id="prevDayBtn"
           title="Előző nap"
           data-i18n-title="btn_prev_day"
         >
-          ◀
+          <span data-icon="chevron-left" data-icon-size="14"></span>
         </button>
         <select id="dateSelect"></select>
         <button
-          class="btn btn-date-arrow"
+          class="btn btn-date-arrow btn-icon-only"
           id="nextDayBtn"
           title="Következő nap"
           data-i18n-title="btn_next_day"
         >
-          ▶
+          <span data-icon="chevron-right" data-icon-size="14"></span>
         </button>
       </div>
       <button class="btn epg-only" id="nowBtn" data-i18n="now_btn">MOST</button>
-      <button class="btn epg-only" id="favListBtn" data-i18n="favorites_btn">
-        ★ Kedvencek
+      <button class="btn epg-only" id="favListBtn">
+        <span data-icon="star" data-icon-size="15"></span>
+        <span data-i18n="favorites_btn">Kedvencek</span>
       </button>
 
       <select id="viewSelect" class="epg-only">
@@ -60,7 +61,7 @@
         title="Váltás vízszintes nézetre"
         data-i18n-title="title_layout_toggle"
       >
-        <span id="layoutToggleIcon">☷</span>
+        <span id="layoutToggleIcon" data-icon="layout-rows" data-icon-size="16"></span>
         <span id="layoutToggleLabel" data-i18n="btn_layout_horizontal"
           >Vízszintes</span
         >
@@ -77,12 +78,12 @@
           KERESÉS
         </button>
         <button
-          class="btn"
+          class="btn btn-icon-only"
           id="clearSearchBtn"
           title="Keresés törlése"
           data-i18n-title="clear_search"
         >
-          X
+          <span data-icon="x" data-icon-size="15"></span>
         </button>
       </div>
 
@@ -116,8 +117,9 @@
         <span>Trakt</span>
         <span id="traktWatchlistCountBadge" class="trakt-wl-count-badge" style="display: none"></span>
       </button>
-      <button class="btn" id="settingsBtn" data-i18n="settings_btn">
-        ⚙ Beállítások
+      <button class="btn" id="settingsBtn">
+        <span data-icon="settings" data-icon-size="15"></span>
+        <span data-i18n="settings_btn">Beállítások</span>
       </button>
     </header>
 
@@ -130,7 +132,7 @@
             title="Nézet visszaállítása"
             data-i18n-title="grid_home_btn_title"
           >
-            <span class="grid-home-icon">⌂</span>
+            <span class="grid-home-icon" data-icon="home" data-icon-size="18"></span>
             <span class="grid-home-label" style="display: none"></span>
           </button>
         </div>
@@ -150,7 +152,7 @@
           style="display: none"
         ></div>
         <div class="modal-top-actions">
-          <button class="modal-close" id="modalClose">&times;</button>
+          <button class="modal-close" id="modalClose"><span data-icon="x" data-icon-size="18"></span></button>
         </div>
 
         <!-- TMDB FIX OVERLAY -->
@@ -175,7 +177,7 @@
               id="modalFixClose"
               title="Bezárás"
             >
-              &times;
+              <span data-icon="x" data-icon-size="18"></span>
             </button>
           </div>
 
@@ -195,7 +197,7 @@
                 title="Törlés"
                 style="display: none"
               >
-                &times;
+                <span data-icon="x" data-icon-size="14"></span>
               </button>
             </div>
             <button class="fix-search-btn" id="modalFixSearchBtn">
@@ -247,7 +249,7 @@
           </div>
           <div class="modal-details-col">
             <div class="modal-header-row">
-              <span class="modal-fav-star" id="modalFavStar">★</span>
+              <span class="modal-fav-star" id="modalFavStar" data-icon="star" data-icon-size="18"></span>
               <div class="modal-title" id="modalTitle"></div>
               <button
                 class="modal-fix-pill"
@@ -255,7 +257,7 @@
                 title="TMDB egyezés javítása"
                 data-i18n-title="tmdb_fix_title"
               >
-                <span class="fix-icon">⚡</span>
+                <span class="fix-icon" data-icon="bolt" data-icon-size="13"></span>
                 <span data-i18n="btn_tmdb_fix">Fix</span>
               </button>
             </div>
@@ -367,39 +369,39 @@
                 <option value="english">English</option>
               </select>
               <button
-                class="btn btn-blue"
+                class="btn btn-blue btn-icon-only"
                 id="restoreLanguagesBtn"
                 data-i18n-title="btn_restore_languages"
                 title="Nyelvi fájlok visszaállítása"
                 style="padding: 4px 8px; font-size: 11px; margin-left: 6px;"
               >
-                🔄
+                <span data-icon="refresh" data-icon-size="14"></span>
               </button>
             </div>
           </div>
-          <button class="modal-close" id="settingsClose">&times;</button>
+          <button class="modal-close" id="settingsClose"><span data-icon="x" data-icon-size="18"></span></button>
         </div>
 
         <div class="settings-modal-body">
           <div class="settings-sidebar">
             <div class="settings-nav-item active" data-tab="sources">
-              <span>📁</span>
+              <span data-icon="folder" data-icon-size="16"></span>
               <span data-i18n="tab_sources">Források</span>
             </div>
             <div class="settings-nav-item" data-tab="favorites">
-              <span>★</span>
+              <span data-icon="star" data-icon-size="16"></span>
               <span data-i18n="tab_favorites">Kedvencek</span>
             </div>
             <div class="settings-nav-item" data-tab="channels">
-              <span>📺</span>
+              <span data-icon="device-tv" data-icon-size="16"></span>
               <span data-i18n="tab_channels">Csatornák</span>
             </div>
             <div class="settings-nav-item" data-tab="logos">
-              <span>🖼️</span>
+              <span data-icon="photo" data-icon-size="16"></span>
               <span data-i18n="tab_channel_logos">Csatorna logók</span>
             </div>
             <div class="settings-nav-item" data-tab="tmdb">
-              <span>🎬</span>
+              <span data-icon="movie" data-icon-size="16"></span>
               <span data-i18n="tab_tmdb">TMDB</span>
             </div>
             <div class="settings-nav-item" data-tab="trakt">
@@ -407,7 +409,7 @@
               <span data-i18n="tab_trakt">Trakt.tv</span>
             </div>
             <div class="settings-nav-item" data-tab="export">
-              <span>⇄</span>
+              <span data-icon="arrows-exchange" data-icon-size="16"></span>
               <span data-i18n="tab_export">Exportálás / Importálás</span>
             </div>
           </div>
@@ -505,7 +507,11 @@
 
             <!-- 2. KEDVENCEK TAB -->
             <div class="settings-tab-pane" id="tabPaneFavorites">
-              <h3 data-i18n="favorites_heading">★ Kedvenc Műsorok</h3>
+              <h3 class="favorites-heading-row">
+                <span data-icon="star" data-icon-size="18"></span>
+                <span data-i18n="favorites_heading">Kedvenc Műsorok</span>
+                <span class="trakt-cal-active-day" id="favActiveDay" style="display: none"></span>
+              </h3>
               <div
                 id="favListContent"
                 class="custom-scroll"
@@ -570,27 +576,27 @@
                   id="saveChannelSortPresetBtn"
                   title="Jelenlegi sorrend mentése új sablonként"
                   data-i18n-title="btn_save_preset_title"
-                  data-i18n="btn_save_preset"
                 >
-                  + Mentés
+                  <span data-icon="plus" data-icon-size="14"></span>
+                  <span data-i18n="btn_save_preset">Mentés</span>
                 </button>
                 <button
-                  class="btn btn-blue"
+                  class="btn btn-blue btn-icon-only"
                   id="renameChannelSortPresetBtn"
                   title="Kiválasztott sablon átnevezése"
                   data-i18n-title="btn_rename_preset_title"
                   disabled
                 >
-                  ✎
+                  <span data-icon="pencil" data-icon-size="14"></span>
                 </button>
                 <button
-                  class="btn btn-red"
+                  class="btn btn-red btn-icon-only"
                   id="deleteChannelSortPresetBtn"
                   title="Kiválasztott sablon törlése"
                   data-i18n-title="btn_delete_preset_title"
                   disabled
                 >
-                  🗑
+                  <span data-icon="trash" data-icon-size="14"></span>
                 </button>
               </div>
 
@@ -616,25 +622,25 @@
                     class="btn btn-filter-channel"
                     id="filterChanActive"
                     data-filter="active"
-                    data-i18n="filter_active"
                   >
-                    👁 Aktívak
+                    <span data-icon="eye" data-icon-size="14"></span>
+                    <span data-i18n="filter_active">Aktívak</span>
                   </button>
                   <button
                     class="btn btn-filter-channel"
                     id="filterChanFav"
                     data-filter="fav"
-                    data-i18n="filter_favorites"
                   >
-                    ★ Kedvencek
+                    <span data-icon="star" data-icon-size="14"></span>
+                    <span data-i18n="filter_favorites">Kedvencek</span>
                   </button>
                   <button
                     class="btn btn-filter-channel"
                     id="filterChanHidden"
                     data-filter="hidden"
-                    data-i18n="filter_hidden"
                   >
-                    🚫 Rejtettek
+                    <span data-icon="eye-off" data-icon-size="14"></span>
+                    <span data-i18n="filter_hidden">Rejtettek</span>
                   </button>
                 </div>
               </div>
@@ -662,8 +668,11 @@
                   A rendszer automatikusan keres és rendel hozzá hivatalos logókat a hiányzó csatornákhoz a megadott prioritási sorrend szerint: 
                   <strong>1. tv-logo</strong> (GitHub dark PNG) &rarr; <strong>2. iptv-org</strong> &rarr; <strong>3. Wikimedia Commons</strong> (SVG).
                 </p>
-                <div class="logos-notice-badge" data-i18n="channel_logos_safe_notice">
-                  🛡️ A már beállított, meglévő logókat a rendszer soha nem írja felül.
+                <div class="logos-notice-badge">
+                  <span data-icon="shield-check" data-icon-size="16"></span>
+                  <span data-i18n="channel_logos_safe_notice">
+                    A már beállított, meglévő logókat a rendszer soha nem írja felül.
+                  </span>
                 </div>
               </div>
 
@@ -674,8 +683,9 @@
                     <select id="logoSourceSelect"></select>
                   </div>
                   <div class="logos-control-actions">
-                    <button class="btn btn-green" id="autoMatchLogosBtn" data-i18n="btn_auto_match_logos">
-                      ⚡ Hiányzó logók automatikus keresése
+                    <button class="btn btn-green" id="autoMatchLogosBtn">
+                      <span data-icon="bolt" data-icon-size="15"></span>
+                      <span data-i18n="btn_auto_match_logos">Hiányzó logók automatikus keresése</span>
                     </button>
                   </div>
                 </div>
@@ -725,11 +735,13 @@
                   </p>
                 </div>
                 <div class="logos-dedup-actions">
-                  <button class="btn btn-blue" id="findDuplicateLogosBtn" data-i18n="btn_find_duplicate_logos">
-                    🔍 Duplikátumok keresése
+                  <button class="btn btn-blue" id="findDuplicateLogosBtn">
+                    <span data-icon="search" data-icon-size="15"></span>
+                    <span data-i18n="btn_find_duplicate_logos">Duplikátumok keresése</span>
                   </button>
-                  <button class="btn btn-green" id="deduplicateLogosBtn" data-i18n="btn_deduplicate_logos" style="display: none;">
-                    🧹 Duplikátumok megszüntetése
+                  <button class="btn btn-green" id="deduplicateLogosBtn" style="display: none;">
+                    <span data-icon="wand" data-icon-size="15"></span>
+                    <span data-i18n="btn_deduplicate_logos">Duplikátumok megszüntetése</span>
                   </button>
                   <span id="logoDedupStatus" class="export-import-status" style="display: none;"></span>
                 </div>
@@ -779,13 +791,13 @@
                       data-i18n-placeholder="tmdb_api_key_placeholder"
                     />
                     <button
-                      class="btn btn-blue"
+                      class="btn btn-blue btn-icon-only"
                       id="toggleTmdbKeyBtn"
                       type="button"
                       data-i18n-title="tmdb_toggle_key_title"
                       title="Megjelenítés / Elrejtés"
                     >
-                      👁
+                      <span data-icon="eye" data-icon-size="16"></span>
                     </button>
                   </div>
                 </div>
@@ -1104,7 +1116,7 @@
       <div class="custom-dialog-card">
         <div class="custom-dialog-header">
           <span class="custom-dialog-title" id="customConfirmTitle"></span>
-          <button class="modal-close" id="customConfirmClose">&times;</button>
+          <button class="modal-close" id="customConfirmClose"><span data-icon="x" data-icon-size="18"></span></button>
         </div>
         <div class="custom-dialog-body" id="customConfirmMessage"></div>
         <div class="custom-dialog-actions">
@@ -1121,7 +1133,7 @@
       <div class="custom-dialog-card">
         <div class="custom-dialog-header">
           <span class="custom-dialog-title" id="customPromptTitle"></span>
-          <button class="modal-close" id="customPromptClose">&times;</button>
+          <button class="modal-close" id="customPromptClose"><span data-icon="x" data-icon-size="18"></span></button>
         </div>
         <div class="custom-dialog-body">
           <p id="customPromptMessage" style="margin: 0 0 10px 0; color: var(--text-dim); font-size: 13px;"></p>
@@ -1157,7 +1169,7 @@
               id="channelEditOrigTitle"
             ></span>
           </div>
-          <button class="modal-close" id="channelEditCloseBtn">&times;</button>
+          <button class="modal-close" id="channelEditCloseBtn"><span data-icon="x" data-icon-size="18"></span></button>
         </div>
         <div class="channel-edit-body">
           <div class="channel-edit-field">
@@ -1194,12 +1206,12 @@
               />
               <button
                 type="button"
-                class="btn btn-blue"
+                class="btn btn-blue btn-icon-only"
                 id="channelEditLogoSearchBtn"
                 title="Logó keresése külső adatbázisokban"
                 data-i18n-title="btn_search_logo_title"
               >
-                🔍
+                <span data-icon="photo-search" data-icon-size="16"></span>
               </button>
             </div>
           </div>
@@ -1240,7 +1252,7 @@
       <div class="modal-content logo-search-modal-content">
         <div class="modal-header">
           <h2 data-i18n="logo_search_modal_title">Csatornalogó Keresése</h2>
-          <button class="modal-close" id="logoSearchClose">&times;</button>
+          <button class="modal-close" id="logoSearchClose"><span data-icon="x" data-icon-size="18"></span></button>
         </div>
         <div class="modal-body logo-search-modal-body">
           <div class="logo-search-controls">

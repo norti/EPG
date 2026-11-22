@@ -866,36 +866,13 @@
       container.appendChild(section);
     });
 
-    const activeDayEl = document.getElementById('traktCalActiveDay');
-    const updateActiveDay = () => {
-      if (!activeDayEl || !container.isConnected) return;
-      if (container.scrollTop <= 8) {
-        activeDayEl.style.display = 'none';
-        activeDayEl.textContent = '';
-        return;
-      }
-      const containerTop = container.getBoundingClientRect().top;
-      const groups = container.querySelectorAll('.trakt-cal-day-group');
-      let currentHeading = '';
-      for (const g of groups) {
-        const rect = g.getBoundingClientRect();
-        if (rect.top <= containerTop + 24) {
-          currentHeading = g.dataset.dayHeading || '';
-        } else {
-          break;
-        }
-      }
-      if (!currentHeading && groups.length > 0) {
-        currentHeading = groups[0].dataset.dayHeading || '';
-      }
-      if (currentHeading) {
-        activeDayEl.textContent = currentHeading;
-        activeDayEl.style.display = 'inline-flex';
-      } else {
-        activeDayEl.style.display = 'none';
-      }
-    };
-    container.addEventListener('scroll', updateActiveDay, { passive: true });
+    if (window.TraktDates && typeof window.TraktDates.attachStickyDayHeader === 'function') {
+      window.TraktDates.attachStickyDayHeader(
+        container,
+        document.getElementById('traktCalActiveDay'),
+        { groupSelector: '.trakt-cal-day-group' }
+      );
+    }
   }
 
   async function renderProgressAndAiringsInto(containerEl, item, isStale) {
