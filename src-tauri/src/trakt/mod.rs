@@ -6,6 +6,8 @@ pub mod matcher;
 pub mod secret;
 pub mod sync;
 #[cfg(test)]
+mod cache_tests;
+#[cfg(test)]
 pub(crate) mod tests;
 
 use rusqlite::Connection;

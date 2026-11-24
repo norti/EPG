@@ -230,6 +230,67 @@ pub fn local_yesterday_ymd() -> String {
     crate::trakt::epoch_to_iso_utc(ts)[..10].to_string()
 }
 
+const CALENDAR_START_KEY: &str = "calendar_start_ymd";
+
+fn is_ymd(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        })
+}
+
+/// Seconds since the epoch of `ymd` 00:00 UTC.
+fn ymd_to_epoch(ymd: &str) -> Option<i64> {
+    crate::trakt::iso_utc_to_epoch(&format!("{}T00:00:00Z", ymd))
+}
+
+/// The UI asks for the calendar with *its* local "yesterday"; the background sync only knows a UTC based
+/// guess. When they differ the two requests have different cache keys and the same 31-day calendar is
+/// downloaded twice. The UI's date is therefore remembered and reused by the sync.
+pub fn remember_calendar_start(conn: &Connection, ymd: &str) {
+    if !is_ymd(ymd) {
+        return;
+    }
+    if get_sync_state_val(conn, CALENDAR_START_KEY).as_deref() != Some(ymd) {
+        let _ = set_sync_state_val(conn, CALENDAR_START_KEY, ymd);
+    }
+}
+
+/// Start date for a calendar download that has no explicit UI request (background sync).
+/// The remembered UI date is used only while it is plausible (at most 2 days older / 1 day newer than the
+/// UTC based guess); otherwise (app was closed for days, clock jump) the guess is used.
+pub fn calendar_start_for_sync(conn: &Connection) -> String {
+    let guess = local_yesterday_ymd();
+    let Some(stored) = get_sync_state_val(conn, CALENDAR_START_KEY) else {
+        return guess;
+    };
+    if !is_ymd(&stored) {
+        return guess;
+    }
+    match (ymd_to_epoch(&stored), ymd_to_epoch(&guess)) {
+        (Some(s), Some(g)) if s - g >= -2 * 86_400 && s - g <= 86_400 => stored,
+        _ => guess,
+    }
+}
+
+/// Resolves the start date of a calendar request: the UI's explicit date (and remembers it),
+/// otherwise the same date the background sync uses.
+pub async fn resolve_calendar_start(state: &AppState, requested: Option<String>) -> String {
+    let conn = state.db.lock().await;
+    match requested.map(|s| s.trim().to_string()).filter(|s| s.len() >= 10) {
+        Some(s) => {
+            remember_calendar_start(&conn, &s);
+            s
+        }
+        None => calendar_start_for_sync(&conn),
+    }
+}
+
 pub async fn flush_pending_actions(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
@@ -433,7 +494,10 @@ pub async fn run_sync(
     }
 
     emit_sync_state(app, "syncing", "calendar", last_ok_prev.as_deref(), None);
-    let start_date = local_yesterday_ymd();
+    let start_date = {
+        let conn = state.db.lock().await;
+        calendar_start_for_sync(&conn)
+    };
     let calendar_updated = match fetch_and_cache_my_calendar(state, app, &start_date, force).await {
         Ok(_) => true,
         Err(e) => {
@@ -509,6 +573,8 @@ pub async fn run_sync(
         if let Ok(act_json) = serde_json::to_string(&activities) {
             let _ = set_sync_state_val(&conn, "last_activities", &act_json);
         }
+        // Housekeeping: drop HTTP cache rows that expired long ago (daily calendar keys, old progress bodies ...)
+        let _ = crate::trakt::client::prune_http_cache(&conn);
     }
 
     emit_sync_state(app, "idle", "", Some(&now_ok), None);

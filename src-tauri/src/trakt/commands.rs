@@ -10,7 +10,7 @@ use crate::trakt::client::{trakt_get_cached, trakt_post};
 use crate::trakt::matcher::{match_titles, rebuild_title_index};
 use crate::trakt::secret::default_secret_store;
 use crate::trakt::sync::{
-    enrich_missing_history_posters, get_sync_state_val, is_sync_overdue, local_yesterday_ymd,
+    enrich_missing_history_posters, get_sync_state_val, is_sync_overdue, resolve_calendar_start,
     run_sync, sync_show_progress, SyncSummary,
 };
 use crate::trakt::{is_trakt_enabled, iso_utc_to_epoch, now_epoch_millis, now_epoch_secs, now_iso_utc};
@@ -388,9 +388,7 @@ pub async fn trakt_get_dashboard_data(
     start_date: Option<String>,
     force_refresh: Option<bool>,
 ) -> Result<TraktDashboardData, String> {
-    let start = start_date
-        .filter(|s| s.trim().len() >= 10)
-        .unwrap_or_else(local_yesterday_ymd);
+    let start = resolve_calendar_start(state.inner(), start_date).await;
 
     let mut offline = false;
     if let Err(e) =
@@ -1071,9 +1069,7 @@ pub async fn trakt_get_calendar_my(
     start_date: Option<String>,
     force_refresh: Option<bool>,
 ) -> Result<Vec<CalendarEpisodeItem>, String> {
-    let start = start_date
-        .filter(|s| s.trim().len() >= 10)
-        .unwrap_or_else(local_yesterday_ymd);
+    let start = resolve_calendar_start(state.inner(), start_date).await;
     let _ = fetch_and_cache_my_calendar(
         state.inner(),
         Some(&app),
@@ -1092,9 +1088,7 @@ pub async fn trakt_get_calendar_global(
     start_date: Option<String>,
     force_refresh: Option<bool>,
 ) -> Result<Vec<CalendarEpisodeItem>, String> {
-    let start = start_date
-        .filter(|s| s.trim().len() >= 10)
-        .unwrap_or_else(local_yesterday_ymd);
+    let start = resolve_calendar_start(state.inner(), start_date).await;
     let force = force_refresh.unwrap_or(false);
 
     let should_sync_wl = {

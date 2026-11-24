@@ -4720,6 +4720,8 @@ fn main() {
         .expect("EPG HTTP kliens létrehozási hiba");
 
     let db_conn = open_and_init_db().expect("Adatbázis inicializálási hiba");
+    // Drop Trakt HTTP cache rows that expired long ago (they otherwise pile up, e.g. one calendar body per day).
+    let _ = trakt::client::prune_http_cache(&db_conn);
     let trakt_state = trakt::TraktState::new(&db_conn);
 
     tauri::Builder::default()

@@ -1,4 +1,4 @@
-use crate::trakt::client::trakt_get_cached;
+use crate::trakt::client::{prune_stale_calendar_keys, trakt_get_cached};
 use crate::trakt::now_iso_utc;
 use crate::AppState;
 use rusqlite::{params, Connection};
@@ -62,6 +62,12 @@ pub async fn fetch_and_cache_my_calendar(
     let resp = trakt_get_cached(state, app, &path, true, 7200, force_refresh)
         .await
         .map_err(|e| e.to_user_string())?;
+
+    if !resp.from_cache {
+        // A new date-keyed body was just stored: the previous days' bodies are dead weight.
+        let conn = state.db.lock().await;
+        prune_stale_calendar_keys(&conn, "/calendars/my/shows/", &path);
+    }
 
     let has_rows: bool = {
         let conn = state.db.lock().await;
@@ -188,6 +194,11 @@ pub async fn fetch_and_cache_global_calendar(
     let resp = trakt_get_cached(state, app, &path, false, 10800, force_refresh)
         .await
         .map_err(|e| e.to_user_string())?;
+
+    if !resp.from_cache {
+        let conn = state.db.lock().await;
+        prune_stale_calendar_keys(&conn, "/calendars/all/shows/", &path);
+    }
 
     let has_rows: bool = {
         let conn = state.db.lock().await;

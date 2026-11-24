@@ -112,11 +112,27 @@ struct CachedHttpEntry {
     body: String,
     fetched_at: String,
     ttl_seconds: i64,
+    /// `X-Pagination-Page-Count` of the cached answer; 0 = the answer had no pagination header.
+    page_count: u32,
 }
 
+impl CachedHttpEntry {
+    fn page_count_opt(&self) -> Option<u32> {
+        if self.page_count > 0 {
+            Some(self.page_count)
+        } else {
+            None
+        }
+    }
+}
+
+/// Rows written before the `page_count` column existed (NULL) are ignored on purpose: their pagination
+/// info is unknown, and serving them would silently truncate paginated lists (e.g. > 100 hidden shows).
+/// Ignoring them costs one full download per path; the row is then rewritten with a known page count.
 fn read_http_cache(conn: &rusqlite::Connection, key: &str) -> Option<CachedHttpEntry> {
     conn.query_row(
-        "SELECT etag, body, fetched_at, ttl_seconds FROM trakt_http_cache WHERE key = ?1",
+        "SELECT etag, body, fetched_at, ttl_seconds, page_count FROM trakt_http_cache
+         WHERE key = ?1 AND page_count IS NOT NULL",
         params![key],
         |r| {
             Ok(CachedHttpEntry {
@@ -124,6 +140,7 @@ fn read_http_cache(conn: &rusqlite::Connection, key: &str) -> Option<CachedHttpE
                 body: r.get(1)?,
                 fetched_at: r.get(2)?,
                 ttl_seconds: r.get(3)?,
+                page_count: r.get::<_, i64>(4)?.max(0) as u32,
             })
         },
     )
@@ -146,17 +163,47 @@ fn write_http_cache(
     etag: Option<&str>,
     body: &str,
     ttl_seconds: i64,
+    page_count: Option<u32>,
 ) {
+    // The ETag always belongs to the body stored next to it: an answer without ETag must not keep
+    // the previous body's ETag (the next If-None-Match would validate against the wrong content).
     let _ = conn.execute(
-        "INSERT INTO trakt_http_cache (key, etag, body, fetched_at, ttl_seconds)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO trakt_http_cache (key, etag, body, fetched_at, ttl_seconds, page_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT(key) DO UPDATE SET
-            etag = COALESCE(excluded.etag, trakt_http_cache.etag),
+            etag = excluded.etag,
             body = excluded.body,
             fetched_at = excluded.fetched_at,
-            ttl_seconds = excluded.ttl_seconds",
-        params![key, etag, body, now_iso_utc(), ttl_seconds],
+            ttl_seconds = excluded.ttl_seconds,
+            page_count = excluded.page_count",
+        params![key, etag, body, now_iso_utc(), ttl_seconds, page_count.unwrap_or(0) as i64],
     );
+}
+
+/// Expired rows are only useful for ETag revalidation, so they are kept for this long after expiry.
+pub const HTTP_CACHE_PRUNE_GRACE_SECS: i64 = 7 * 86_400;
+
+/// Deletes cache rows that expired more than `HTTP_CACHE_PRUNE_GRACE_SECS` ago. Fresh rows and rows still
+/// inside the grace period are untouched, so no cached answer that could still be served is lost.
+/// Returns the number of deleted rows.
+pub fn prune_http_cache(conn: &rusqlite::Connection) -> usize {
+    conn.execute(
+        "DELETE FROM trakt_http_cache
+         WHERE CAST(strftime('%s', fetched_at) AS INTEGER) + ttl_seconds + ?1
+               < CAST(strftime('%s', 'now') AS INTEGER)",
+        params![HTTP_CACHE_PRUNE_GRACE_SECS],
+    )
+    .unwrap_or(0)
+}
+
+/// Calendar paths carry the start date, so every day creates a new multi-MB row. After a successful
+/// download only the current key of that calendar is kept.
+pub fn prune_stale_calendar_keys(conn: &rusqlite::Connection, prefix: &str, keep_key: &str) -> usize {
+    conn.execute(
+        "DELETE FROM trakt_http_cache WHERE key LIKE ?1 AND key != ?2",
+        params![format!("{}%", prefix), keep_key],
+    )
+    .unwrap_or(0)
 }
 
 fn touch_http_cache(conn: &rusqlite::Connection, key: &str, ttl_seconds: i64) {
@@ -247,7 +294,7 @@ async fn trakt_get_with_ttl(
                 return Ok(TraktHttpResponse {
                     status: 200,
                     body: entry.body.clone(),
-                    page_count: None,
+                    page_count: entry.page_count_opt(),
                     from_cache: true,
                 });
             }
@@ -319,7 +366,7 @@ async fn trakt_get_with_ttl(
                 return Ok(TraktHttpResponse {
                     status: 200,
                     body: entry.body.clone(),
-                    page_count: None,
+                    page_count: entry.page_count_opt(),
                     from_cache: true,
                 });
             }
@@ -384,7 +431,7 @@ async fn trakt_get_with_ttl(
         if (200..300).contains(&status) {
             if ttl_seconds > 0 {
                 let conn = state.db.lock().await;
-                write_http_cache(&conn, path, etag.as_deref(), &body, ttl_seconds);
+                write_http_cache(&conn, path, etag.as_deref(), &body, ttl_seconds, page_count);
             }
             return Ok(TraktHttpResponse {
                 status,
