@@ -6,7 +6,15 @@ pub type MigFn = fn(&Connection) -> rusqlite::Result<()>;
 pub const EMBEDDED_ENGLISH_LNG: &str = include_str!("../../public/languages/english.lng");
 pub const EMBEDDED_HUNGARIAN_LNG: &str = include_str!("../../public/languages/hungarian.lng");
 
-pub const MIGRATIONS: &[MigFn] = &[migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5, migrate_v6];
+pub const MIGRATIONS: &[MigFn] = &[
+    migrate_v1,
+    migrate_v2,
+    migrate_v3,
+    migrate_v4,
+    migrate_v5,
+    migrate_v6,
+    migrate_v7,
+];
 
 pub fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
     let sql = format!("PRAGMA table_info({})", table);
@@ -462,6 +470,88 @@ fn migrate_v6(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+struct DbProgrammeRow {
+    id: i64,
+    channel_id: String,
+    start: String,
+    stop: String,
+    start_ts: Option<i64>,
+    stop_ts: Option<i64>,
+    changed: bool,
+}
+
+impl crate::RepairableProgramme for DbProgrammeRow {
+    fn channel_id(&self) -> &str {
+        &self.channel_id
+    }
+    fn start_str(&self) -> &str {
+        &self.start
+    }
+    fn start_ts(&self) -> Option<i64> {
+        self.start_ts
+    }
+    fn stop_ts(&self) -> Option<i64> {
+        self.stop_ts
+    }
+    fn set_stop(&mut self, stop: String, stop_ts: i64) {
+        self.stop = stop;
+        self.stop_ts = Some(stop_ts);
+        self.changed = true;
+    }
+}
+
+/// v7 repairs existing `programmes` rows that have missing/zero-duration `stop` times or
+/// 30-minute scraper placeholder `stop` times at day boundaries.
+fn migrate_v7(conn: &Connection) -> rusqlite::Result<()> {
+    let mut by_source: std::collections::HashMap<String, Vec<DbProgrammeRow>> =
+        std::collections::HashMap::new();
+
+    {
+        let mut stmt = conn.prepare(
+            "SELECT id, source_id, channel_id, start, stop, start_ts, stop_ts
+             FROM programmes
+             ORDER BY source_id, channel_id, start_ts, id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let id: i64 = r.get(0)?;
+            let source_id: String = r.get::<_, Option<String>>(1)?.unwrap_or_default();
+            let channel_id: String = r.get::<_, Option<String>>(2)?.unwrap_or_default();
+            let start: String = r.get::<_, Option<String>>(3)?.unwrap_or_default();
+            let stop: String = r.get::<_, Option<String>>(4)?.unwrap_or_default();
+            let start_ts: Option<i64> = r.get(5)?;
+            let stop_ts: Option<i64> = r.get(6)?;
+            Ok((source_id, id, channel_id, start, stop, start_ts, stop_ts))
+        })?;
+
+        for row in rows {
+            let (source_id, id, channel_id, start, stop, start_ts_db, stop_ts_db) = row?;
+            let start_ts = start_ts_db.or_else(|| crate::xmltv_to_epoch(&start));
+            let stop_ts = stop_ts_db.or_else(|| crate::xmltv_to_epoch(&stop));
+            by_source.entry(source_id).or_default().push(DbProgrammeRow {
+                id,
+                channel_id,
+                start,
+                stop,
+                start_ts,
+                stop_ts,
+                changed: false,
+            });
+        }
+    }
+
+    let mut upd = conn.prepare("UPDATE programmes SET stop = ?1, stop_ts = ?2 WHERE id = ?3")?;
+    for (_source_id, mut src_rows) in by_source {
+        crate::repair_source_programmes(&mut src_rows);
+        for row in src_rows {
+            if row.changed {
+                upd.execute(params![row.stop, row.stop_ts, row.id])?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -778,5 +868,94 @@ mod tests {
         migrate_v6(&conn).unwrap();
         let total: i64 = conn.query_row("SELECT COUNT(*) FROM programmes", [], |r| r.get(0)).unwrap();
         assert_eq!(total, 6);
+    }
+
+    fn make_v6_db(conn: &Connection) {
+        make_v5_db(conn);
+        migrate_v6(conn).unwrap();
+        conn.execute_batch("PRAGMA user_version = 6;").unwrap();
+    }
+
+    #[test]
+    fn test_v7_repairs_30m_dummy_stops_and_zero_durations_without_touching_clean_sources() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_v6_db(&conn);
+
+        conn.execute_batch(
+            "INSERT INTO programmes (channel_id, source_id, start, stop, title, desc, title_norm, start_ts, stop_ts) VALUES
+                -- Source with 30m dummy stops (gap + overlap + legacy NULL timestamps)
+                ('5-star-max', 'src_dummy', '20261126030800 +0000', '20261126033800 +0000', 'The Hangover Part II', '', 'the hangover part ii', 1795662480, 1795664280),
+                ('5-star-max', 'src_dummy', '20261126045000 +0000', '20261126064700 +0000', 'Time Bandits', '', 'time bandits', 1795668600, 1795675620),
+                ('bbc-news',   'src_dummy', '20261126034500 +0000', '20261126041500 +0000', 'BBC Sport', '', 'bbc sport', NULL, NULL),
+                ('bbc-news',   'src_dummy', '20261126040000 +0000', '20261126043000 +0000', 'BBC News', '', 'bbc news', NULL, NULL),
+                -- Clean source with real gaps and a zero-duration live event
+                ('kika',  'src_clean', '20261125193500 +0000', '20261125200000 +0000', 'My Move', '', 'my move', 1795635300, 1795636800),
+                ('kika',  'src_clean', '20261126050000 +0000', '20261126053000 +0000', 'Kikaninchen', '', 'kikaninchen', 1795669200, 1795671000),
+                ('kika',  'src_clean', '20261126193000 +0000', '20261126200000 +0000', 'Cave Painter', '', 'cave painter', 1795721400, 1795723200),
+                ('kika',  'src_clean', '20261127050000 +0000', '20261127053000 +0000', 'Logo', '', 'logo', 1795755600, 1795757400),
+                ('swr',   'src_clean', '20261126163000 +0000', '20261126170000 +0000', 'Sportarena', '', 'sportarena', 1795710600, 1795712400),
+                ('swr',   'src_clean', '20261126171500 +0000', '20261126174500 +0000', 'Flohmarkt', '', 'flohmarkt', 1795713300, 1795715100),
+                ('swr',   'src_clean', '20261126174500 +0000', '20261126181500 +0000', 'Mit Herz', '', 'mit herz', 1795715100, 1795716900),
+                ('swr',   'src_clean', '20261126190000 +0000', '20261126191500 +0000', 'Tagesschau', '', 'tagesschau', 1795719600, 1795720500),
+                ('swr',   'src_clean', '20261126191500 +0000', '20261126193000 +0000', 'Short', '', 'short', 1795720500, 1795721400),
+                ('swr',   'src_clean', '20261126200000 +0000', '20261126203000 +0000', 'Late', '', 'late', 1795723200, 1795725000),
+                ('swr',   'src_clean', '20261126203000 +0000', '20261126204500 +0000', 'News', '', 'news', 1795725000, 1795725900),
+                ('swr',   'src_clean', '20261126210000 +0000', '20261126213000 +0000', 'Night', '', 'night', 1795726800, 1795728600),
+                ('dazn1', 'src_clean', '20261126172000 +0000', '20261126172000 +0000', 'UCL', '', 'ucl', 1795713600, 1795713600),
+                ('dazn1', 'src_clean', '20261126191000 +0000', '20261126210000 +0000', 'UCL 2', '', 'ucl 2', 1795720200, 1795726800);",
+        )
+        .unwrap();
+
+        run_migrations(&conn, None).unwrap();
+
+        let (hangover_stop, hangover_stop_ts): (String, i64) = conn
+            .query_row(
+                "SELECT stop, stop_ts FROM programmes WHERE source_id = 'src_dummy' AND channel_id = '5-star-max' AND title = 'The Hangover Part II'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(hangover_stop, "20261126045000 +0000");
+        assert_eq!(hangover_stop_ts, 1795668600);
+
+        let (bbc_stop, bbc_stop_ts): (String, i64) = conn
+            .query_row(
+                "SELECT stop, stop_ts FROM programmes WHERE source_id = 'src_dummy' AND channel_id = 'bbc-news' AND title = 'BBC Sport'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(bbc_stop, "20261126040000 +0000");
+        assert_eq!(bbc_stop_ts, crate::xmltv_to_epoch("20261126040000 +0000").unwrap());
+
+        // Clean source: zero-duration DAZN1 is repaired, while legitimate 30m Sportarena is untouched
+        let dazn_stop: String = conn
+            .query_row(
+                "SELECT stop FROM programmes WHERE source_id = 'src_clean' AND channel_id = 'dazn1' AND title = 'UCL'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(dazn_stop, "20261126191000 +0000");
+
+        let swr_stop: String = conn
+            .query_row(
+                "SELECT stop FROM programmes WHERE source_id = 'src_clean' AND channel_id = 'swr' AND title = 'Sportarena'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(swr_stop, "20261126170000 +0000");
+
+        // Idempotent re-run
+        migrate_v7(&conn).unwrap();
+        let hangover_stop_2: String = conn
+            .query_row(
+                "SELECT stop FROM programmes WHERE source_id = 'src_dummy' AND channel_id = '5-star-max' AND title = 'The Hangover Part II'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(hangover_stop_2, "20261126045000 +0000");
     }
 }

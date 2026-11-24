@@ -4504,6 +4504,126 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
     Ok(())
 }
 
+pub(crate) const DUMMY_STOP_SECS: i64 = 1800;
+pub(crate) const MAX_REPAIR_SPAN_SECS: i64 = 12 * 3600;
+
+pub(crate) trait RepairableProgramme {
+    fn channel_id(&self) -> &str;
+    fn start_str(&self) -> &str;
+    fn start_ts(&self) -> Option<i64>;
+    fn stop_ts(&self) -> Option<i64>;
+    fn set_stop(&mut self, stop: String, stop_ts: i64);
+}
+
+/// Repairs missing/zero-duration `stop` times and 30-minute scraper placeholder `stop` times
+/// within a single source by aligning them to the next programme's `start` on the same channel.
+pub(crate) fn repair_source_programmes<T: RepairableProgramme>(programmes: &mut [T]) {
+    if programmes.is_empty() {
+        return;
+    }
+
+    programmes.sort_by(|a, b| {
+        a.channel_id()
+            .cmp(b.channel_id())
+            .then_with(|| a.start_ts().is_none().cmp(&b.start_ts().is_none()))
+            .then_with(|| a.start_ts().cmp(&b.start_ts()))
+    });
+
+    let mut channel_plans: Vec<(usize, usize, usize, usize, Vec<Option<usize>>)> = Vec::new();
+    let mut src_30m: usize = 0;
+    let mut src_other: usize = 0;
+
+    let mut start_idx = 0;
+    while start_idx < programmes.len() {
+        let ch_id = programmes[start_idx].channel_id().to_string();
+        let mut end_idx = start_idx + 1;
+        while end_idx < programmes.len() && programmes[end_idx].channel_id() == ch_id {
+            end_idx += 1;
+        }
+
+        let ch_progs = &programmes[start_idx..end_idx];
+        let n = ch_progs.len();
+        let mut next_idx: Vec<Option<usize>> = vec![None; n];
+        let mut next_distinct: Option<usize> = None;
+        for i in (0..n).rev() {
+            let Some(s) = ch_progs[i].start_ts() else {
+                continue;
+            };
+            if let Some(nd) = next_distinct {
+                if ch_progs[nd].start_ts() > Some(s) {
+                    next_idx[i] = Some(nd);
+                } else {
+                    next_idx[i] = next_idx[nd];
+                }
+            }
+            if next_distinct.map_or(true, |nd| ch_progs[nd].start_ts() != Some(s)) {
+                next_distinct = Some(i);
+            }
+        }
+
+        let mut ch_30m: usize = 0;
+        let mut ch_other: usize = 0;
+        for i in 0..n {
+            let (Some(s), Some(e), Some(j)) = (
+                ch_progs[i].start_ts(),
+                ch_progs[i].stop_ts(),
+                next_idx[i],
+            ) else {
+                continue;
+            };
+            let Some(ns) = ch_progs[j].start_ts() else {
+                continue;
+            };
+            let dur = e - s;
+            if dur <= 0 {
+                continue;
+            }
+            if (ns > e && ns - s <= MAX_REPAIR_SPAN_SECS) || ns < e {
+                if dur == DUMMY_STOP_SECS {
+                    ch_30m += 1;
+                } else {
+                    ch_other += 1;
+                }
+            }
+        }
+
+        src_30m += ch_30m;
+        src_other += ch_other;
+        channel_plans.push((start_idx, end_idx, ch_30m, ch_other, next_idx));
+        start_idx = end_idx;
+    }
+
+    for (start_idx, end_idx, ch_30m, ch_other, next_idx) in channel_plans {
+        let source_is_30m_dummy = src_30m >= 10 && src_30m > src_other.saturating_mul(3);
+        let fix_30m_dummy = (ch_30m > ch_other) || (source_is_30m_dummy && ch_30m > 0);
+        let ch_progs = &mut programmes[start_idx..end_idx];
+        for i in 0..ch_progs.len() {
+            let Some(s) = ch_progs[i].start_ts() else {
+                continue;
+            };
+            let Some(j) = next_idx[i] else {
+                continue;
+            };
+            let Some(ns) = ch_progs[j].start_ts() else {
+                continue;
+            };
+            let e_opt = ch_progs[i].stop_ts();
+            let should_repair = if e_opt.map_or(true, |e| e <= s) {
+                ns - s <= MAX_REPAIR_SPAN_SECS
+            } else if fix_30m_dummy && e_opt == Some(s + DUMMY_STOP_SECS) {
+                (ns > s + DUMMY_STOP_SECS && ns - s <= MAX_REPAIR_SPAN_SECS)
+                    || ns < s + DUMMY_STOP_SECS
+            } else {
+                false
+            };
+            if should_repair {
+                let next_start_str = ch_progs[j].start_str().to_string();
+                ch_progs[i].set_stop(next_start_str, ns);
+            }
+        }
+    }
+}
+
 struct ParsedProgramme {
     channel_id: String,
     start: String,
@@ -4513,6 +4633,25 @@ struct ParsedProgramme {
     title_norm: String,
     start_ts: Option<i64>,
     stop_ts: Option<i64>,
+}
+
+impl RepairableProgramme for ParsedProgramme {
+    fn channel_id(&self) -> &str {
+        &self.channel_id
+    }
+    fn start_str(&self) -> &str {
+        &self.start
+    }
+    fn start_ts(&self) -> Option<i64> {
+        self.start_ts
+    }
+    fn stop_ts(&self) -> Option<i64> {
+        self.stop_ts
+    }
+    fn set_stop(&mut self, stop: String, stop_ts: i64) {
+        self.stop = stop;
+        self.stop_ts = Some(stop_ts);
+    }
 }
 
 #[derive(Hash, Eq, PartialEq)]
@@ -4610,6 +4749,14 @@ fn import_xmltv_into_tx(
                 if name == "channel" {
                     ch_stmt.execute(params![curr_ch_id, source_id, curr_ch_name, curr_ch_icon]).ok();
                 } else if name == "programme" {
+                    if curr_prog_ch.trim().is_empty()
+                        || curr_prog_start.trim().is_empty()
+                        || curr_prog_title.trim().is_empty()
+                    {
+                        current_tag.clear();
+                        buf.clear();
+                        continue;
+                    }
                     let title_norm = normalise_for_match(&clean_title(&curr_prog_title));
                     let start_ts = xmltv_to_epoch(&curr_prog_start);
                     let stop_ts = xmltv_to_epoch(&curr_prog_stop);
@@ -4654,8 +4801,34 @@ fn import_xmltv_into_tx(
                                 cand.desc = std::mem::take(&mut existing.desc);
                             }
                             *existing = cand;
-                        } else if existing_valid == cand_valid && cand.desc.len() > existing.desc.len() {
-                            *existing = cand;
+                        } else if existing_valid && !cand_valid {
+                            if existing.desc.is_empty() && !cand.desc.is_empty() {
+                                existing.desc = cand.desc;
+                            }
+                        } else if existing_valid == cand_valid {
+                            let existing_is_dummy_30m = existing_valid
+                                && existing
+                                    .stop_ts
+                                    .zip(existing.start_ts)
+                                    .map_or(false, |(e, s)| e - s == DUMMY_STOP_SECS);
+                            let cand_is_dummy_30m = cand_valid
+                                && cand
+                                    .stop_ts
+                                    .zip(cand.start_ts)
+                                    .map_or(false, |(e, s)| e - s == DUMMY_STOP_SECS);
+
+                            if cand.desc.len() > existing.desc.len() {
+                                if existing_valid && !existing_is_dummy_30m && cand_is_dummy_30m {
+                                    existing.desc = cand.desc;
+                                } else {
+                                    *existing = cand;
+                                }
+                            } else if cand.desc.len() == existing.desc.len()
+                                && existing_is_dummy_30m
+                                && !cand_is_dummy_30m
+                            {
+                                *existing = cand;
+                            }
                         }
                     } else {
                         let idx = programmes.len();
@@ -4671,6 +4844,8 @@ fn import_xmltv_into_tx(
         }
         buf.clear();
     }
+
+    repair_source_programmes(&mut programmes);
 
     let mut prog_stmt = tx
         .prepare(
@@ -5469,6 +5644,129 @@ mod tests {
             )
             .unwrap();
         assert_eq!(ch399_count, 1);
+    }
+
+    #[test]
+    fn test_import_xmltv_repairs_30m_dummy_stops_duplicates_and_zero_durations() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="5-star-max"><display-name>5-Star MAX</display-name></channel>
+  <channel id="bbc-news"><display-name>BBC News</display-name></channel>
+  <channel id="amc"><display-name>AMC</display-name></channel>
+  <channel id="auto"><display-name>Auto Motor</display-name></channel>
+  <channel id="m4plus"><display-name>M4 Sport+</display-name></channel>
+  <channel id="dazn1"><display-name>DAZN 1</display-name></channel>
+
+  <!-- 30m dummy stop leaving a gap across midnight/day boundary -->
+  <programme start="20261126030800 +0000" stop="20261126033800 +0000" channel="5-star-max">
+    <title>The Hangover Part II</title>
+  </programme>
+  <programme start="20261126045000 +0000" stop="20261126064700 +0000" channel="5-star-max">
+    <title>Time Bandits</title>
+  </programme>
+
+  <!-- 30m dummy stop overlapping next day's first show -->
+  <programme start="20261126034500 +0000" stop="20261126041500 +0000" channel="bbc-news">
+    <title>BBC Sport</title>
+  </programme>
+  <programme start="20261126040000 +0000" stop="20261126043000 +0000" channel="bbc-news">
+    <title>BBC News</title>
+  </programme>
+
+  <!-- Midnight-spanning show truncated to 30m (23:00 -> 23:30 instead of 00:55 next day) -->
+  <programme start="20261125220000 +0000" stop="20261125223000 +0000" channel="amc">
+    <title>Az árnyékember</title>
+  </programme>
+  <programme start="20261125235500 +0000" stop="20261126015000 +0000" channel="amc">
+    <title>Cliffhanger</title>
+  </programme>
+
+  <!-- Duplicate start where first entry has 30m dummy stop and second has real 15m stop -->
+  <programme start="20261125044500 +0000" stop="20261125051500 +0000" channel="auto">
+    <title>Vorfahrt</title>
+    <desc>Same desc</desc>
+  </programme>
+  <programme start="20261125044500 +0000" stop="20261125050000 +0000" channel="auto">
+    <title>Vorfahrt</title>
+    <desc>Same desc</desc>
+  </programme>
+  <programme start="20261125050000 +0000" stop="20261125051500 +0000" channel="auto">
+    <title>Die 7</title>
+  </programme>
+
+  <!-- Multi-day off-air gap (>12h) must NOT be stretched -->
+  <programme start="20261129190000 +0000" stop="20261129193000 +0000" channel="m4plus">
+    <title>Skating</title>
+  </programme>
+  <programme start="20261205130000 +0000" stop="20261205140000 +0000" channel="m4plus">
+    <title>F2</title>
+  </programme>
+
+  <!-- Zero-duration programme with simultaneous start tie followed by next show -->
+  <programme start="20261127192500 +0000" stop="20261127192500 +0000" channel="dazn1">
+    <title>NCAA</title>
+  </programme>
+  <programme start="20261127192500 +0000" stop="20261127192500 +0000" channel="dazn1">
+    <title>Ligue 1</title>
+  </programme>
+  <programme start="20261127203000 +0000" stop="20261127220000 +0000" channel="dazn1">
+    <title>NHL</title>
+  </programme>
+
+  <!-- Empty title must be skipped -->
+  <programme start="20261124073548 +0000" stop="20261124073548 +0000" channel="dazn1">
+    <title></title>
+  </programme>
+</tv>"#;
+
+        let tx = conn.transaction().unwrap();
+        import_xmltv_into_tx(&tx, "test_src", xml).unwrap();
+        tx.commit().unwrap();
+
+        let get_stop = |ch: &str, title: &str| -> (String, i64) {
+            conn.query_row(
+                "SELECT stop, stop_ts FROM programmes WHERE source_id = 'test_src' AND channel_id = ?1 AND title = ?2",
+                params![ch, title],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+        };
+
+        let (s, ts) = get_stop("5-star-max", "The Hangover Part II");
+        assert_eq!(s, "20261126045000 +0000");
+        assert_eq!(ts, xmltv_to_epoch("20261126045000 +0000").unwrap());
+
+        let (s, ts) = get_stop("bbc-news", "BBC Sport");
+        assert_eq!(s, "20261126040000 +0000");
+        assert_eq!(ts, xmltv_to_epoch("20261126040000 +0000").unwrap());
+
+        let (s, ts) = get_stop("amc", "Az árnyékember");
+        assert_eq!(s, "20261125235500 +0000");
+        assert_eq!(ts, xmltv_to_epoch("20261125235500 +0000").unwrap());
+
+        let (s, ts) = get_stop("auto", "Vorfahrt");
+        assert_eq!(s, "20261125050000 +0000");
+        assert_eq!(ts, xmltv_to_epoch("20261125050000 +0000").unwrap());
+
+        let (s, _) = get_stop("m4plus", "Skating");
+        assert_eq!(s, "20261129193000 +0000", "multi-day off-air gap must not be stretched");
+
+        let (s, _) = get_stop("dazn1", "NCAA");
+        assert_eq!(s, "20261127203000 +0000");
+        let (s, _) = get_stop("dazn1", "Ligue 1");
+        assert_eq!(s, "20261127203000 +0000");
+
+        let empty_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM programmes WHERE source_id = 'test_src' AND TRIM(title) = ''",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(empty_count, 0);
     }
 }
 
