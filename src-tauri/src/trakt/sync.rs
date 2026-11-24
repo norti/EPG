@@ -33,6 +33,10 @@ struct ActivitySection {
     watchlisted_at: Option<String>,
     #[serde(default)]
     rated_at: Option<String>,
+    /// Only present on `shows`: last change of the hidden lists. Absent => the hidden list is refreshed
+    /// whenever the history changed (old behaviour).
+    #[serde(default)]
+    hidden_at: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -296,11 +300,75 @@ pub async fn resolve_calendar_start(state: &AppState, requested: Option<String>)
     }
 }
 
+/// Maximum number of items of one batched `/sync/history|watchlist` request.
+const PENDING_BATCH_MAX_ITEMS: usize = 100;
+
+fn pending_action_path(action: &str) -> Option<&'static str> {
+    match action {
+        "history_add" => Some("/sync/history"),
+        "watchlist_add" => Some("/sync/watchlist"),
+        "watchlist_remove" => Some("/sync/watchlist/remove"),
+        _ => None,
+    }
+}
+
+/// Number of items a payload carries (`episodes[]` + `movies[]` + `shows[]`).
+fn payload_item_count(payload: &serde_json::Value) -> usize {
+    ["episodes", "movies", "shows"]
+        .iter()
+        .map(|k| payload.get(*k).and_then(|v| v.as_array()).map_or(0, |a| a.len()))
+        .sum()
+}
+
+/// Concatenates the `episodes` / `movies` / `shows` arrays of several payloads (in order).
+fn merge_payloads(payloads: &[&serde_json::Value]) -> serde_json::Value {
+    let mut merged = serde_json::Map::new();
+    for key in ["episodes", "movies", "shows"] {
+        let items: Vec<serde_json::Value> = payloads
+            .iter()
+            .flat_map(|p| p.get(key).and_then(|v| v.as_array()).cloned().unwrap_or_default())
+            .collect();
+        if !items.is_empty() {
+            merged.insert(key.to_string(), serde_json::Value::Array(items));
+        }
+    }
+    serde_json::Value::Object(merged)
+}
+
+/// Splits the ordered queue into batches: only *consecutive* rows of the same action are merged
+/// (so an add and a later remove of the same title can never swap places), at most
+/// `PENDING_BATCH_MAX_ITEMS` items per batch. Each batch is a list of indexes into `rows`.
+fn plan_pending_batches(rows: &[(String, serde_json::Value)]) -> Vec<Vec<usize>> {
+    let mut batches: Vec<Vec<usize>> = Vec::new();
+    let mut items_in_batch = 0usize;
+    for (i, (action, payload)) in rows.iter().enumerate() {
+        let n = payload_item_count(payload).max(1);
+        let joins_previous = batches.last().is_some_and(|b| {
+            rows[b[0]].0 == *action && items_in_batch + n <= PENDING_BATCH_MAX_ITEMS
+        });
+        if joins_previous {
+            batches.last_mut().unwrap().push(i);
+            items_in_batch += n;
+        } else {
+            batches.push(vec![i]);
+            items_in_batch = n;
+        }
+    }
+    batches
+}
+
 pub async fn flush_pending_actions(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
 ) -> Result<usize, String> {
-    let rows: Vec<(i64, String, String, i64)> = {
+    struct Row {
+        id: i64,
+        action: String,
+        payload: serde_json::Value,
+        attempts: i64,
+    }
+
+    let raw: Vec<(i64, String, String, i64)> = {
         let conn = state.db.lock().await;
         let mut stmt = conn
             .prepare(
@@ -313,58 +381,90 @@ pub async fn flush_pending_actions(
         mapped.flatten().collect()
     };
 
-    let mut flushed = 0usize;
-    for (id, action, payload_json, attempts) in rows {
-        let payload: serde_json::Value = match serde_json::from_str(&payload_json) {
-            Ok(v) => v,
-            Err(_) => {
-                let conn = state.db.lock().await;
-                let _ = conn.execute("DELETE FROM trakt_pending_actions WHERE id = ?1", params![id]);
-                continue;
-            }
-        };
-
-        let path = match action.as_str() {
-            "history_add" => "/sync/history",
-            "watchlist_add" => "/sync/watchlist",
-            "watchlist_remove" => "/sync/watchlist/remove",
+    let mut rows: Vec<Row> = Vec::new();
+    for (id, action, payload_json, attempts) in raw {
+        let payload = serde_json::from_str::<serde_json::Value>(&payload_json).ok();
+        match (payload, pending_action_path(&action)) {
+            (Some(payload), Some(_)) => rows.push(Row { id, action, payload, attempts }),
             _ => {
+                // Unreadable payload / unknown action can never succeed.
                 let conn = state.db.lock().await;
                 let _ = conn.execute("DELETE FROM trakt_pending_actions WHERE id = ?1", params![id]);
-                continue;
             }
-        };
+        }
+    }
 
-        match trakt_post(state, app, path, &payload).await {
-            Ok(_) => {
-                let conn = state.db.lock().await;
-                let _ = conn.execute("DELETE FROM trakt_pending_actions WHERE id = ?1", params![id]);
-                flushed += 1;
+    let plan_input: Vec<(String, serde_json::Value)> =
+        rows.iter().map(|r| (r.action.clone(), r.payload.clone())).collect();
+    let batches = plan_pending_batches(&plan_input);
+
+    let mut flushed = 0usize;
+    for batch in batches {
+        let path = pending_action_path(&rows[batch[0]].action).unwrap_or_default();
+
+        // Several rows -> one request. If the server refuses the batch (4xx), fall back to one request per
+        // row so the bad item is isolated and the good ones still go through.
+        if batch.len() > 1 {
+            let merged = merge_payloads(&batch.iter().map(|&i| &rows[i].payload).collect::<Vec<_>>());
+            match trakt_post(state, app, path, &merged).await {
+                Ok(_) => {
+                    let conn = state.db.lock().await;
+                    for &i in &batch {
+                        let _ = conn.execute(
+                            "DELETE FROM trakt_pending_actions WHERE id = ?1",
+                            params![rows[i].id],
+                        );
+                    }
+                    flushed += batch.len();
+                    continue;
+                }
+                Err(err) if err.is_transient() => {
+                    let conn = state.db.lock().await;
+                    for &i in &batch {
+                        let _ = conn.execute(
+                            "UPDATE trakt_pending_actions SET attempts = ?1, last_error = ?2 WHERE id = ?3",
+                            params![rows[i].attempts + 1, err.to_user_string(), rows[i].id],
+                        );
+                    }
+                    return Err(err.to_user_string());
+                }
+                Err(_) => {}
             }
-            Err(err) if err.is_transient() => {
-                let conn = state.db.lock().await;
-                let _ = conn.execute(
-                    "UPDATE trakt_pending_actions SET attempts = ?1, last_error = ?2 WHERE id = ?3",
-                    params![attempts + 1, err.to_user_string(), id],
-                );
-                return Err(err.to_user_string());
-            }
-            Err(err) => {
-                let conn = state.db.lock().await;
-                if matches!(
-                    err,
-                    TraktApiError::AccountLimitExceeded(_)
-                        | TraktApiError::VipRequired(_)
-                        | TraktApiError::LockedAccount(_)
-                        | TraktApiError::Http(400..=499, _)
-                ) || attempts >= 3
-                {
-                    let _ = conn.execute("DELETE FROM trakt_pending_actions WHERE id = ?1", params![id]);
-                } else {
+        }
+
+        for &i in &batch {
+            let row = &rows[i];
+            match trakt_post(state, app, path, &row.payload).await {
+                Ok(_) => {
+                    let conn = state.db.lock().await;
+                    let _ = conn.execute("DELETE FROM trakt_pending_actions WHERE id = ?1", params![row.id]);
+                    flushed += 1;
+                }
+                Err(err) if err.is_transient() => {
+                    let conn = state.db.lock().await;
                     let _ = conn.execute(
                         "UPDATE trakt_pending_actions SET attempts = ?1, last_error = ?2 WHERE id = ?3",
-                        params![attempts + 1, err.to_user_string(), id],
+                        params![row.attempts + 1, err.to_user_string(), row.id],
                     );
+                    return Err(err.to_user_string());
+                }
+                Err(err) => {
+                    let conn = state.db.lock().await;
+                    if matches!(
+                        err,
+                        TraktApiError::AccountLimitExceeded(_)
+                            | TraktApiError::VipRequired(_)
+                            | TraktApiError::LockedAccount(_)
+                            | TraktApiError::Http(400..=499, _)
+                    ) || row.attempts >= 3
+                    {
+                        let _ = conn.execute("DELETE FROM trakt_pending_actions WHERE id = ?1", params![row.id]);
+                    } else {
+                        let _ = conn.execute(
+                            "UPDATE trakt_pending_actions SET attempts = ?1, last_error = ?2 WHERE id = ?3",
+                            params![row.attempts + 1, err.to_user_string(), row.id],
+                        );
+                    }
                 }
             }
         }
@@ -562,6 +662,9 @@ pub async fn run_sync(
             emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
             return Err(e);
         }
+        // Saved per stage: a later failure (calendar, progress) must not make the next sync re-download this.
+        let conn = state.db.lock().await;
+        save_activity_stage(&conn, |cur| cur.watchlist = activities.watchlist.clone());
     }
 
     if hist_changed {
@@ -577,6 +680,13 @@ pub async fn run_sync(
         let conn = state.db.lock().await;
         let _ = set_sync_state_val(&conn, "history_dirty", "0");
         let _ = set_sync_state_val(&conn, "watched_shows_synced_v1", "1");
+        // Progress downloads that fail after this point are retried through `trakt_show_fp.synced_fp`.
+        save_activity_stage(&conn, |cur| {
+            cur.episodes.get_or_insert_default().watched_at =
+                activities.episodes.as_ref().and_then(|e| e.watched_at.clone());
+            cur.movies.get_or_insert_default().watched_at =
+                activities.movies.as_ref().and_then(|m| m.watched_at.clone());
+        });
     }
 
     emit_sync_state(app, "syncing", "calendar", last_ok_prev.as_deref(), None);
@@ -592,58 +702,52 @@ pub async fn run_sync(
         }
     };
 
-    if hist_changed || !cw_synced {
-        let hidden_ids = fetch_hidden_progress_show_ids(state, app).await;
-        let conn = state.db.lock().await;
-        let _ = conn.execute(
-            "UPDATE trakt_show_progress SET hidden_from_progress = 0 WHERE hidden_from_progress != 0",
-            [],
-        );
-        for hid in hidden_ids {
+    let fresh_hidden_at = activities.shows.as_ref().and_then(|s| s.hidden_at.clone());
+    let stored_hidden_at = stored_act
+        .as_ref()
+        .and_then(|s| s.shows.as_ref())
+        .and_then(|s| s.hidden_at.clone());
+    // `shows.hidden_at` in last_activities tells whether the hidden list changed; without it the list is
+    // re-read whenever the history changed (old behaviour, served by the 1 h cache).
+    let hidden_refresh = if !cw_synced {
+        true
+    } else if fresh_hidden_at.is_some() {
+        force || stored_hidden_at != fresh_hidden_at
+    } else {
+        hist_changed
+    };
+    if hidden_refresh {
+        let bypass_cache = force || (fresh_hidden_at.is_some() && stored_hidden_at != fresh_hidden_at);
+        // A failed request keeps the stored flags: an incomplete list would un-hide shows.
+        if let Ok(hidden_ids) = fetch_hidden_progress_show_ids(state, app, bypass_cache).await {
+            let conn = state.db.lock().await;
             let _ = conn.execute(
-                "INSERT INTO trakt_show_progress (show_trakt_id, hidden_from_progress, updated_at)
-                 VALUES (?1, 1, ?2)
-                 ON CONFLICT(show_trakt_id) DO UPDATE SET hidden_from_progress = 1",
-                params![hid, now_iso_utc()],
+                "UPDATE trakt_show_progress SET hidden_from_progress = 0 WHERE hidden_from_progress != 0",
+                [],
             );
+            for hid in hidden_ids {
+                let _ = conn.execute(
+                    "INSERT INTO trakt_show_progress (show_trakt_id, hidden_from_progress, updated_at)
+                     VALUES (?1, 1, ?2)
+                     ON CONFLICT(show_trakt_id) DO UPDATE SET hidden_from_progress = 1",
+                    params![hid, now_iso_utc()],
+                );
+            }
+            save_activity_stage(&conn, |cur| {
+                cur.shows.get_or_insert_default().hidden_at = fresh_hidden_at.clone();
+            });
         }
     }
 
-    // Refresh progress & next_episode for calendar shows and started (continue watching) shows
+    // Refresh progress & next_episode only for shows whose data can have changed (fingerprint, new airing,
+    // missing row, weekly safety net). A full sync (`force`) refreshes every candidate.
     let progress_show_ids: Vec<i64> = {
         let conn = state.db.lock().await;
-        let mut stmt = conn
-            .prepare(
-                "SELECT show_trakt_id FROM (
-                    SELECT c.show_trakt_id AS show_trakt_id, 0 AS prio, MAX(c.first_aired) AS sort_ts
-                    FROM trakt_calendar_cache c
-                    WHERE c.scope = 'my'
-                    GROUP BY c.show_trakt_id
-                    UNION ALL
-                    SELECT e.show_trakt_id AS show_trakt_id,
-                           CASE
-                               WHEN p.show_trakt_id IS NULL THEN 1
-                               WHEN p.next_episode_trakt_id IS NOT NULL OR COALESCE(p.completed, 0) < COALESCE(p.aired, 1) THEN 2
-                               ELSE 3
-                           END AS prio,
-                           MAX(e.watched_at) AS sort_ts
-                    FROM trakt_episodes e
-                    LEFT JOIN trakt_show_progress p ON p.show_trakt_id = e.show_trakt_id
-                    WHERE e.watched_at IS NOT NULL
-                      AND COALESCE(p.hidden_from_progress, 0) = 0
-                    GROUP BY e.show_trakt_id
-                )
-                GROUP BY show_trakt_id
-                ORDER BY MIN(prio) ASC, MAX(sort_ts) DESC
-                LIMIT 35",
-            )
-            .map_err(|e| e.to_string())?;
-        let mapped = stmt.query_map([], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?;
-        mapped.flatten().collect()
+        select_progress_show_ids(&conn, force || !cw_synced, &now_iso_utc())?
     };
 
     for show_id in progress_show_ids {
-        let _ = sync_show_progress(state, app, show_id, hist_changed || !cw_synced).await;
+        let _ = sync_show_progress(state, app, show_id, true).await;
     }
 
     if hist_changed || !cw_synced {
@@ -651,14 +755,13 @@ pub async fn run_sync(
         let conn = state.db.lock().await;
         let _ = set_sync_state_val(&conn, "continue_watching_premiered_v1", "1");
     }
+    // Old TMDB id rows are refreshed a few at a time, never on the read path.
+    crate::refresh_stale_tmdb(state, 10).await;
 
     let now_ok = now_iso_utc();
     {
         let conn = state.db.lock().await;
         set_sync_state_val(&conn, "last_sync_ok_at", &now_ok)?;
-        if let Ok(act_json) = serde_json::to_string(&activities) {
-            let _ = set_sync_state_val(&conn, "last_activities", &act_json);
-        }
         // Housekeeping: drop HTTP cache rows that expired long ago (daily calendar keys, old progress bodies ...)
         let _ = crate::trakt::client::prune_http_cache(&conn);
     }
@@ -911,7 +1014,7 @@ pub async fn sync_watchlist(
 }
 
 pub async fn sync_history(state: &AppState) -> Result<(), String> {
-    let resp = trakt_get_raw(state, None, "/users/me/history/?extended=full&page=1&limit=30", true)
+    let resp = trakt_get_raw(state, None, "/users/me/history/?page=1&limit=30", true)
         .await
         .map_err(|e| e.to_user_string())?;
 
@@ -1155,10 +1258,13 @@ pub async fn sync_watched_shows(
             .map_err(|e| e.to_string())?;
 
         let mut watched_show_ids: HashSet<i64> = HashSet::new();
+        let mut fingerprints: Vec<(i64, String)> = Vec::new();
 
         for entry in &entries {
             let show_id = entry.show.ids.trakt;
             let mut has_active_ep = false;
+            let mut active_count = 0usize;
+            let mut max_watched: Option<&str> = None;
             for season in &entry.seasons {
                 for ep in &season.episodes {
                     let after_reset = match (&entry.reset_at, &ep.last_watched_at) {
@@ -1169,6 +1275,12 @@ pub async fn sync_watched_shows(
                         continue;
                     }
                     has_active_ep = true;
+                    active_count += 1;
+                    if let Some(w) = ep.last_watched_at.as_deref() {
+                        if max_watched.map_or(true, |m| w > m) {
+                            max_watched = Some(w);
+                        }
+                    }
                     let watched_at = ep.last_watched_at.as_deref().unwrap_or(&now);
                     let _ = ep_stmt.execute(params![
                         show_id,
@@ -1181,6 +1293,7 @@ pub async fn sync_watched_shows(
             }
             if has_active_ep {
                 watched_show_ids.insert(show_id);
+                fingerprints.push((show_id, watched_fingerprint(active_count, max_watched)));
                 if let Some(ref title) = entry.show.title {
                     let _ = show_stmt.execute(params![
                         show_id,
@@ -1192,6 +1305,35 @@ pub async fn sync_watched_shows(
                         now,
                     ]);
                 }
+            }
+        }
+
+        // Fingerprints decide later which shows need a progress request. `synced_fp` is left untouched:
+        // only a successful progress download may mark a show as up to date.
+        {
+            let mut fp_stmt = tx
+                .prepare(
+                    "INSERT INTO trakt_show_fp (show_trakt_id, seen_fp, synced_fp, updated_at)
+                     VALUES (?1, ?2, NULL, ?3)
+                     ON CONFLICT(show_trakt_id) DO UPDATE SET
+                        seen_fp = excluded.seen_fp,
+                        updated_at = excluded.updated_at",
+                )
+                .map_err(|e| e.to_string())?;
+            for (sid, fp) in &fingerprints {
+                let _ = fp_stmt.execute(params![sid, fp, now]);
+            }
+        }
+        let stale_fp_ids: Vec<i64> = {
+            let mut s = tx
+                .prepare("SELECT show_trakt_id FROM trakt_show_fp")
+                .map_err(|e| e.to_string())?;
+            let mapped = s.query_map([], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?;
+            mapped.flatten().collect()
+        };
+        for sid in stale_fp_ids {
+            if !watched_show_ids.contains(&sid) {
+                let _ = tx.execute("DELETE FROM trakt_show_fp WHERE show_trakt_id = ?1", params![sid]);
             }
         }
 
@@ -1215,11 +1357,10 @@ pub async fn sync_watched_shows(
         }
     }
 
-    tx.execute(
-        "DELETE FROM trakt_http_cache WHERE key LIKE '/shows/%/progress/watched%' OR key LIKE '/users/%/stats'",
-        [],
-    )
-    .ok();
+    // Cached progress bodies are no longer wiped here: `sync_show_progress` bypasses the cache itself
+    // whenever a show's fingerprint changed. Only the stats answer depends on the whole history.
+    tx.execute("DELETE FROM trakt_http_cache WHERE key LIKE '/users/%/stats'", [])
+        .ok();
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
@@ -1228,7 +1369,8 @@ pub async fn sync_watched_shows(
 async fn fetch_hidden_progress_show_ids(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
-) -> HashSet<i64> {
+    force_refresh: bool,
+) -> Result<HashSet<i64>, String> {
     let mut hidden = HashSet::new();
     let mut page = 1u32;
     loop {
@@ -1236,12 +1378,11 @@ async fn fetch_hidden_progress_show_ids(
             "/users/hidden/progress_watched?type=show&page={}&limit=100",
             page
         );
-        let Ok(resp) = trakt_get_cached(state, app, &path, true, 3600, false).await else {
-            break;
-        };
-        let Ok(entries) = serde_json::from_str::<Vec<TraktHiddenEntry>>(&resp.body) else {
-            break;
-        };
+        let resp = trakt_get_cached(state, app, &path, true, 3600, force_refresh)
+            .await
+            .map_err(|e| e.to_user_string())?;
+        let entries = serde_json::from_str::<Vec<TraktHiddenEntry>>(&resp.body)
+            .map_err(|e| format!("Hidden JSON hiba: {}", e))?;
         if entries.is_empty() {
             break;
         }
@@ -1256,7 +1397,18 @@ async fn fetch_hidden_progress_show_ids(
         }
         page += 1;
     }
-    hidden
+    Ok(hidden)
+}
+
+/// Read-modify-write of the stored `last_activities` stamps; each sync stage saves only its own part.
+fn save_activity_stage(conn: &Connection, update: impl FnOnce(&mut LastActivities)) {
+    let mut cur: LastActivities = get_sync_state_val(conn, "last_activities")
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    update(&mut cur);
+    if let Ok(json) = serde_json::to_string(&cur) {
+        let _ = set_sync_state_val(conn, "last_activities", &json);
+    }
 }
 
 async fn enrich_missing_continue_watching_tmdb(state: &AppState) {
@@ -1397,6 +1549,13 @@ pub async fn sync_show_progress(
     )
     .map_err(|e| e.to_string())?;
 
+    // The fingerprint this download corresponds to; a failed download never gets here, so it is retried.
+    tx.execute(
+        "UPDATE trakt_show_fp SET synced_fp = seen_fp WHERE show_trakt_id = ?1",
+        params![show_trakt_id],
+    )
+    .map_err(|e| e.to_string())?;
+
     {
         let mut ep_stmt = tx
             .prepare(
@@ -1432,6 +1591,98 @@ pub async fn sync_show_progress(
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(progress)
+}
+
+/// `"{active episodes}:{latest last_watched_at}"` of a show in `/sync/watched/shows`. Any new, removed or
+/// re-watched episode changes it.
+fn watched_fingerprint(active_count: usize, max_last_watched: Option<&str>) -> String {
+    format!("{}:{}", active_count, max_last_watched.unwrap_or(""))
+}
+
+/// Progress is re-requested at most for this many "weekly safety net" shows per sync.
+const PROGRESS_SAFETY_NET_MAX: usize = 5;
+const PROGRESS_SAFETY_NET_AGE_SECS: i64 = 7 * 86_400;
+const PROGRESS_MAX_PER_SYNC: usize = 35;
+
+/// Shows (calendar + started, not hidden) whose `/shows/{id}/progress/watched` has to be downloaded now.
+/// A show qualifies when
+///  1. its watched fingerprint changed since the last successful progress download,
+///  2. its progress was never downloaded,
+///  3. a calendar episode aired after the last download, or
+///  4. its stored next episode aired after the last download;
+/// plus up to `PROGRESS_SAFETY_NET_MAX` shows whose data is older than a week.
+/// `all = true` (full sync) selects every candidate. Timestamps are compared to the second
+/// (Trakt sends `.000Z`, local values have no fraction).
+pub(crate) fn select_progress_show_ids(conn: &Connection, all: bool, now_iso: &str) -> Result<Vec<i64>, String> {
+    let cutoff = iso_utc_to_epoch(now_iso)
+        .map(|e| crate::trakt::epoch_to_iso_utc(e - PROGRESS_SAFETY_NET_AGE_SECS))
+        .unwrap_or_default();
+    let mut stmt = conn
+        .prepare(
+            "SELECT s.show_trakt_id,
+                    CASE WHEN p.show_trakt_id IS NULL
+                           OR (p.aired IS NULL AND p.completed IS NULL AND COALESCE(p.hidden_from_progress, 0) = 0)
+                           OR f.seen_fp IS NOT f.synced_fp
+                           OR EXISTS (SELECT 1 FROM trakt_calendar_cache c
+                                      WHERE c.scope = 'my' AND c.show_trakt_id = s.show_trakt_id
+                                        AND substr(c.first_aired, 1, 19) >  substr(p.updated_at, 1, 19)
+                                        AND substr(c.first_aired, 1, 19) <= substr(?1, 1, 19))
+                           OR (p.next_episode_first_aired IS NOT NULL
+                               AND substr(p.next_episode_first_aired, 1, 19) >  substr(p.updated_at, 1, 19)
+                               AND substr(p.next_episode_first_aired, 1, 19) <= substr(?1, 1, 19))
+                         THEN 1 ELSE 0 END AS needed,
+                    CASE WHEN substr(p.updated_at, 1, 19) < substr(?2, 1, 19) THEN 1 ELSE 0 END AS stale
+             FROM (
+                SELECT show_trakt_id, MIN(prio) AS prio, MAX(sort_ts) AS sort_ts FROM (
+                    SELECT c.show_trakt_id AS show_trakt_id, 0 AS prio, MAX(c.first_aired) AS sort_ts
+                    FROM trakt_calendar_cache c
+                    WHERE c.scope = 'my'
+                    GROUP BY c.show_trakt_id
+                    UNION ALL
+                    SELECT e.show_trakt_id AS show_trakt_id,
+                           CASE
+                               WHEN p.show_trakt_id IS NULL THEN 1
+                               WHEN p.next_episode_trakt_id IS NOT NULL OR COALESCE(p.completed, 0) < COALESCE(p.aired, 1) THEN 2
+                               ELSE 3
+                           END AS prio,
+                           MAX(e.watched_at) AS sort_ts
+                    FROM trakt_episodes e
+                    LEFT JOIN trakt_show_progress p ON p.show_trakt_id = e.show_trakt_id
+                    WHERE e.watched_at IS NOT NULL
+                      AND COALESCE(p.hidden_from_progress, 0) = 0
+                    GROUP BY e.show_trakt_id
+                )
+                GROUP BY show_trakt_id
+             ) s
+             LEFT JOIN trakt_show_progress p ON p.show_trakt_id = s.show_trakt_id
+             LEFT JOIN trakt_show_fp f       ON f.show_trakt_id = s.show_trakt_id
+             ORDER BY s.prio ASC, s.sort_ts DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<(i64, bool, bool)> = stmt
+        .query_map(params![now_iso, cutoff], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? == 1, r.get::<_, i64>(2)? == 1))
+        })
+        .map_err(|e| e.to_string())?
+        .flatten()
+        .collect();
+
+    let mut ids: Vec<i64> = rows
+        .iter()
+        .filter(|(_, needed, _)| all || *needed)
+        .map(|(id, _, _)| *id)
+        .take(PROGRESS_MAX_PER_SYNC)
+        .collect();
+    if !all {
+        let room = PROGRESS_MAX_PER_SYNC.saturating_sub(ids.len()).min(PROGRESS_SAFETY_NET_MAX);
+        ids.extend(
+            rows.iter()
+                .filter(|(_, needed, stale)| !*needed && *stale)
+                .map(|(id, _, _)| *id)
+                .take(room),
+        );
+    }
+    Ok(ids)
 }
 
 pub fn is_sync_overdue(last_sync_ok_at: Option<&str>) -> bool {

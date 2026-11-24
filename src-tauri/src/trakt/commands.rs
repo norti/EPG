@@ -16,7 +16,7 @@ use crate::trakt::sync::{
 use crate::trakt::{is_trakt_enabled, iso_utc_to_epoch, now_epoch_millis, now_epoch_secs, now_iso_utc};
 use crate::{
     apply_tmdb_auth, cache_logo_inner, clean_title, extract_year_hint,
-    get_tmdb_api_key_from_state, get_tmdb_by_id, normalise_for_match, tmdb_title_score, AppState,
+    get_tmdb_api_key_from_state, get_tmdb_by_id, normalise_for_match, tmdb_get_text, tmdb_title_score, AppState,
 };
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -466,6 +466,37 @@ pub struct MarkWatchedResult {
     pub watched_at: String,
 }
 
+/// What `POST /sync/history` said about the submitted item.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub(crate) enum HistoryPostOutcome {
+    /// `added.episodes/movies > 0`.
+    Added,
+    /// Nothing was added and `not_found` lists the item.
+    Rejected,
+    /// Unparsable body, or neither added nor reported missing.
+    Unknown,
+}
+
+pub(crate) fn classify_history_response(body: &str) -> HistoryPostOutcome {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return HistoryPostOutcome::Unknown;
+    };
+    let added = |k: &str| v.get("added").and_then(|a| a.get(k)).and_then(|n| n.as_i64()).unwrap_or(0);
+    let missing = |k: &str| {
+        v.get("not_found")
+            .and_then(|a| a.get(k))
+            .and_then(|n| n.as_array())
+            .map_or(0, |a| a.len())
+    };
+    if added("episodes") + added("movies") > 0 {
+        HistoryPostOutcome::Added
+    } else if missing("episodes") + missing("movies") > 0 {
+        HistoryPostOutcome::Rejected
+    } else {
+        HistoryPostOutcome::Unknown
+    }
+}
+
 #[tauri::command]
 pub async fn trakt_mark_watched(
     state: tauri::State<'_, AppState>,
@@ -510,8 +541,9 @@ pub async fn trakt_mark_watched(
     };
 
     let mut queued = false;
+    let mut outcome = HistoryPostOutcome::Unknown;
     match trakt_post(state.inner(), Some(&app), "/sync/history", &payload).await {
-        Ok(_) => {}
+        Ok((_, body)) => outcome = classify_history_response(&body),
         Err(err) if err.is_transient() => {
             queued = true;
             let conn = state.db.lock().await;
@@ -525,7 +557,14 @@ pub async fn trakt_mark_watched(
         Err(err) => return Err(err.to_user_string()),
     }
 
-    // Write-through to local trakt_episodes and trakt_history_cache
+    // The server refused the item (e.g. an episode that has not aired): nothing was written locally yet,
+    // so there is nothing to roll back and no false "watched" state appears.
+    if outcome == HistoryPostOutcome::Rejected {
+        return Err("TRAKT_NOT_FOUND: A Trakt nem találta a megjelölendő elemet.".to_string());
+    }
+    // A confirmed write needs no corrective re-download; offline (queued) or unreadable answers keep the
+    // old behaviour so the next sync repairs a wrong local state.
+    let history_dirty = queued || outcome == HistoryPostOutcome::Unknown;
     {
         let mut conn = state.db.lock().await;
         let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -567,12 +606,14 @@ pub async fn trakt_mark_watched(
         )
         .ok();
 
-        tx.execute(
-            "INSERT INTO trakt_sync_state (key, value) VALUES ('history_dirty', '1')
-             ON CONFLICT(key) DO UPDATE SET value = '1'",
-            [],
-        )
-        .ok();
+        if history_dirty {
+            tx.execute(
+                "INSERT INTO trakt_sync_state (key, value) VALUES ('history_dirty', '1')
+                 ON CONFLICT(key) DO UPDATE SET value = '1'",
+                [],
+            )
+            .ok();
+        }
 
         if let Some(sid) = show_trakt_id {
             let prefix = format!("/shows/{}/progress/watched%", sid);
@@ -833,6 +874,80 @@ struct TmdbSeasonEpisodeApi {
     air_date: Option<String>,
 }
 
+const TMDB_SEASON_TTL_SECS: i64 = 86_400;
+/// TMDB allows at most 20 `append_to_response` sub-requests per call.
+const TMDB_APPEND_MAX: usize = 20;
+
+pub(crate) fn tmdb_season_cache_key(tmdb_id: i64, season: i64, lang: &str) -> String {
+    format!("tmdb_season:{}:{}:{}", tmdb_id, season, lang)
+}
+
+/// Fresh (24 h) cached body of a TMDB season, if any.
+pub(crate) fn read_tmdb_season_cache(conn: &rusqlite::Connection, cache_key: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT body, fetched_at, ttl_seconds FROM trakt_http_cache WHERE key = ?1",
+        params![cache_key],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)),
+    )
+    .ok()
+    .and_then(|(body, fetched_at, ttl)| {
+        let ep = iso_utc_to_epoch(&fetched_at)?;
+        (ep + ttl > now_epoch_secs()).then_some(body)
+    })
+}
+
+fn write_tmdb_season_cache(conn: &rusqlite::Connection, cache_key: &str, body: &str) {
+    let _ = conn.execute(
+        "INSERT OR REPLACE INTO trakt_http_cache (key, etag, body, fetched_at, ttl_seconds, page_count)
+         VALUES (?1, NULL, ?2, ?3, ?4, 0)",
+        params![cache_key, body, now_iso_utc(), TMDB_SEASON_TTL_SECS],
+    );
+}
+
+/// Downloads all not yet cached seasons of a show with `GET /tv/{id}?append_to_response=season/1,season/2,..`
+/// (up to 20 per request) and stores every `season/N` object under the per-season cache key the reader uses.
+/// Failures are silent: the per-season fallback in the caller then fetches what is still missing.
+pub(crate) async fn prefetch_tmdb_seasons(state: &AppState, api_key: &str, tmdb_id: i64, lang: &str, seasons: &[i64]) {
+    let missing: Vec<i64> = {
+        let conn = state.db.lock().await;
+        seasons
+            .iter()
+            .copied()
+            .filter(|n| read_tmdb_season_cache(&conn, &tmdb_season_cache_key(tmdb_id, *n, lang)).is_none())
+            .collect()
+    };
+    // A single missing season gains nothing from the (larger) combined answer.
+    if missing.len() < 2 {
+        return;
+    }
+    for chunk in missing.chunks(TMDB_APPEND_MAX) {
+        let append = chunk.iter().map(|n| format!("season/{}", n)).collect::<Vec<_>>().join(",");
+        let url = format!("{}/tv/{}", state.tmdb.base, tmdb_id);
+        let Ok(text) = tmdb_get_text(state, || {
+            apply_tmdb_auth(
+                state
+                    .http
+                    .get(&url)
+                    .header("Accept", "application/json")
+                    .query(&[("language", lang), ("append_to_response", append.as_str())]),
+                api_key,
+            )
+        })
+        .await
+        else {
+            continue;
+        };
+        let Ok(root) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        let conn = state.db.lock().await;
+        for n in chunk {
+            if let Some(season) = root.get(format!("season/{}", n)) {
+                write_tmdb_season_cache(&conn, &tmdb_season_cache_key(tmdb_id, *n, lang), &season.to_string());
+            }
+        }
+    }
+}
 #[tauri::command]
 pub async fn trakt_get_show_seasons_progress(
     state: tauri::State<'_, AppState>,
@@ -905,6 +1020,14 @@ pub async fn trakt_get_show_seasons_progress(
     };
 
     let tmdb_key = get_tmdb_api_key_from_state(state.inner()).await;
+    if let (Some(tid), Some(key)) = (resolved_tmdb_id, tmdb_key.as_deref()) {
+        let wanted: Vec<i64> = trakt_seasons
+            .iter()
+            .filter(|s| !s.episodes.is_empty())
+            .map(|s| s.number)
+            .collect();
+        prefetch_tmdb_seasons(state.inner(), key, tid, &tmdb_lang, &wanted).await;
+    }
     let mut season_groups: Vec<TraktSeasonGroup> = Vec::new();
 
     for ts in trakt_seasons {
@@ -916,61 +1039,37 @@ pub async fn trakt_get_show_seasons_progress(
         let mut tmdb_ep_map: HashMap<i64, TmdbSeasonEpisodeApi> = HashMap::new();
         let mut tmdb_season_name: Option<String> = None;
         if let (Some(tid), Some(ref key)) = (resolved_tmdb_id, &tmdb_key) {
-            let cache_key = format!("tmdb_season:{}:{}:{}", tid, ts.number, tmdb_lang);
-            let cached_body: Option<String> = {
+            let cache_key = tmdb_season_cache_key(tid, ts.number, &tmdb_lang);
+            let cached_body = {
                 let conn = state.db.lock().await;
-                conn.query_row(
-                    "SELECT body, fetched_at, ttl_seconds FROM trakt_http_cache WHERE key = ?1",
-                    params![cache_key],
-                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)),
-                )
-                .ok()
-                .and_then(|(body, fetched_at, ttl)| {
-                    let ep = crate::trakt::iso_utc_to_epoch(&fetched_at)?;
-                    if ep + ttl > now_epoch_secs() {
-                        Some(body)
-                    } else {
-                        None
-                    }
-                })
+                read_tmdb_season_cache(&conn, &cache_key)
             };
 
             let season_json_opt = if let Some(body) = cached_body {
                 serde_json::from_str::<TmdbSeasonApi>(&body).ok()
             } else {
-                let url = format!(
-                    "{}/tv/{}/season/{}",
-                    state.tmdb.base, tid, ts.number
-                );
-                let req = apply_tmdb_auth(
-                    state
-                        .http
-                        .get(&url)
-                        .header("Accept", "application/json")
-                        .query(&[("language", tmdb_lang.as_str())]),
-                    key,
-                );
-                if let Ok(resp) = req.send().await {
-                    if resp.status().is_success() {
-                        if let Ok(text) = resp.text().await {
-                            let conn = state.db.lock().await;
-                            let _ = conn.execute(
-                                "INSERT OR REPLACE INTO trakt_http_cache (key, etag, body, fetched_at, ttl_seconds)
-                                 VALUES (?1, NULL, ?2, ?3, 86400)",
-                                params![cache_key, text, now_iso_utc()],
-                            );
-                            serde_json::from_str::<TmdbSeasonApi>(&text).ok()
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
+                // The batched prefetch above did not deliver this season: single request as a fallback.
+                let url = format!("{}/tv/{}/season/{}", state.tmdb.base, tid, ts.number);
+                match tmdb_get_text(state.inner(), || {
+                    apply_tmdb_auth(
+                        state
+                            .http
+                            .get(&url)
+                            .header("Accept", "application/json")
+                            .query(&[("language", tmdb_lang.as_str())]),
+                        key,
+                    )
+                })
+                .await
+                {
+                    Ok(text) => {
+                        let conn = state.db.lock().await;
+                        write_tmdb_season_cache(&conn, &cache_key, &text);
+                        serde_json::from_str::<TmdbSeasonApi>(&text).ok()
                     }
-                } else {
-                    None
+                    Err(_) => None,
                 }
             };
-
             if let Some(tmdb_season) = season_json_opt {
                 tmdb_season_name = tmdb_season.name;
                 for tep in tmdb_season.episodes {

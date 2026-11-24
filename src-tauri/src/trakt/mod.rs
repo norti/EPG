@@ -6,7 +6,11 @@ pub mod matcher;
 pub mod secret;
 pub mod sync;
 #[cfg(test)]
+mod batch_tests;
+#[cfg(test)]
 mod cache_tests;
+#[cfg(test)]
+mod progress_tests;
 #[cfg(test)]
 mod sync_control_tests;
 #[cfg(test)]

@@ -318,6 +318,7 @@
   "trakt_error_watchlist_limit": "Elérted a Watchlist-korlátot (420)",
   "trakt_error_vip_required": "Ez a funkció Trakt VIP előfizetést igényel (426)",
   "trakt_error_locked_account": "A Trakt fiókod zárolva van (423)",
+  "trakt_error_not_found": "A Trakt nem találta ezt az elemet (pl. az epizód még nem került adásba)",
   "trakt_error_offline": "Offline mód – a változtatás elküldése várólistán van",
   "trakt_error_auth_expired": "A Trakt munkamenet lejárt, jelentkezz be újra",
   "trakt_error_not_logged_in": "Nincs bejelentkezve Trakt fiókba",

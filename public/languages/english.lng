@@ -318,6 +318,7 @@
   "trakt_error_watchlist_limit": "Watchlist limit reached (420)",
   "trakt_error_vip_required": "This feature requires Trakt VIP (426)",
   "trakt_error_locked_account": "Your Trakt account is locked (423)",
+  "trakt_error_not_found": "Trakt could not find this item (e.g. the episode has not aired yet)",
   "trakt_error_offline": "Offline mode – change queued for sync",
   "trakt_error_auth_expired": "Trakt session expired, please sign in again",
   "trakt_error_not_logged_in": "Not signed in to Trakt",

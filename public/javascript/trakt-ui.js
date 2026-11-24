@@ -77,6 +77,7 @@
     if (s.includes('TRAKT_ERR_420')) return t('trakt_error_watchlist_limit');
     if (s.includes('TRAKT_ERR_426')) return t('trakt_error_vip_required');
     if (s.includes('TRAKT_ERR_423')) return t('trakt_error_locked_account');
+    if (s.includes('TRAKT_NOT_FOUND')) return t('trakt_error_not_found');
     if (s.includes('TRAKT_OFFLINE')) return t('trakt_error_offline');
     if (s.includes('TRAKT_AUTH_EXPIRED')) return t('trakt_error_auth_expired');
     if (s.includes('TRAKT_NOT_LOGGED_IN')) return t('trakt_error_not_logged_in');

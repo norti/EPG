@@ -4044,10 +4044,20 @@ async fn fetch_tmdb_item_details(
     let mut hu_title: Option<String> = None;
     let mut en_title: Option<String> = None;
     let mut hu_overview: Option<String> = None;
+    let mut en_overview: Option<String> = None;
     let mut translations_complete = true;
+
+    // An English-original item searched in Hungarian already carries everything /translations would add:
+    // the Hungarian title/overview come from the hu-HU search hit, the English title is the original one.
+    // (Other combinations still need the translations: e.g. a hu title for an en-US search.)
+    let translations_redundant = item.translations.is_none()
+        && item.original_language.as_deref() == Some("en")
+        && target_lang.starts_with("hu");
 
     let trans_data_opt = if let Some(embedded) = item.translations.take() {
         Some(embedded)
+    } else if translations_redundant {
+        None
     } else {
         let trans_url = format!("{}/{}/{}/translations", state.tmdb.base, media_type, tmdb_id);
         match tmdb_get_text(state, || {
@@ -4095,6 +4105,10 @@ async fn fetch_tmdb_item_details(
                         if t_title.is_some() {
                             en_title = t_title;
                         }
+                        let t_over = d.overview.filter(|s| !s.trim().is_empty());
+                        if t_over.is_some() {
+                            en_overview = t_over;
+                        }
                     }
                 }
             }
@@ -4111,6 +4125,16 @@ async fn fetch_tmdb_item_details(
             en_title = orig_title.clone();
         }
     }
+
+    // Both language overviews go into the row, so a UI language switch needs no request.
+    // The search hit's overview is in the *target* language; use it where the translations did not provide one.
+    let search_overview = item.overview.clone().filter(|s| !s.trim().is_empty());
+    let hu_overview_col = hu_overview
+        .clone()
+        .or_else(|| search_overview.clone().filter(|_| target_lang.starts_with("hu")));
+    let en_overview_col = en_overview
+        .clone()
+        .or_else(|| search_overview.filter(|_| target_lang.starts_with("en")));
 
     let final_overview = if target_lang.starts_with("hu") && hu_overview.is_some() {
         hu_overview
@@ -4138,14 +4162,30 @@ async fn fetch_tmdb_item_details(
     }
 
     let conn = state.db.lock().await;
+    write_tmdb_row(&conn, cache_key, target_lang, &details, &hu_overview_col, &en_overview_col, is_manual)
+        .map_err(|e| e.to_string())?;
+
+    Ok(details)
+}
+
+fn write_tmdb_row(
+    conn: &Connection,
+    cache_key: &str,
+    lang: &str,
+    details: &TmdbDetails,
+    hu_overview: &Option<String>,
+    en_overview: &Option<String>,
+    is_manual: bool,
+) -> rusqlite::Result<usize> {
     conn.execute(
         "INSERT OR REPLACE INTO tmdb_cache (
             query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
-            original_language, poster_path, backdrop_path, overview, vote_average, release_date, is_manual, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, datetime('now', 'localtime'))",
+            original_language, poster_path, backdrop_path, overview, vote_average, release_date, is_manual,
+            hu_overview, en_overview, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, datetime('now', 'localtime'))",
         params![
             cache_key,
-            target_lang,
+            lang,
             details.tmdb_id,
             details.media_type,
             details.title,
@@ -4159,10 +4199,102 @@ async fn fetch_tmdb_item_details(
             details.vote_average,
             details.release_date,
             is_manual as i64,
+            hu_overview,
+            en_overview,
         ],
-    ).map_err(|e| e.to_string())?;
+    )
+}
 
-    Ok(details)
+/// Builds the details of `lang` from the row of the *other* UI language (same TMDB item) when that row holds
+/// both title and overview of `lang`, so a language switch costs no request. Rows written before the overview
+/// columns existed lack them and fall through to the network. Poster, backdrop and rating are language
+/// independent and reused. Returns the details plus the overviews to store next to them.
+fn derive_details_from_sibling_lang(
+    conn: &Connection,
+    tmdb_id: i64,
+    media_type: &str,
+    lang: &str,
+) -> Option<(TmdbDetails, Option<String>, Option<String>)> {
+    let want_hu = lang.starts_with("hu");
+    if !want_hu && !lang.starts_with("en") {
+        return None;
+    }
+    let row: (TmdbDetails, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT hu_title, en_title, original_title, original_language, poster_path, backdrop_path,
+                    vote_average, release_date, hu_overview, en_overview
+             FROM tmdb_cache
+             WHERE tmdb_id = ?1 AND media_type = ?2 AND lang != ?3
+               AND (hu_overview IS NOT NULL OR en_overview IS NOT NULL)
+             ORDER BY updated_at DESC
+             LIMIT 1",
+            params![tmdb_id, media_type, lang],
+            |r| {
+                let hu_title: Option<String> = r.get(0)?;
+                let en_title: Option<String> = r.get(1)?;
+                let hu_over: Option<String> = r.get(8)?;
+                let en_over: Option<String> = r.get(9)?;
+                let details = TmdbDetails {
+                    tmdb_id,
+                    title: String::new(),
+                    hu_title,
+                    en_title,
+                    original_title: r.get(2)?,
+                    original_language: r.get(3)?,
+                    media_type: Some(media_type.to_string()),
+                    poster_path: r.get(4)?,
+                    backdrop_path: r.get(5)?,
+                    overview: None,
+                    vote_average: r.get(6)?,
+                    release_date: r.get(7)?,
+                };
+                Ok((details, hu_over, en_over))
+            },
+        )
+        .ok()?;
+    let (mut details, hu_over, en_over) = row;
+    let (title, overview) = if want_hu {
+        (details.hu_title.clone(), hu_over.clone())
+    } else {
+        (details.en_title.clone(), en_over.clone())
+    };
+    details.title = title.filter(|t| !t.trim().is_empty())?;
+    details.overview = Some(overview.filter(|o| !o.trim().is_empty())?);
+    Some((details, hu_over, en_over))
+}
+
+/// Lazy refresh of old automatic id rows (rating, poster, overview change over time). Runs after a sync,
+/// outside the read path, and touches at most `limit` rows per call. Manual rows and title mappings
+/// (`query_title` without the `~id:` prefix) are never refreshed automatically.
+pub(crate) async fn refresh_stale_tmdb(state: &AppState, limit: usize) -> usize {
+    if get_tmdb_api_key_from_state(state).await.is_none() {
+        return 0;
+    }
+    let stale: Vec<(i64, String, String)> = {
+        let conn = state.db.lock().await;
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT tmdb_id, media_type, lang FROM tmdb_cache
+             WHERE is_manual = 0 AND query_title LIKE '~id:%' AND tmdb_id IS NOT NULL
+               AND media_type IN ('tv', 'movie')
+               AND updated_at < datetime('now', 'localtime', CASE media_type WHEN 'movie' THEN '-90 days' ELSE '-30 days' END)
+             ORDER BY updated_at ASC
+             LIMIT ?1",
+        ) else {
+            return 0;
+        };
+        let Ok(mapped) = stmt.query_map(params![limit as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))) else {
+            return 0;
+        };
+        mapped.flatten().collect()
+    };
+
+    let mut refreshed = 0;
+    for (tmdb_id, media_type, lang) in stale {
+        if get_tmdb_by_id(state, tmdb_id, &media_type, &lang, None, true).await.is_ok() {
+            refreshed += 1;
+        }
+    }
+    refreshed
 }
 
 pub async fn get_tmdb_by_id(
@@ -4255,6 +4387,16 @@ async fn get_tmdb_by_id_inner(
                     release_date,
                 });
             }
+        }
+
+        // No row for this language: the other language's row may already hold everything (no request).
+        if let Some((details, hu_over, en_over)) = derive_details_from_sibling_lang(&conn, tmdb_id, media_type, lang) {
+            let key = match cache_key_override {
+                Some(k) => k.to_string(),
+                None => format!("~id:{}:{}", media_type, tmdb_id),
+            };
+            let _ = write_tmdb_row(&conn, &key, lang, &details, &hu_over, &en_over, mark_manual);
+            return Ok(details);
         }
     }
 
