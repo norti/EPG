@@ -628,7 +628,10 @@
   function renderWatchlistView(viewport, items, stateObj) {
     const filter = stateObj.filter || 'all';
     const sort = stateObj.sort || 'added';
-    const query = (stateObj.query || '').trim().toLowerCase();
+    const query = (stateObj.query || '').trim();
+    const queryLower = query.toLowerCase();
+    const preparedQuery =
+      query && window.SearchUtils ? window.SearchUtils.prepareQuery(query) : null;
 
     viewport.innerHTML = `
       <div class="trakt-subview">
@@ -656,8 +659,18 @@
       if (filter === 'shows' && it.mediaType !== 'show') return false;
       if (filter === 'movies' && it.mediaType !== 'movie') return false;
       if (query) {
-        const hay = `${it.title || ''} ${it.titleHu || ''} ${(it.aliases || []).join(' ')}`.toLowerCase();
-        if (!hay.includes(query)) return false;
+        if (preparedQuery) {
+          const titleMatch =
+            window.SearchUtils.matchPrepared(it.title || '', preparedQuery) ||
+            window.SearchUtils.matchPrepared(it.titleHu || '', preparedQuery) ||
+            (it.aliases || []).some((a) =>
+              window.SearchUtils.matchPrepared(a, preparedQuery),
+            );
+          if (!titleMatch) return false;
+        } else {
+          const hay = `${it.title || ''} ${it.titleHu || ''} ${(it.aliases || []).join(' ')}`.toLowerCase();
+          if (!hay.includes(queryLower)) return false;
+        }
       }
       return true;
     });

@@ -4493,13 +4493,53 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
     let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
+    import_xmltv_into_tx(&tx, &source_id, &xml_string)?;
+
+    tx.execute(
+        "UPDATE sources SET last_downloaded = datetime('now', 'localtime') WHERE id = ?1",
+        params![source_id],
+    ).ok();
+
+    tx.commit().map_err(|e| format!("Mentési hiba: {}", e))?;
+    Ok(())
+}
+
+struct ParsedProgramme {
+    channel_id: String,
+    start: String,
+    stop: String,
+    title: String,
+    desc: String,
+    title_norm: String,
+    start_ts: Option<i64>,
+    stop_ts: Option<i64>,
+}
+
+#[derive(Hash, Eq, PartialEq)]
+enum StartDedupKey {
+    Epoch(i64),
+    Raw(String),
+}
+
+#[derive(Hash, Eq, PartialEq)]
+struct ProgrammeDedupKey {
+    channel_id: String,
+    start: StartDedupKey,
+    title_key: String,
+}
+
+fn import_xmltv_into_tx(
+    tx: &rusqlite::Transaction<'_>,
+    source_id: &str,
+    xml_string: &str,
+) -> Result<(), String> {
     tx.execute("DELETE FROM channels WHERE source_id = ?1", params![source_id]).ok();
     tx.execute("DELETE FROM programmes WHERE source_id = ?1", params![source_id]).ok();
 
     use quick_xml::events::Event;
     use quick_xml::reader::Reader;
 
-    let mut reader = Reader::from_str(&xml_string);
+    let mut reader = Reader::from_str(xml_string);
     reader.trim_text(true);
 
     let mut buf = Vec::new();
@@ -4513,6 +4553,14 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
     let mut curr_prog_stop = String::new();
     let mut curr_prog_title = String::new();
     let mut curr_prog_desc = String::new();
+
+    let mut programmes: Vec<ParsedProgramme> = Vec::new();
+    let mut seen_programmes: std::collections::HashMap<ProgrammeDedupKey, usize> =
+        std::collections::HashMap::new();
+
+    let mut ch_stmt = tx
+        .prepare("INSERT OR REPLACE INTO channels (id, source_id, name, icon) VALUES (?1, ?2, ?3, ?4)")
+        .map_err(|e| format!("DB előkészítési hiba: {}", e))?;
 
     loop {
         match reader.read_event_into(&mut buf) {
@@ -4560,18 +4608,60 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
             Ok(Event::End(e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 if name == "channel" {
-                    tx.execute(
-                        "INSERT OR REPLACE INTO channels (id, source_id, name, icon) VALUES (?1, ?2, ?3, ?4)",
-                        params![curr_ch_id, source_id, curr_ch_name, curr_ch_icon],
-                    ).ok();
+                    ch_stmt.execute(params![curr_ch_id, source_id, curr_ch_name, curr_ch_icon]).ok();
                 } else if name == "programme" {
                     let title_norm = normalise_for_match(&clean_title(&curr_prog_title));
                     let start_ts = xmltv_to_epoch(&curr_prog_start);
                     let stop_ts = xmltv_to_epoch(&curr_prog_stop);
-                    tx.execute(
-                        "INSERT INTO programmes (channel_id, source_id, start, stop, title, desc, title_norm, start_ts, stop_ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                        params![curr_prog_ch, source_id, curr_prog_start, curr_prog_stop, curr_prog_title, curr_prog_desc, title_norm, start_ts, stop_ts],
-                    ).ok();
+
+                    let dedup_key = ProgrammeDedupKey {
+                        channel_id: curr_prog_ch.clone(),
+                        start: match start_ts {
+                            Some(ts) => StartDedupKey::Epoch(ts),
+                            None => StartDedupKey::Raw(curr_prog_start.clone()),
+                        },
+                        title_key: if !title_norm.is_empty() {
+                            title_norm.clone()
+                        } else {
+                            curr_prog_title.trim().to_lowercase()
+                        },
+                    };
+
+                    let mut cand = ParsedProgramme {
+                        channel_id: curr_prog_ch.clone(),
+                        start: curr_prog_start.clone(),
+                        stop: curr_prog_stop.clone(),
+                        title: curr_prog_title.clone(),
+                        desc: curr_prog_desc.clone(),
+                        title_norm,
+                        start_ts,
+                        stop_ts,
+                    };
+
+                    if let Some(&idx) = seen_programmes.get(&dedup_key) {
+                        let existing = &mut programmes[idx];
+                        let existing_valid = existing
+                            .stop_ts
+                            .zip(existing.start_ts)
+                            .map_or(false, |(e, s)| e > s);
+                        let cand_valid = cand
+                            .stop_ts
+                            .zip(cand.start_ts)
+                            .map_or(false, |(e, s)| e > s);
+
+                        if !existing_valid && cand_valid {
+                            if cand.desc.is_empty() && !existing.desc.is_empty() {
+                                cand.desc = std::mem::take(&mut existing.desc);
+                            }
+                            *existing = cand;
+                        } else if existing_valid == cand_valid && cand.desc.len() > existing.desc.len() {
+                            *existing = cand;
+                        }
+                    } else {
+                        let idx = programmes.len();
+                        seen_programmes.insert(dedup_key, idx);
+                        programmes.push(cand);
+                    }
                 }
                 current_tag.clear();
             }
@@ -4582,12 +4672,28 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
         buf.clear();
     }
 
-    tx.execute(
-        "UPDATE sources SET last_downloaded = datetime('now', 'localtime') WHERE id = ?1",
-        params![source_id],
-    ).ok();
+    let mut prog_stmt = tx
+        .prepare(
+            "INSERT INTO programmes (channel_id, source_id, start, stop, title, desc, title_norm, start_ts, stop_ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        )
+        .map_err(|e| format!("DB előkészítési hiba: {}", e))?;
 
-    tx.commit().map_err(|e| format!("Mentési hiba: {}", e))?;
+    for p in programmes {
+        prog_stmt
+            .execute(params![
+                p.channel_id,
+                source_id,
+                p.start,
+                p.stop,
+                p.title,
+                p.desc,
+                p.title_norm,
+                p.start_ts,
+                p.stop_ts,
+            ])
+            .ok();
+    }
+
     Ok(())
 }
 
@@ -5293,6 +5399,76 @@ mod tests {
             |row| row.get(0),
         ).ok();
         assert_eq!(res.as_deref(), Some("data:image/jpeg;base64,xyz"));
+    }
+
+    #[test]
+    fn test_import_xmltv_deduplicates_programmes_and_keeps_best() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="398"><display-name>SkyShowtime 1</display-name></channel>
+  <channel id="399"><display-name>SkyShowtime 2</display-name></channel>
+  <programme start="20261124200000 +0000" stop="20261124205000 +0000" channel="398">
+    <title lang="hu">Tulsa királya</title>
+    <desc lang="hu">IV / 5. rész</desc>
+  </programme>
+  <programme start="20261125232000 +0000" stop="20261126001000 +0000" channel="398">
+    <title lang="hu">Tulsa királya</title>
+    <desc lang="hu">IV / 5. rész</desc>
+  </programme>
+  <programme start="20261125232000 +0000" stop="20261126001000 +0000" channel="398">
+    <title lang="hu">Tulsa királya</title>
+    <desc lang="hu">IV / 5. rész</desc>
+  </programme>
+  <programme start="20261128234500 +0000" stop="20261128234500 +0000" channel="398">
+    <title lang="hu">Tulsa királya</title>
+    <desc lang="hu">Rövid</desc>
+  </programme>
+  <programme start="20261129004500 +0100" stop="20261129013500 +0100" channel="398">
+    <title lang="hu">Tulsa királya</title>
+    <desc lang="hu"></desc>
+  </programme>
+  <programme start="20261125232000 +0000" stop="20261126001000 +0000" channel="399">
+    <title lang="hu">Tulsa királya</title>
+    <desc lang="hu">Másik csatorna</desc>
+  </programme>
+</tv>"#;
+
+        let tx = conn.transaction().unwrap();
+        import_xmltv_into_tx(&tx, "porthu", xml).unwrap();
+        tx.commit().unwrap();
+
+        let ch398_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM programmes WHERE source_id = 'porthu' AND channel_id = '398'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ch398_count, 3, "5 XML entries on channel 398 must deduplicate to 3 distinct airings");
+
+        // Nov 29 entry had a zero-duration entry with desc "Rövid" followed by a valid-duration entry with empty desc:
+        // valid duration must win while preserving the non-empty description.
+        let (stop_ts, desc): (i64, String) = conn
+            .query_row(
+                "SELECT stop_ts, desc FROM programmes WHERE source_id = 'porthu' AND channel_id = '398' AND start_ts = ?1",
+                params![xmltv_to_epoch("20261128234500 +0000").unwrap()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stop_ts, xmltv_to_epoch("20261129013500 +0100").unwrap());
+        assert_eq!(desc, "Rövid");
+
+        let ch399_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM programmes WHERE source_id = 'porthu' AND channel_id = '399'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(ch399_count, 1);
     }
 }
 

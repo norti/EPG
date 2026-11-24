@@ -26,76 +26,24 @@ function iconHtml(name, size = 16) {
 }
 
 // ============================================================================
-// Fuzzy Search & Diacritics Normalization Utilities
+// Fuzzy Search & Diacritics Normalization Utilities (delegated to SearchUtils)
 // ============================================================================
 
 function normalizeSearchText(str) {
-  if (!str) return "";
-  return String(str)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
+  return window.SearchUtils ? window.SearchUtils.normalizeText(str) : String(str || "").toLowerCase().trim();
 }
 
 function levenshteinDistance(a, b) {
-  if (a === b) return 0;
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-
-  let prev = new Array(b.length + 1);
-  let curr = new Array(b.length + 1);
-
-  for (let j = 0; j <= b.length; j++) {
-    prev[j] = j;
-  }
-
-  for (let i = 1; i <= a.length; i++) {
-    curr[0] = i;
-    const aChar = a.charCodeAt(i - 1);
-    for (let j = 1; j <= b.length; j++) {
-      const cost = aChar === b.charCodeAt(j - 1) ? 0 : 1;
-      curr[j] = Math.min(
-        prev[j] + 1,
-        curr[j - 1] + 1,
-        prev[j - 1] + cost,
-      );
-    }
-    const temp = prev;
-    prev = curr;
-    curr = temp;
-  }
-
-  return prev[b.length];
+  return window.SearchUtils ? window.SearchUtils.damerauLevenshtein(a, b) : 0;
 }
 
-function fuzzySearchMatch(target, query) {
+function fuzzySearchMatch(target, query, options) {
+  if (window.SearchUtils) {
+    return window.SearchUtils.fuzzyMatch(target, query, options);
+  }
   if (!query) return true;
   if (!target) return false;
-
-  const nTarget = normalizeSearchText(target);
-  const nQuery = normalizeSearchText(query);
-
-  // 1. Direct or normalized substring match (handles case and accents, e.g. "hirado" -> "Híradó")
-  if (nTarget.includes(nQuery)) return true;
-
-  // 2. Token-level matching (typo tolerance)
-  const qTokens = nQuery.split(/\s+/).filter(Boolean);
-  if (qTokens.length === 0) return true;
-
-  const tTokens = nTarget.split(/[\s\-_:.,/()]+/).filter(Boolean);
-
-  return qTokens.every((qTok) => {
-    return tTokens.some((tTok) => {
-      if (tTok.includes(qTok) || qTok.includes(tTok)) return true;
-      if (qTok.length >= 4 && tTok.length >= 4) {
-        const dist = levenshteinDistance(qTok, tTok);
-        const maxAllowed = qTok.length >= 7 ? 2 : 1;
-        return dist <= maxAllowed;
-      }
-      return false;
-    });
-  });
+  return normalizeSearchText(target).includes(normalizeSearchText(query));
 }
 
 function showDialog({ title, message, isConfirm = false }) {
@@ -1517,6 +1465,33 @@ function renderSingleChannelMultiDay(
   const now = new Date();
   let firstMatchEl = null;
 
+  const progQuery =
+    filterText && window.SearchUtils
+      ? window.SearchUtils.prepareQuery(filterText)
+      : null;
+  const channelQuery =
+    filterText && window.SearchUtils
+      ? window.SearchUtils.prepareQuery(filterText, { minFuzzyLength: 6 })
+      : null;
+  const chNameMatch = filterText
+    ? channelQuery
+      ? window.SearchUtils.matchPrepared(channel.name, channelQuery)
+      : fuzzySearchMatch(channel.name, filterText, { minFuzzyLength: 6 })
+    : false;
+  const progMatchCache = filterText ? new Map() : null;
+  const isProgMatch = (title) => {
+    if (!filterText) return false;
+    const key = title || "";
+    let hit = progMatchCache.get(key);
+    if (hit === undefined) {
+      hit = progQuery
+        ? window.SearchUtils.matchPrepared(key, progQuery)
+        : fuzzySearchMatch(key, filterText);
+      progMatchCache.set(key, hit);
+    }
+    return hit;
+  };
+
   sortedDates.forEach((dateStr) => {
     const dayStart = new Date(`${dateStr}T00:00:00`);
     const dayEndDate = new Date(dayStart);
@@ -1528,11 +1503,7 @@ function renderSingleChannelMultiDay(
     );
 
     if (filterText) {
-      const chNameMatch = fuzzySearchMatch(channel.name, filterText);
-      const progMatch = dayProgs.some((p) =>
-        fuzzySearchMatch(p.title, filterText),
-      );
-      if (!chNameMatch && !progMatch) return;
+      if (!chNameMatch && !dayProgs.some((p) => isProgMatch(p.title))) return;
     }
 
     const wrapper = document.createElement("div");
@@ -1580,8 +1551,7 @@ function renderSingleChannelMultiDay(
 
       const isFav = favorites.includes(prog.title);
       const isTrakt = window.TraktUI?.isOnWatchlist(prog.title) ?? false;
-      const isHighlight =
-        filterText && fuzzySearchMatch(prog.title, filterText);
+      const isHighlight = filterText ? isProgMatch(prog.title) : false;
       const isActual = prog.start <= now && prog.stop > now;
 
       const progEl = document.createElement("div");
@@ -1756,6 +1726,28 @@ function renderEPG() {
 
   let firstMatchEl = null;
 
+  const progQuery =
+    filterText && window.SearchUtils
+      ? window.SearchUtils.prepareQuery(filterText)
+      : null;
+  const channelQuery =
+    filterText && window.SearchUtils
+      ? window.SearchUtils.prepareQuery(filterText, { minFuzzyLength: 6 })
+      : null;
+  const progMatchCache = filterText ? new Map() : null;
+  const isProgMatch = (title) => {
+    if (!filterText) return false;
+    const key = title || "";
+    let hit = progMatchCache.get(key);
+    if (hit === undefined) {
+      hit = progQuery
+        ? window.SearchUtils.matchPrepared(key, progQuery)
+        : fuzzySearchMatch(key, filterText);
+      progMatchCache.set(key, hit);
+    }
+    return hit;
+  };
+
   epgData.channels.forEach((channel) => {
     if (channel.isHidden) return;
 
@@ -1766,11 +1758,12 @@ function renderEPG() {
     if (channelProgs.length === 0) return;
 
     if (filterText) {
-      const chNameMatch = fuzzySearchMatch(channel.name, filterText);
-      const progMatch = channelProgs.some((p) =>
-        fuzzySearchMatch(p.title, filterText),
-      );
-      if (!chNameMatch && !progMatch) return;
+      const chNameMatch = channelQuery
+        ? window.SearchUtils.matchPrepared(channel.name, channelQuery)
+        : fuzzySearchMatch(channel.name, filterText, { minFuzzyLength: 6 });
+      if (!chNameMatch && !channelProgs.some((p) => isProgMatch(p.title))) {
+        return;
+      }
     }
 
     const wrapper = document.createElement("div");
@@ -1947,8 +1940,7 @@ function renderEPG() {
 
       const isFav = favorites.includes(prog.title);
       const isTrakt = window.TraktUI?.isOnWatchlist(prog.title) ?? false;
-      const isHighlight =
-        filterText && fuzzySearchMatch(prog.title, filterText);
+      const isHighlight = filterText ? isProgMatch(prog.title) : false;
       const isActual = prog.start <= now && prog.stop > now;
 
       const progEl = document.createElement("div");
@@ -2059,7 +2051,7 @@ async function jumpToEpgAiring(airing) {
       const q = searchInput.value.trim();
       if (
         !fuzzySearchMatch(airing.title || "", q) &&
-        !fuzzySearchMatch(airing.channelName || "", q)
+        !fuzzySearchMatch(airing.channelName || "", q, { minFuzzyLength: 6 })
       ) {
         searchInput.value = "";
       }
@@ -4230,12 +4222,19 @@ async function renderChannelOrderList() {
     return;
   }
 
+  const channelOrderQuery =
+    channelSearchQuery && window.SearchUtils
+      ? window.SearchUtils.prepareQuery(channelSearchQuery)
+      : null;
+
   const filteredChannels = sourceChannels.filter((ch) => {
     if (channelFilterMode === "active" && ch.isHidden) return false;
     if (channelFilterMode === "fav" && !ch.isFavorite) return false;
     if (channelFilterMode === "hidden" && !ch.isHidden) return false;
     if (channelSearchQuery) {
-      const nameMatch = fuzzySearchMatch(ch.name, channelSearchQuery);
+      const nameMatch = channelOrderQuery
+        ? window.SearchUtils.matchPrepared(ch.name, channelOrderQuery)
+        : fuzzySearchMatch(ch.name, channelSearchQuery);
       const idMatch = String(ch.id || "")
         .toLowerCase()
         .includes(channelSearchQuery);
@@ -5285,14 +5284,25 @@ if (restoreLanguagesBtn) {
   };
 }
 
-document.getElementById("searchInput").oninput = () => {
+const mainSearchInput = document.getElementById("searchInput");
+mainSearchInput.oninput = () => {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(renderEPG, 300);
 };
+mainSearchInput.onkeydown = (e) => {
+  if (e.key === "Enter") {
+    clearTimeout(searchTimeout);
+    renderEPG();
+  }
+};
 
-document.getElementById("searchBtn").onclick = renderEPG;
+document.getElementById("searchBtn").onclick = () => {
+  clearTimeout(searchTimeout);
+  renderEPG();
+};
 document.getElementById("clearSearchBtn").onclick = () => {
-  document.getElementById("searchInput").value = "";
+  clearTimeout(searchTimeout);
+  mainSearchInput.value = "";
   renderEPG();
 };
 

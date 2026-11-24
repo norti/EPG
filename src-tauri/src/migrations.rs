@@ -6,7 +6,7 @@ pub type MigFn = fn(&Connection) -> rusqlite::Result<()>;
 pub const EMBEDDED_ENGLISH_LNG: &str = include_str!("../../public/languages/english.lng");
 pub const EMBEDDED_HUNGARIAN_LNG: &str = include_str!("../../public/languages/hungarian.lng");
 
-pub const MIGRATIONS: &[MigFn] = &[migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5];
+pub const MIGRATIONS: &[MigFn] = &[migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5, migrate_v6];
 
 pub fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
     let sql = format!("PRAGMA table_info({})", table);
@@ -436,6 +436,32 @@ fn migrate_v5(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// v6 removes duplicate rows from `programmes` (same source, channel, start time, and normalized title),
+/// keeping the entry with a valid duration (`stop_ts > start_ts`), longest description, and lowest `id`.
+fn migrate_v6(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "DELETE FROM programmes
+         WHERE id IN (
+             SELECT id FROM (
+                 SELECT id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY source_id,
+                                         channel_id,
+                                         COALESCE(CAST(start_ts AS TEXT), start),
+                                         COALESCE(NULLIF(title_norm, ''), LOWER(TRIM(title)))
+                            ORDER BY
+                                CASE WHEN stop_ts IS NOT NULL AND start_ts IS NOT NULL AND stop_ts > start_ts THEN 0 ELSE 1 END,
+                                LENGTH(COALESCE(desc, '')) DESC,
+                                id ASC
+                        ) AS rn
+                 FROM programmes
+             )
+             WHERE rn > 1
+         );",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,7 +472,7 @@ mod tests {
         run_migrations(&conn, None).unwrap();
 
         let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver, 5);
+        assert_eq!(ver, MIGRATIONS.len() as i64);
 
         assert!(column_exists(&conn, "programmes", "title_norm").unwrap());
         assert!(column_exists(&conn, "programmes", "start_ts").unwrap());
@@ -490,7 +516,7 @@ mod tests {
         // Idempotent second run
         run_migrations(&conn, None).unwrap();
         let ver2: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver2, 5);
+        assert_eq!(ver2, MIGRATIONS.len() as i64);
     }
 
     #[test]
@@ -507,7 +533,7 @@ mod tests {
         run_migrations(&conn, None).unwrap();
 
         let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver, 5);
+        assert_eq!(ver, MIGRATIONS.len() as i64);
 
         let src_name: String = conn
             .query_row("SELECT name FROM sources WHERE id = 's1'", [], |r| r.get(0))
@@ -539,7 +565,7 @@ mod tests {
             conn.execute_batch("PRAGMA user_version = 1;").unwrap();
             run_migrations(&conn, Some(&db_path)).unwrap();
             let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-            assert_eq!(ver, 5);
+            assert_eq!(ver, MIGRATIONS.len() as i64);
         }
 
         assert!(bak_path.exists(), "Backup file should exist before v2 migration");
@@ -575,7 +601,7 @@ mod tests {
         run_migrations(&conn, None).unwrap();
 
         let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver, 5);
+        assert_eq!(ver, MIGRATIONS.len() as i64);
 
         let none_manual: i64 = conn
             .query_row("SELECT is_manual FROM tmdb_cache WHERE query_title = 'legacy none'", [], |r| r.get(0))
@@ -665,5 +691,92 @@ mod tests {
             [],
         )
         .unwrap();
+    }
+
+    fn make_v5_db(conn: &Connection) {
+        migrate_v1(conn).unwrap();
+        migrate_v2(conn).unwrap();
+        migrate_v3(conn).unwrap();
+        migrate_v4(conn).unwrap();
+        migrate_v5(conn).unwrap();
+        conn.execute_batch("PRAGMA user_version = 5;").unwrap();
+    }
+
+    #[test]
+    fn test_v6_deduplicates_programmes_keeping_best_row() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_v5_db(&conn);
+
+        conn.execute_batch(
+            "INSERT INTO programmes (channel_id, source_id, start, stop, title, desc, title_norm, start_ts, stop_ts) VALUES
+                ('398', 'porthu', '20261124200000 +0000', '20261124205000 +0000', 'Tulsa királya', 'IV / 5. rész', 'tulsa kiralya', 1795550400, 1795553400),
+                ('398', 'porthu', '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'IV / 5. rész', 'tulsa kiralya', 1795648800, 1795651800),
+                ('398', 'porthu', '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'IV / 5. rész', 'tulsa kiralya', 1795648800, 1795651800),
+                ('398', 'porthu', '20261128234500 +0000', '20261129003500 +0000', 'Tulsa királya', '', 'tulsa kiralya', 1795909500, 1795909500),
+                ('398', 'porthu', '20261128234500 +0000', '20261129003500 +0000', 'Tulsa királya', 'Részletes leírás', 'tulsa kiralya', 1795909500, 1795912500),
+                ('399', 'porthu', '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'Másik csatorna', 'tulsa kiralya', 1795648800, 1795651800),
+                ('398', 'musor',  '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'Másik forrás', 'tulsa kiralya', 1795648800, 1795651800),
+                ('100', 'porthu', '20261125100000 +0000', '20261125110000 +0000', 'Legacy Show', '', NULL, NULL, NULL),
+                ('100', 'porthu', '20261125100000 +0000', '20261125110000 +0000', 'Legacy Show', 'Hosszabb leírás', NULL, NULL, NULL);",
+        )
+        .unwrap();
+
+        run_migrations(&conn, None).unwrap();
+
+        let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(ver, MIGRATIONS.len() as i64);
+
+        let porthu_398_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM programmes WHERE source_id = 'porthu' AND channel_id = '398'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(porthu_398_count, 3, "5 rows (with 2 duplicates) must collapse to 3 distinct airings");
+
+        // On Nov 29, the valid-duration + richer-desc row must be kept over the zero-duration row
+        let (kept_stop, kept_desc): (i64, String) = conn
+            .query_row(
+                "SELECT stop_ts, desc FROM programmes WHERE source_id = 'porthu' AND channel_id = '398' AND start_ts = 1795909500",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(kept_stop, 1795912500);
+        assert_eq!(kept_desc, "Részletes leírás");
+
+        // Different channel and different source at the same timestamp must remain intact
+        let other_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM programmes WHERE (source_id = 'porthu' AND channel_id = '399') OR (source_id = 'musor' AND channel_id = '398')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(other_count, 2);
+
+        // Legacy rows with NULL title_norm/start_ts must also deduplicate keeping the richer desc
+        let legacy_desc: String = conn
+            .query_row(
+                "SELECT desc FROM programmes WHERE source_id = 'porthu' AND channel_id = '100'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let legacy_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM programmes WHERE source_id = 'porthu' AND channel_id = '100'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_count, 1);
+        assert_eq!(legacy_desc, "Hosszabb leírás");
+
+        // Idempotent re-run
+        migrate_v6(&conn).unwrap();
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM programmes", [], |r| r.get(0)).unwrap();
+        assert_eq!(total, 6);
     }
 }

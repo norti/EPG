@@ -1130,10 +1130,10 @@ pub async fn trakt_match_titles(
     match_titles(state.inner(), raw_titles).await
 }
 
-#[tauri::command]
-pub async fn trakt_find_epg_airings(
-    state: tauri::State<'_, AppState>,
+pub fn query_epg_airings(
+    conn: &rusqlite::Connection,
     titles: Vec<String>,
+    now_ts: i64,
 ) -> Result<Vec<EpgAiring>, String> {
     let mut norms: Vec<String> = Vec::new();
     for t in titles {
@@ -1151,34 +1151,44 @@ pub async fn trakt_find_epg_airings(
         return Ok(Vec::new());
     }
 
-    let now_ts = now_epoch_secs();
     let placeholders = vec!["?"; norms.len()].join(", ");
     let sql = format!(
-        "SELECT p.channel_id,
-                COALESCE(NULLIF(cus.custom_name, ''), c.name, p.channel_id) AS channel_name,
-                p.source_id,
-                COALESCE(s.name, p.source_id) AS source_name,
-                p.start,
-                p.stop,
-                p.start_ts,
-                p.stop_ts,
-                COALESCE(s.time_offset, 0) AS time_offset,
-                p.title,
-                COALESCE(p.desc, '')
-         FROM programmes p
-         JOIN sources s ON s.id = p.source_id
-         LEFT JOIN channels c ON c.id = p.channel_id AND c.source_id = p.source_id
-         LEFT JOIN channel_user_settings cus ON cus.source_id = p.source_id AND cus.channel_id = p.channel_id
-         WHERE p.title_norm != ''
-           AND p.title_norm IN ({})
-           AND COALESCE(cus.is_hidden, 0) = 0
-           AND (p.stop_ts + COALESCE(s.time_offset, 0) * 3600) >= ?
-         ORDER BY (p.start_ts + COALESCE(s.time_offset, 0) * 3600) ASC
-         LIMIT 100",
+        "WITH ranked AS (
+            SELECT p.channel_id,
+                   COALESCE(NULLIF(cus.custom_name, ''), c.name, p.channel_id) AS channel_name,
+                   p.source_id,
+                   COALESCE(s.name, p.source_id) AS source_name,
+                   p.start,
+                   p.stop,
+                   p.start_ts,
+                   p.stop_ts,
+                   COALESCE(s.time_offset, 0) AS time_offset,
+                   p.title,
+                   COALESCE(p.desc, '') AS desc,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY p.source_id, p.channel_id, COALESCE(CAST(p.start_ts AS TEXT), p.start), p.title_norm
+                       ORDER BY
+                           CASE WHEN p.stop_ts IS NOT NULL AND p.start_ts IS NOT NULL AND p.stop_ts > p.start_ts THEN 0 ELSE 1 END,
+                           LENGTH(COALESCE(p.desc, '')) DESC,
+                           p.id ASC
+                   ) AS rn
+            FROM programmes p
+            JOIN sources s ON s.id = p.source_id
+            LEFT JOIN channels c ON c.id = p.channel_id AND c.source_id = p.source_id
+            LEFT JOIN channel_user_settings cus ON cus.source_id = p.source_id AND cus.channel_id = p.channel_id
+            WHERE p.title_norm != ''
+              AND p.title_norm IN ({})
+              AND COALESCE(cus.is_hidden, 0) = 0
+              AND (p.stop_ts + COALESCE(s.time_offset, 0) * 3600) >= ?
+        )
+        SELECT channel_id, channel_name, source_id, source_name, start, stop, start_ts, stop_ts, time_offset, title, desc
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY (start_ts + time_offset * 3600) ASC
+        LIMIT 100",
         placeholders
     );
 
-    let conn = state.db.lock().await;
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
 
     let mut param_values: Vec<rusqlite::types::Value> = norms
@@ -1206,6 +1216,15 @@ pub async fn trakt_find_epg_airings(
         .map_err(|e| e.to_string())?;
 
     Ok(rows.flatten().collect())
+}
+
+#[tauri::command]
+pub async fn trakt_find_epg_airings(
+    state: tauri::State<'_, AppState>,
+    titles: Vec<String>,
+) -> Result<Vec<EpgAiring>, String> {
+    let conn = state.db.lock().await;
+    query_epg_airings(&conn, titles, now_epoch_secs())
 }
 
 #[tauri::command]

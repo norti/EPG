@@ -624,3 +624,56 @@ async fn test_run_sync_populates_continue_watching_and_respects_hidden() {
     assert_eq!(cw[0].show_trakt_id, 101);
     assert_eq!(cw[0].episode_trakt_id, 9002);
 }
+
+#[test]
+fn test_query_epg_airings_deduplicates_same_slot_and_keeps_distinct_airings() {
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn, None).unwrap();
+
+    conn.execute_batch(
+        "INSERT INTO sources (id, name, url, time_offset) VALUES
+            ('porthu', 'port.hu', 'https://example.com/porthu.xml.gz', 0),
+            ('musor',  'musor.tv', 'https://example.com/musor.xml.gz', 0);
+         INSERT INTO channels (id, source_id, name, icon) VALUES
+            ('398', 'porthu', 'SkyShowtime 1', ''),
+            ('399', 'porthu', 'SkyShowtime 2', ''),
+            ('400', 'porthu', 'Hidden Channel', ''),
+            ('398', 'musor',  'SkyShowtime 1', '');
+         INSERT INTO channel_user_settings (source_id, channel_id, is_hidden) VALUES
+            ('porthu', '400', 1);
+         INSERT INTO programmes (channel_id, source_id, start, stop, title, desc, title_norm, start_ts, stop_ts) VALUES
+            ('398', 'porthu', '20261124200000 +0000', '20261124205000 +0000', 'Tulsa királya', 'IV / 5. rész', 'tulsa kiralya', 1795550400, 1795553400),
+            ('398', 'porthu', '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'IV / 5. rész', 'tulsa kiralya', 1795648800, 1795651800),
+            ('398', 'porthu', '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'IV / 5. rész', 'tulsa kiralya', 1795648800, 1795651800),
+            ('398', 'porthu', '20261128234500 +0000', '20261128234500 +0000', 'Tulsa királya', '', 'tulsa kiralya', 1795909500, 1795909500),
+            ('398', 'porthu', '20261129004500 +0100', '20261129013500 +0100', 'Tulsa királya (16)', 'Részletes leírás', 'tulsa kiralya', 1795909500, 1795912500),
+            ('399', 'porthu', '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'Másik csatorna', 'tulsa kiralya', 1795648800, 1795651800),
+            ('400', 'porthu', '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'Rejtett csatorna', 'tulsa kiralya', 1795648800, 1795651800),
+            ('398', 'musor',  '20261125232000 +0000', '20261126001000 +0000', 'Tulsa királya', 'Másik forrás', 'tulsa kiralya', 1795648800, 1795651800);",
+    )
+    .unwrap();
+
+    let now_ts = 1795500000; // before Nov 24 20:00 UTC
+    let airings = crate::trakt::commands::query_epg_airings(
+        &conn,
+        vec!["Tulsa királya".to_string(), "Tulsa King".to_string()],
+        now_ts,
+    )
+    .unwrap();
+
+    // Expected: 3 distinct airings on porthu/398 + 1 on porthu/399 + 1 on musor/398 = 5 (hidden channel 400 excluded)
+    assert_eq!(airings.len(), 5);
+
+    let porthu_398: Vec<_> = airings
+        .iter()
+        .filter(|a| a.source_id == "porthu" && a.channel_id == "398")
+        .collect();
+    assert_eq!(porthu_398.len(), 3);
+    assert_eq!(
+        porthu_398.iter().map(|a| a.start_ts).collect::<Vec<_>>(),
+        vec![1795550400, 1795648800, 1795909500]
+    );
+    // On Nov 29, the valid-duration + richer-desc row must be selected
+    assert_eq!(porthu_398[2].stop_ts, 1795912500);
+    assert_eq!(porthu_398[2].desc, "Részletes leírás");
+}
