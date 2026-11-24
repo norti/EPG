@@ -1,6 +1,5 @@
 # Node függőségek
 node_modules/
-npm-debug.log
 
 # Tauri / Rust build kimenetek
 src-tauri/target/
@@ -10,14 +9,19 @@ src-tauri/gen/
 data/
 cache/
 *.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+.vscode/
+.env
+.env.*
+*.patch
+*.bak
+*.tmp
 *.log
-.vs/
-.crossnote
-ToDo.txt
 TODO/
-epg-fix/
 .addons/
-implementation_plan.md
 .antigravityignore
 
 # OS által generált fájlok
