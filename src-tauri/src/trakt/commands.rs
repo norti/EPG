@@ -10,8 +10,8 @@ use crate::trakt::client::{trakt_get_cached, trakt_post};
 use crate::trakt::matcher::{match_titles, rebuild_title_index};
 use crate::trakt::secret::default_secret_store;
 use crate::trakt::sync::{
-    enrich_missing_history_posters, get_sync_state_val, is_sync_overdue, resolve_calendar_start,
-    run_sync, sync_show_progress, SyncSummary,
+    enrich_missing_history_posters, get_sync_state_val, is_sync_overdue, mark_sync_done,
+    resolve_calendar_start, resolve_force, run_manual_sync, run_sync, sync_show_progress, SyncSummary,
 };
 use crate::trakt::{is_trakt_enabled, iso_utc_to_epoch, now_epoch_millis, now_epoch_secs, now_iso_utc};
 use crate::{
@@ -290,7 +290,9 @@ pub async fn trakt_sync(
     app: tauri::AppHandle,
     force: Option<bool>,
 ) -> Result<SyncSummary, String> {
-    run_sync(state.inner(), Some(&app), force.unwrap_or(true)).await
+    // Default = activity based sync (header button). The full re-download (force = true) is requested
+    // explicitly by Settings > Trakt.tv.
+    run_manual_sync(state.inner(), Some(&app), resolve_force(force)).await
 }
 
 #[tauri::command]
@@ -1703,7 +1705,10 @@ pub async fn trakt_on_window_focus(
     tauri::async_runtime::spawn(async move {
         use tauri::Manager;
         let st = app_clone.state::<AppState>();
-        let _ = run_sync(st.inner(), Some(&app_clone), false).await;
+        if run_sync(st.inner(), Some(&app_clone), false).await.is_ok() {
+            // a fresh focus sync also satisfies the header button for the next minute
+            mark_sync_done(st.inner());
+        }
     });
 
     Ok(true)

@@ -145,6 +145,10 @@
       }
     }
 
+    // Settings > Trakt.tv "full sync" button
+    const settingsSyncBtn = document.getElementById('traktSettingsSyncBtn');
+    if (settingsSyncBtn) settingsSyncBtn.disabled = syncStatus.status === 'syncing';
+
     if (statusEl) {
       statusEl.classList.remove('is-overdue', 'is-offline');
       if (syncStatus.status === 'syncing') {
@@ -355,22 +359,29 @@
     }
   }
 
-  async function triggerManualSync() {
-    if (!authStatus.loggedIn) return;
+  // force = false: activity based sync (header button) - downloads only what changed on Trakt.
+  // force = true:  full re-download of everything (Settings > Trakt.tv).
+  async function triggerManualSync(force = false) {
+    if (!authStatus.loggedIn || manualSyncInFlight) return;
     manualSyncInFlight = true;
     syncStatus.status = 'syncing';
     updateSyncStatusUi();
     try {
-      const res = await invoke('trakt_sync', { force: true });
+      const res = await invoke('trakt_sync', { force: !!force });
       syncStatus.status = 'idle';
       syncStatus.offline = false;
-      syncStatus.lastSyncOkAt = res.lastSyncOkAt;
+      if (res.lastSyncOkAt) syncStatus.lastSyncOkAt = res.lastSyncOkAt;
       updateSyncStatusUi();
-      if (isTraktMode) {
-        await loadActiveTraktView();
-      }
-      if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
-        await loadSettingsTab();
+      if (res.throttled) {
+        // A sync finished less than a minute ago: nothing was requested, the local data is current.
+        showToast(t('trakt_sync_up_to_date'));
+      } else {
+        if (isTraktMode) {
+          await loadActiveTraktView();
+        }
+        if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
+          await loadSettingsTab();
+        }
       }
     } catch (err) {
       syncStatus.status = String(err).includes('TRAKT_OFFLINE') ? 'offline' : 'error';
@@ -785,8 +796,8 @@
               </div>
             </div>
             <div class="trakt-profile-actions">
-              <button type="button" class="btn btn-blue" id="traktSettingsSyncBtn">
-                ${iconHtml('trakt-sync', 16)} <span>${esc(t('trakt_btn_sync'))}</span>
+              <button type="button" class="btn btn-blue" id="traktSettingsSyncBtn" title="${esc(t('trakt_btn_full_sync_hint'))}">
+                ${iconHtml('trakt-sync', 16)} <span>${esc(t('trakt_btn_full_sync'))}</span>
               </button>
               <button type="button" class="btn btn-red" id="traktSettingsLogoutBtn">
                 ${iconHtml('trakt-logout', 16)} <span>${esc(t('trakt_btn_logout'))}</span>
@@ -796,7 +807,14 @@
         `;
 
         const sBtn = accountCard.querySelector('#traktSettingsSyncBtn');
-        if (sBtn) sBtn.onclick = () => triggerManualSync();
+        if (sBtn) {
+          sBtn.disabled = syncStatus.status === 'syncing';
+          sBtn.onclick = async () => {
+            const ok = await showConfirm(t('trakt_btn_full_sync'), t('trakt_confirm_full_sync'));
+            if (!ok) return;
+            triggerManualSync(true);
+          };
+        }
 
         const lBtn = accountCard.querySelector('#traktSettingsLogoutBtn');
         if (lBtn) {
@@ -907,7 +925,7 @@
     }
 
     const syncBtn = document.getElementById('traktSyncBtn');
-    if (syncBtn) syncBtn.onclick = () => triggerManualSync();
+    if (syncBtn) syncBtn.onclick = () => triggerManualSync(false);
 
     // Tauri background events
     if (window.__TAURI__ && window.__TAURI__.event) {

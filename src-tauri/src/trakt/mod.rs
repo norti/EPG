@@ -8,6 +8,8 @@ pub mod sync;
 #[cfg(test)]
 mod cache_tests;
 #[cfg(test)]
+mod sync_control_tests;
+#[cfg(test)]
 pub(crate) mod tests;
 
 use rusqlite::Connection;
@@ -34,6 +36,10 @@ pub struct TraktState {
     pub login_cancel: Mutex<Option<watch::Sender<bool>>>,
     pub sync_lock: Mutex<()>,
     pub last_focus_sync: Mutex<Option<Instant>>,
+    /// Serializes the manual sync buttons (a double click can not start two syncs).
+    pub manual_gate: Mutex<()>,
+    /// End of the last *successful* sync (manual or focus triggered); drives the button debounce.
+    pub last_sync_done: std::sync::Mutex<Option<Instant>>,
 }
 
 impl TraktState {
@@ -77,6 +83,8 @@ impl TraktState {
             login_cancel: Mutex::new(None),
             sync_lock: Mutex::new(()),
             last_focus_sync: Mutex::new(None),
+            manual_gate: Mutex::new(()),
+            last_sync_done: std::sync::Mutex::new(None),
         }
     }
 }

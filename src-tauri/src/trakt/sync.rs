@@ -8,6 +8,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -48,6 +49,10 @@ pub struct SyncSummary {
     pub calendar_updated: bool,
     pub pending_flushed: usize,
     pub last_sync_ok_at: String,
+    /// The click was answered from the fresh local state: a sync finished less than
+    /// `MANUAL_SYNC_DEBOUNCE_SECS` ago, so nothing was requested.
+    #[serde(default)]
+    pub throttled: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -368,6 +373,87 @@ pub async fn flush_pending_actions(
     Ok(flushed)
 }
 
+/// Repeated clicks on the header Sync button within this window after a successful sync are answered
+/// from the already fresh local state.
+pub const MANUAL_SYNC_DEBOUNCE_SECS: u64 = 60;
+
+/// `force` of the `trakt_sync` command. The default is the cheap, activity based sync;
+/// a full re-download (`force = true`) has to be requested explicitly (Settings > Trakt.tv).
+pub fn resolve_force(force: Option<bool>) -> bool {
+    force.unwrap_or(false)
+}
+
+/// Records a successful sync (manual or focus triggered) for the button debounce.
+pub fn mark_sync_done(state: &AppState) {
+    if let Ok(mut last) = state.trakt.last_sync_done.lock() {
+        *last = Some(Instant::now());
+    }
+}
+
+fn synced_within(state: &AppState, window: Duration) -> bool {
+    state
+        .trakt
+        .last_sync_done
+        .lock()
+        .ok()
+        .and_then(|last| *last)
+        .map_or(false, |t| t.elapsed() < window)
+}
+
+async fn throttled_summary(state: &AppState) -> SyncSummary {
+    let last_sync_ok_at = {
+        let conn = state.db.lock().await;
+        get_sync_state_val(&conn, "last_sync_ok_at")
+    }
+    .unwrap_or_default();
+    SyncSummary {
+        watchlist_updated: false,
+        history_updated: false,
+        calendar_updated: false,
+        pending_flushed: 0,
+        last_sync_ok_at,
+        throttled: true,
+    }
+}
+
+/// Decision logic of the sync buttons (kept separate from the sync itself so it is testable).
+///  * `force = false` (header button): skipped, with `throttled = true`, if a sync finished within `window`.
+///  * `force = true` (Settings, full re-download): never skipped.
+/// Calls are serialized, so a double click runs the sync once; the second click then finds a fresh
+/// timestamp. Only a successful run starts the debounce window: a failed (e.g. offline) sync can be retried at once.
+pub async fn manual_sync_in<F, Fut>(
+    state: &AppState,
+    force: bool,
+    window: Duration,
+    run: F,
+) -> Result<SyncSummary, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<SyncSummary, String>>,
+{
+    let _gate = state.trakt.manual_gate.lock().await;
+    if !force && synced_within(state, window) {
+        return Ok(throttled_summary(state).await);
+    }
+    let summary = run().await?;
+    mark_sync_done(state);
+    Ok(summary)
+}
+
+pub async fn run_manual_sync(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+    force: bool,
+) -> Result<SyncSummary, String> {
+    manual_sync_in(
+        state,
+        force,
+        Duration::from_secs(MANUAL_SYNC_DEBOUNCE_SECS),
+        || run_sync(state, app, force),
+    )
+    .await
+}
+
 pub async fn run_sync(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
@@ -585,6 +671,7 @@ pub async fn run_sync(
         calendar_updated,
         pending_flushed,
         last_sync_ok_at: now_ok,
+        throttled: false,
     })
 }
 
