@@ -3333,7 +3333,7 @@ async fn download_languages_from_github(state: tauri::State<'_, AppState>) -> Re
 
     for lang in &langs {
         let url = format!(
-            "https://raw.githubusercontent.com/norti/EPG/main/public/languages/{}.lng",
+            "https://raw.githubusercontent.com/norti/epg-viewer/main/public/languages/{}.lng",
             lang
         );
         let resp = state.http.get(&url).send().await.map_err(|e| format!("Letöltési hiba ({url}): {e}"))?;
