@@ -939,8 +939,8 @@ pub async fn trakt_get_show_seasons_progress(
                 serde_json::from_str::<TmdbSeasonApi>(&body).ok()
             } else {
                 let url = format!(
-                    "https://api.themoviedb.org/3/tv/{}/season/{}",
-                    tid, ts.number
+                    "{}/tv/{}/season/{}",
+                    state.tmdb.base, tid, ts.number
                 );
                 let req = apply_tmdb_auth(
                     state

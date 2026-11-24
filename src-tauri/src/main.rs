@@ -2,6 +2,8 @@
 
 mod migrations;
 mod trakt;
+#[cfg(test)]
+mod tmdb_tests;
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -19,6 +21,33 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub http_epg: reqwest::Client,
     pub trakt: trakt::TraktState,
+    pub tmdb: TmdbRuntime,
+}
+
+/// Runtime settings of the TMDB layer. The base URL is injectable so tests can point it at a mock server.
+pub struct TmdbRuntime {
+    pub base: String,
+    /// Limits concurrent TMDB requests (sync enrichment + UI lookups share it).
+    pub sem: tokio::sync::Semaphore,
+    /// Pause before retrying a 5xx / network error.
+    pub retry_delay: std::time::Duration,
+}
+
+impl TmdbRuntime {
+    pub const DEFAULT_BASE: &'static str = "https://api.themoviedb.org/3";
+    const MAX_CONCURRENT: usize = 4;
+
+    pub fn new() -> Self {
+        Self::with_base(Self::DEFAULT_BASE, std::time::Duration::from_millis(500))
+    }
+
+    pub fn with_base(base: impl Into<String>, retry_delay: std::time::Duration) -> Self {
+        TmdbRuntime {
+            base: base.into(),
+            sem: tokio::sync::Semaphore::new(Self::MAX_CONCURRENT),
+            retry_delay,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -3690,15 +3719,133 @@ pub(crate) fn apply_tmdb_auth(req: reqwest::RequestBuilder, api_key: &str) -> re
 }
 
 fn build_tmdb_search_req(
-    http: &reqwest::Client,
+    state: &AppState,
     api_key: &str,
     query: &str,
     lang: &str,
 ) -> reqwest::RequestBuilder {
-    let req = http.get("https://api.themoviedb.org/3/search/multi")
+    let req = state.http.get(format!("{}/search/multi", state.tmdb.base))
         .header("Accept", "application/json")
         .query(&[("query", query), ("language", lang), ("include_adult", "false")]);
     apply_tmdb_auth(req, api_key)
+}
+
+/// Why a TMDB request failed. Only a successful (2xx) answer may ever be turned into cache rows;
+/// every `TmdbError` must leave the cache untouched (a transient 429/5xx must not become a permanent "not found").
+#[derive(Debug)]
+pub(crate) enum TmdbError {
+    Unauthorized,
+    NotFound,
+    RateLimited,
+    Transient(String),
+}
+
+impl TmdbError {
+    fn into_user_message(self, context: &str) -> String {
+        match self {
+            TmdbError::Unauthorized => "Érvénytelen TMDB API kulcs / Invalid TMDB API key".to_string(),
+            TmdbError::NotFound => format!("{}: nem található (404)", context),
+            TmdbError::RateLimited => format!("{}: TMDB sebességkorlát (429), próbáld később", context),
+            TmdbError::Transient(m) => format!("{}: {}", context, m),
+        }
+    }
+}
+
+const TMDB_MAX_RATE_LIMIT_RETRIES: u32 = 2;
+const TMDB_MAX_SERVER_RETRIES: u32 = 1;
+const TMDB_MAX_RETRY_AFTER_SECS: u64 = 10;
+/// Automatic "no match" rows are searched again after this many days. Manual rows never expire.
+const TMDB_NEGATIVE_TTL_DAYS: i64 = 7;
+
+/// Sends a TMDB GET (rebuilt via `make_req` for every attempt) and returns the body of a 2xx answer.
+///  * 401 -> `Unauthorized`, 404 -> `NotFound` (no retry)
+///  * 429 -> waits `Retry-After` (capped), at most `TMDB_MAX_RATE_LIMIT_RETRIES` retries, then `RateLimited`
+///  * 5xx / network error -> one retry after `state.tmdb.retry_delay`, then `Transient`
+/// The concurrency permit is held for the whole call (including waits) but never together with the DB lock.
+pub(crate) async fn tmdb_get_text<F>(state: &AppState, make_req: F) -> Result<String, TmdbError>
+where
+    F: Fn() -> reqwest::RequestBuilder,
+{
+    let _permit = state
+        .tmdb
+        .sem
+        .acquire()
+        .await
+        .map_err(|_| TmdbError::Transient("TMDB limiter closed".to_string()))?;
+
+    let mut attempt: u32 = 0;
+    loop {
+        match make_req().send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    return resp
+                        .text()
+                        .await
+                        .map_err(|e| TmdbError::Transient(e.to_string()));
+                }
+                match status.as_u16() {
+                    401 => return Err(TmdbError::Unauthorized),
+                    404 => return Err(TmdbError::NotFound),
+                    429 => {
+                        if attempt >= TMDB_MAX_RATE_LIMIT_RETRIES {
+                            return Err(TmdbError::RateLimited);
+                        }
+                        let wait_secs = resp
+                            .headers()
+                            .get(reqwest::header::RETRY_AFTER)
+                            .and_then(|v| v.to_str().ok())
+                            .and_then(|s| s.trim().parse::<u64>().ok())
+                            .unwrap_or(1)
+                            .min(TMDB_MAX_RETRY_AFTER_SECS);
+                        tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+                    }
+                    s if s >= 500 => {
+                        if attempt >= TMDB_MAX_SERVER_RETRIES {
+                            return Err(TmdbError::Transient(format!("HTTP {}", s)));
+                        }
+                        tokio::time::sleep(state.tmdb.retry_delay).await;
+                    }
+                    s => return Err(TmdbError::Transient(format!("HTTP {}", s))),
+                }
+            }
+            Err(e) => {
+                if attempt >= TMDB_MAX_SERVER_RETRIES {
+                    return Err(TmdbError::Transient(e.to_string()));
+                }
+                tokio::time::sleep(state.tmdb.retry_delay).await;
+            }
+        }
+        attempt += 1;
+    }
+}
+
+/// `search/multi` -> raw candidates. Any failure (HTTP or unparsable 2xx body) is an `Err`, never an empty list.
+async fn tmdb_search_items(
+    state: &AppState,
+    api_key: &str,
+    query: &str,
+    lang: &str,
+) -> Result<Vec<TmdbRawItem>, String> {
+    let text = tmdb_get_text(state, || build_tmdb_search_req(state, api_key, query, lang))
+        .await
+        .map_err(|e| e.into_user_message("TMDB keresési hiba"))?;
+    let parsed: TmdbSearchResponse =
+        serde_json::from_str(&text).map_err(|e| format!("TMDB JSON hiba: {}", e))?;
+    Ok(parsed.results.unwrap_or_default())
+}
+
+/// The user's own "this title is NOT that item" marker (clear_tmdb_match). Never expires.
+fn store_manual_none(conn: &Connection, cache_key: &str, lang: &str) -> rusqlite::Result<usize> {
+    conn.execute(
+        "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at) VALUES (?1, ?2, 'none', 1, datetime('now', 'localtime'))",
+        params![cache_key, lang],
+    )
+}
+
+/// "Clear TMDB cache": manual matches and the user's "not this title" markers survive.
+pub(crate) fn clear_automatic_tmdb_cache(conn: &Connection) -> rusqlite::Result<usize> {
+    conn.execute("DELETE FROM tmdb_cache WHERE is_manual = 0", [])
 }
 
 pub(crate) async fn get_tmdb_api_key_from_state(state: &AppState) -> Option<String> {
@@ -3737,7 +3884,7 @@ async fn set_tmdb_api_key(state: tauri::State<'_, AppState>, api_key: String) ->
 #[tauri::command]
 async fn clear_tmdb_cache(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let conn = state.db.lock().await;
-    conn.execute("DELETE FROM tmdb_cache", []).map_err(|e| e.to_string())?;
+    clear_automatic_tmdb_cache(&conn).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -3748,7 +3895,7 @@ async fn test_tmdb_api_key(state: tauri::State<'_, AppState>, api_key: String) -
         return Ok(false);
     }
     let req = apply_tmdb_auth(
-        state.http.get("https://api.themoviedb.org/3/authentication")
+        state.http.get(format!("{}/authentication", state.tmdb.base))
             .header("Accept", "application/json"),
         key,
     );
@@ -3761,6 +3908,14 @@ async fn test_tmdb_api_key(state: tauri::State<'_, AppState>, api_key: String) -
 
 #[tauri::command]
 async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang: Option<String>) -> Result<Option<TmdbDetails>, String> {
+    get_tmdb_details_inner(state.inner(), title, lang).await
+}
+
+pub(crate) async fn get_tmdb_details_inner(
+    state: &AppState,
+    title: String,
+    lang: Option<String>,
+) -> Result<Option<TmdbDetails>, String> {
     // Extract year hint from raw title BEFORE cleaning strips it (used for scoring later)
     let year_hint = extract_year_hint(&title);
     let clean = clean_title(&title);
@@ -3774,9 +3929,10 @@ async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang
     let cached = {
         let conn = state.db.lock().await;
         conn.query_row(
-        "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
+        "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date,
+                (media_type = 'none' AND is_manual = 0 AND updated_at < datetime('now', 'localtime', ?3)) AS stale_negative
          FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
-        params![clean, target_lang],
+        params![clean, target_lang, format!("-{} days", TMDB_NEGATIVE_TTL_DAYS)],
         |row| {
             let tmdb_id: Option<i64> = row.get(0)?;
             let media_type: Option<String> = row.get(1)?;
@@ -3790,63 +3946,54 @@ async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang
             let overview: Option<String> = row.get(9)?;
             let vote_average: Option<f64> = row.get(10)?;
             let release_date: Option<String> = row.get(11)?;
-            Ok((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date))
+            let stale_negative: Option<i64> = row.get(12)?;
+            Ok((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date, stale_negative))
         }
     ).ok()
     };
 
-    if let Some((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
-        if media_type.as_deref() == Some("none") || tmdb_id.is_none() {
-            return Ok(None);
+    if let Some((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date, stale_negative)) = cached {
+        let is_negative = media_type.as_deref() == Some("none") || tmdb_id.is_none();
+        // An automatic negative older than TMDB_NEGATIVE_TTL_DAYS is searched again.
+        // Manual rows (the user's "not this title" marker included) never expire.
+        let expired_negative = is_negative && stale_negative.unwrap_or(0) == 1;
+        if !expired_negative {
+            if is_negative {
+                return Ok(None);
+            }
+            return Ok(Some(TmdbDetails {
+                tmdb_id: tmdb_id.unwrap_or(0),
+                title: title.unwrap_or_else(|| clean.clone()),
+                hu_title,
+                en_title,
+                original_title,
+                original_language,
+                media_type,
+                poster_path,
+                backdrop_path,
+                overview,
+                vote_average,
+                release_date,
+            }));
         }
-        return Ok(Some(TmdbDetails {
-            tmdb_id: tmdb_id.unwrap_or(0),
-            title: title.unwrap_or_else(|| clean.clone()),
-            hu_title,
-            en_title,
-            original_title,
-            original_language,
-            media_type,
-            poster_path,
-            backdrop_path,
-            overview,
-            vote_average,
-            release_date,
-        }));
     }
 
     // 2. Retrieve TMDB API key from settings
-    let api_key = match get_tmdb_api_key_from_state(state.inner()).await {
+    let api_key = match get_tmdb_api_key_from_state(state).await {
         Some(k) => k,
         _ => return Ok(None),
     };
 
-    let resp = build_tmdb_search_req(&state.http, &api_key, &clean, &target_lang).send().await;
-    let resp = match resp {
-        Ok(r) => {
-            if r.status() == reqwest::StatusCode::UNAUTHORIZED {
-                return Err("Érvénytelen TMDB API kulcs / Invalid TMDB API key".to_string());
-            }
-            r
-        }
-        Err(e) => return Err(format!("TMDB keresési hiba: {}", e)),
-    };
-
-    let text = resp.text().await.map_err(|e| e.to_string())?;
-    let search_json: Result<TmdbSearchResponse, _> = serde_json::from_str(&text);
-    let search_res = search_json.ok().and_then(|r| r.results).unwrap_or_default();
+    // 3. Search. A failed request is an Err and is NEVER cached; only a successful answer with no
+    //    acceptable candidate becomes an (expiring) negative row.
+    let search_res = tmdb_search_items(state, &api_key, &clean, &target_lang).await?;
 
     // Pick best-matching movie/tv candidate instead of blindly taking the first result
     let mut matched_item = best_tmdb_match(search_res, &clean, year_hint);
 
     if matched_item.is_none() && target_lang != "en-US" {
-        if let Ok(fallback_resp) = build_tmdb_search_req(&state.http, &api_key, &clean, "en-US").send().await {
-            if let Ok(fallback_text) = fallback_resp.text().await {
-                if let Ok(fallback_json) = serde_json::from_str::<TmdbSearchResponse>(&fallback_text) {
-                    matched_item = best_tmdb_match(fallback_json.results.unwrap_or_default(), &clean, year_hint);
-                }
-            }
-        }
+        let fallback = tmdb_search_items(state, &api_key, &clean, "en-US").await?;
+        matched_item = best_tmdb_match(fallback, &clean, year_hint);
     }
 
     let item = match matched_item {
@@ -3854,59 +4001,77 @@ async fn get_tmdb_details(state: tauri::State<'_, AppState>, title: String, lang
         None => {
             let conn = state.db.lock().await;
             conn.execute(
-                "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
+                "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at) VALUES (?1, ?2, 'none', 0, datetime('now', 'localtime'))",
                 params![clean, target_lang],
             ).ok();
             return Ok(None);
         }
     };
 
-        let details = fetch_tmdb_item_details(
-        state.inner(),
+    let details = fetch_tmdb_item_details(
+        state,
         item,
+        &clean,
         &clean,
         &target_lang,
         &api_key,
-        true,
+        false,
     ).await?;
 
     Ok(Some(details))
 }
 
+/// Builds `TmdbDetails` from a raw TMDB item (+ translations) and stores it under `cache_key`.
+///  * `fallback_title` is only used when TMDB returns no title; it is deliberately separate from the cache key.
+///  * `is_manual` marks a row written by the user's own match (set_tmdb_match).
+///  * If the translations request failed, the partial details are still returned (the UI can show them)
+///    but nothing is cached, so the next lookup tries again instead of keeping incomplete data forever.
 async fn fetch_tmdb_item_details(
     state: &AppState,
     mut item: TmdbRawItem,
-    clean: &str,
+    cache_key: &str,
+    fallback_title: &str,
     target_lang: &str,
     api_key: &str,
-    overwrite_cache: bool,
+    is_manual: bool,
 ) -> Result<TmdbDetails, String> {
     let tmdb_id = item.id;
     let media_type = item.media_type.take().unwrap_or_else(|| "movie".to_string());
-    let display_title = item.title.clone().or_else(|| item.name.clone()).unwrap_or_else(|| clean.to_string());
+    let display_title = item.title.clone().or_else(|| item.name.clone()).unwrap_or_else(|| fallback_title.to_string());
     let orig_title = item.original_title.clone().or_else(|| item.original_name.clone());
     let rel_date = item.release_date.clone().or_else(|| item.first_air_date.clone());
 
     let mut hu_title: Option<String> = None;
     let mut en_title: Option<String> = None;
     let mut hu_overview: Option<String> = None;
+    let mut translations_complete = true;
 
     let trans_data_opt = if let Some(embedded) = item.translations.take() {
         Some(embedded)
     } else {
-        let trans_url = format!("https://api.themoviedb.org/3/{}/{}/translations", media_type, tmdb_id);
-        let trans_req = apply_tmdb_auth(
-            state.http.get(&trans_url).header("Accept", "application/json"),
-            api_key,
-        );
-        if let Ok(trans_resp) = trans_req.send().await {
-            if let Ok(trans_text) = trans_resp.text().await {
-                serde_json::from_str::<TmdbTranslationsResponse>(&trans_text).ok()
-            } else {
+        let trans_url = format!("{}/{}/{}/translations", state.tmdb.base, media_type, tmdb_id);
+        match tmdb_get_text(state, || {
+            apply_tmdb_auth(
+                state.http.get(&trans_url).header("Accept", "application/json"),
+                api_key,
+            )
+        })
+        .await
+        {
+            Ok(text) => match serde_json::from_str::<TmdbTranslationsResponse>(&text) {
+                Ok(parsed) => Some(parsed),
+                Err(_) => {
+                    translations_complete = false;
+                    None
+                }
+            },
+            Err(TmdbError::Unauthorized) => {
+                return Err(TmdbError::Unauthorized.into_user_message("TMDB"));
+            }
+            Err(_) => {
+                translations_complete = false;
                 None
             }
-        } else {
-            None
         }
     };
 
@@ -3968,23 +4133,18 @@ async fn fetch_tmdb_item_details(
         release_date: rel_date,
     };
 
-    let sql = if overwrite_cache {
-        "INSERT OR REPLACE INTO tmdb_cache (
-            query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
-            original_language, poster_path, backdrop_path, overview, vote_average, release_date, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now', 'localtime'))"
-    } else {
-        "INSERT OR IGNORE INTO tmdb_cache (
-            query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
-            original_language, poster_path, backdrop_path, overview, vote_average, release_date, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now', 'localtime'))"
-    };
+    if !translations_complete {
+        return Ok(details);
+    }
 
     let conn = state.db.lock().await;
     conn.execute(
-        sql,
+        "INSERT OR REPLACE INTO tmdb_cache (
+            query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title,
+            original_language, poster_path, backdrop_path, overview, vote_average, release_date, is_manual, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, datetime('now', 'localtime'))",
         params![
-            clean,
+            cache_key,
             target_lang,
             details.tmdb_id,
             details.media_type,
@@ -3998,6 +4158,7 @@ async fn fetch_tmdb_item_details(
             details.overview,
             details.vote_average,
             details.release_date,
+            is_manual as i64,
         ],
     ).map_err(|e| e.to_string())?;
 
@@ -4011,6 +4172,23 @@ pub async fn get_tmdb_by_id(
     lang: &str,
     cache_key_override: Option<&str>,
     force_refresh: bool,
+) -> Result<TmdbDetails, String> {
+    get_tmdb_by_id_inner(state, tmdb_id, media_type, lang, cache_key_override, force_refresh, false).await
+}
+
+/// `cache_key_override`: the title key of a title -> item mapping (set_tmdb_match / language switch).
+/// Without it the row is stored under an id-only key (`~id:<type>:<id>`): title-keyed rows are
+/// *mappings* the matcher reads, and two items sharing a title (a film and a series, a remake)
+/// would otherwise collide on the (query_title, lang) primary key and never be cached.
+/// `mark_manual`: the row is the user's own choice and is protected from cache clearing / expiry.
+async fn get_tmdb_by_id_inner(
+    state: &AppState,
+    tmdb_id: i64,
+    media_type: &str,
+    lang: &str,
+    cache_key_override: Option<&str>,
+    force_refresh: bool,
+    mark_manual: bool,
 ) -> Result<TmdbDetails, String> {
     if !force_refresh {
         let conn = state.db.lock().await;
@@ -4085,23 +4263,21 @@ pub async fn get_tmdb_by_id(
         _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
     };
 
-    let details_url = format!("https://api.themoviedb.org/3/{}/{}", media_type, tmdb_id);
-    let details_req = apply_tmdb_auth(
-        state.http.get(&details_url)
-            .header("Accept", "application/json")
-            .query(&[
-                ("language", lang),
-                ("append_to_response", "translations,external_ids"),
-            ]),
-        &api_key,
-    );
+    let details_url = format!("{}/{}/{}", state.tmdb.base, media_type, tmdb_id);
+    let text = tmdb_get_text(state, || {
+        apply_tmdb_auth(
+            state.http.get(&details_url)
+                .header("Accept", "application/json")
+                .query(&[
+                    ("language", lang),
+                    ("append_to_response", "translations,external_ids"),
+                ]),
+            &api_key,
+        )
+    })
+    .await
+    .map_err(|e| e.into_user_message("TMDB lekérési hiba"))?;
 
-    let resp = details_req.send().await.map_err(|e| format!("TMDB lekérési hiba: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("TMDB hiba ({}): {}", resp.status(), details_url));
-    }
-
-    let text = resp.text().await.map_err(|e| e.to_string())?;
     let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
     raw_item.media_type = Some(media_type.to_string());
 
@@ -4110,17 +4286,19 @@ pub async fn get_tmdb_by_id(
         .clone()
         .or_else(|| raw_item.name.clone())
         .unwrap_or_default();
-    let cache_key = cache_key_override
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| clean_title(&fallback_title));
+    let cache_key = match cache_key_override {
+        Some(k) => k.to_string(),
+        None => format!("~id:{}:{}", media_type, tmdb_id),
+    };
 
     fetch_tmdb_item_details(
         state,
         raw_item,
         &cache_key,
+        &fallback_title,
         lang,
         &api_key,
-        cache_key_override.is_some(),
+        mark_manual,
     )
     .await
 }
@@ -4155,7 +4333,7 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
     };
 
     let mut results: Vec<TmdbRawItem> = Vec::new();
-    let resp = build_tmdb_search_req(&state.http, &api_key, &q, &target_lang).send().await.map_err(|e| format!("TMDB keresési hiba: {}", e))?;
+    let resp = build_tmdb_search_req(state.inner(), &api_key, &q, &target_lang).send().await.map_err(|e| format!("TMDB keresési hiba: {}", e))?;
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Err("Érvénytelen TMDB API kulcs / Invalid TMDB API key".to_string());
     }
@@ -4170,7 +4348,7 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
     // If no results and clean_title(q) differs from q, try searching with clean_title
     let cleaned = clean_title(&q);
     if results.is_empty() && !cleaned.is_empty() && cleaned != q {
-        if let Ok(resp2) = build_tmdb_search_req(&state.http, &api_key, &cleaned, &target_lang).send().await {
+        if let Ok(resp2) = build_tmdb_search_req(state.inner(), &api_key, &cleaned, &target_lang).send().await {
             if resp2.status().is_success() {
                 if let Ok(text2) = resp2.text().await {
                     if let Ok(search_json2) = serde_json::from_str::<TmdbSearchResponse>(&text2) {
@@ -4184,7 +4362,7 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
     // Fallback to en-US if still empty and language was not en-US
     if results.is_empty() && target_lang != "en-US" {
         let query_term = if !cleaned.is_empty() { &cleaned } else { &q };
-        if let Ok(resp3) = build_tmdb_search_req(&state.http, &api_key, query_term, "en-US").send().await {
+        if let Ok(resp3) = build_tmdb_search_req(state.inner(), &api_key, query_term, "en-US").send().await {
             if resp3.status().is_success() {
                 if let Ok(text3) = resp3.text().await {
                     if let Ok(search_json3) = serde_json::from_str::<TmdbSearchResponse>(&text3) {
@@ -4238,7 +4416,7 @@ async fn set_tmdb_match(state: tauri::State<'_, AppState>,
     }
 
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
-    let details = get_tmdb_by_id(state.inner(), tmdb_id, &media_type, &target_lang, Some(&cache_key), true).await?;
+    let details = get_tmdb_by_id_inner(state.inner(), tmdb_id, &media_type, &target_lang, Some(&cache_key), true, true).await?;
     trakt::matcher::invalidate_match_cache(state.inner()).await;
     {
         use tauri::Emitter;
@@ -4258,10 +4436,7 @@ async fn clear_tmdb_match(state: tauri::State<'_, AppState>, app: tauri::AppHand
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
     {
         let conn = state.db.lock().await;
-        conn.execute(
-            "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES (?1, ?2, 'none', datetime('now', 'localtime'))",
-            params![cache_key, target_lang],
-        ).map_err(|e| e.to_string())?;
+        store_manual_none(&conn, &cache_key, &target_lang).map_err(|e| e.to_string())?;
     }
     trakt::matcher::invalidate_match_cache(state.inner()).await;
     {
@@ -4553,6 +4728,7 @@ fn main() {
             http: http_client,
             http_epg: http_epg_client,
             trakt: trakt_state,
+            tmdb: TmdbRuntime::new(),
         })
         .setup(|app| {
             #[cfg(target_os = "windows")]

@@ -6,7 +6,7 @@ pub mod matcher;
 pub mod secret;
 pub mod sync;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use rusqlite::Connection;
 use std::collections::HashMap;

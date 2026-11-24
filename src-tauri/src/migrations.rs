@@ -6,7 +6,7 @@ pub type MigFn = fn(&Connection) -> rusqlite::Result<()>;
 pub const EMBEDDED_ENGLISH_LNG: &str = include_str!("../../public/languages/english.lng");
 pub const EMBEDDED_HUNGARIAN_LNG: &str = include_str!("../../public/languages/hungarian.lng");
 
-pub const MIGRATIONS: &[MigFn] = &[migrate_v1, migrate_v2, migrate_v3, migrate_v4];
+pub const MIGRATIONS: &[MigFn] = &[migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5];
 
 pub fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
     let sql = format!("PRAGMA table_info({})", table);
@@ -34,12 +34,13 @@ fn add_column_if_missing(
     Ok(())
 }
 
-fn backup_db_file(db_path: &Path) -> Result<PathBuf, String> {
+/// Copies the DB file next to itself with `suffix` appended (e.g. `.bak-v4` = backup of a v4 DB).
+fn backup_db_file(db_path: &Path, suffix: &str) -> Result<PathBuf, String> {
     let mut bak_name = db_path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "epg.db".to_string());
-    bak_name.push_str(".bak-v1");
+    bak_name.push_str(suffix);
     let bak_path = db_path.with_file_name(bak_name);
     std::fs::copy(db_path, &bak_path)
         .map_err(|e| format!("Adatbázis biztonsági mentési hiba ({}): {}", bak_path.display(), e))?;
@@ -58,10 +59,16 @@ pub fn run_migrations(conn: &Connection, db_path: Option<&Path>) -> Result<(), S
         }
 
         let mut backup_path: Option<PathBuf> = None;
-        if ver == 2 {
+        // v2 rewrites the programmes table; v5 backfills tmdb_cache.is_manual. Both get a pre-migration backup.
+        let backup_suffix = match ver {
+            2 => Some(".bak-v1"),
+            5 => Some(".bak-v4"),
+            _ => None,
+        };
+        if let Some(suffix) = backup_suffix {
             if let Some(path) = db_path {
                 if path.exists() {
-                    backup_path = Some(backup_db_file(path)?);
+                    backup_path = Some(backup_db_file(path, suffix)?);
                 }
             }
         }
@@ -394,6 +401,41 @@ fn migrate_v4(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// v5 is purely additive (older binaries keep working on a v5 database):
+///  * `trakt_http_cache.page_count`  - keeps pagination info for cached/304 answers
+///  * `tmdb_cache.is_manual`         - separates the user's manual matches / "not this title" markers
+///                                     from automatic cache rows (only automatic negatives may expire)
+///  * `tmdb_cache.hu_overview/en_overview` - both language overviews in one row (used by the TMDB merge phase)
+///  * `trakt_show_fp`                - per-show watched fingerprints (used by the progress-refresh phase)
+fn migrate_v5(conn: &Connection) -> rusqlite::Result<()> {
+    add_column_if_missing(conn, "trakt_http_cache", "page_count", "INTEGER")?;
+
+    // The backfill must run exactly once, right when the column appears: from then on
+    // is_manual = 0 + 'none' means "automatic negative result" and may expire.
+    if !column_exists(conn, "tmdb_cache", "is_manual")? {
+        conn.execute(
+            "ALTER TABLE tmdb_cache ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+        // Legacy 'none' rows cannot be attributed (automatic miss vs. the user's clear_tmdb_match),
+        // so they are protected as manual. Positive rows stay automatic until set_tmdb_match rewrites them.
+        conn.execute("UPDATE tmdb_cache SET is_manual = 1 WHERE media_type = 'none'", [])?;
+    }
+    add_column_if_missing(conn, "tmdb_cache", "hu_overview", "TEXT")?;
+    add_column_if_missing(conn, "tmdb_cache", "en_overview", "TEXT")?;
+
+    // Separate table on purpose: a trakt_show_progress row means "progress was fetched at least once".
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS trakt_show_fp (
+            show_trakt_id INTEGER PRIMARY KEY,
+            seen_fp       TEXT,
+            synced_fp     TEXT,
+            updated_at    TEXT NOT NULL
+        );",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,7 +446,7 @@ mod tests {
         run_migrations(&conn, None).unwrap();
 
         let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver, 4);
+        assert_eq!(ver, 5);
 
         assert!(column_exists(&conn, "programmes", "title_norm").unwrap());
         assert!(column_exists(&conn, "programmes", "start_ts").unwrap());
@@ -416,6 +458,10 @@ mod tests {
         assert!(column_exists(&conn, "trakt_show_progress", "next_episode_title").unwrap());
         assert!(column_exists(&conn, "trakt_show_progress", "hidden_from_progress").unwrap());
         assert!(column_exists(&conn, "trakt_show_progress", "next_episode_first_aired").unwrap());
+        assert!(column_exists(&conn, "trakt_http_cache", "page_count").unwrap());
+        assert!(column_exists(&conn, "tmdb_cache", "is_manual").unwrap());
+        assert!(column_exists(&conn, "tmdb_cache", "hu_overview").unwrap());
+        assert!(column_exists(&conn, "tmdb_cache", "en_overview").unwrap());
 
         let trakt_tables = [
             "trakt_auth",
@@ -428,6 +474,7 @@ mod tests {
             "trakt_show_progress",
             "trakt_pending_actions",
             "trakt_http_cache",
+            "trakt_show_fp",
         ];
         for tbl in trakt_tables {
             let exists: i64 = conn
@@ -443,7 +490,7 @@ mod tests {
         // Idempotent second run
         run_migrations(&conn, None).unwrap();
         let ver2: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver2, 4);
+        assert_eq!(ver2, 5);
     }
 
     #[test]
@@ -460,7 +507,7 @@ mod tests {
         run_migrations(&conn, None).unwrap();
 
         let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver, 4);
+        assert_eq!(ver, 5);
 
         let src_name: String = conn
             .query_row("SELECT name FROM sources WHERE id = 's1'", [], |r| r.get(0))
@@ -481,8 +528,10 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let db_path = temp_dir.join("epg_test_mig_backup.db");
         let bak_path = temp_dir.join("epg_test_mig_backup.db.bak-v1");
+        let bak_v4_path = temp_dir.join("epg_test_mig_backup.db.bak-v4");
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(&bak_path);
+        let _ = std::fs::remove_file(&bak_v4_path);
 
         {
             let conn = Connection::open(&db_path).unwrap();
@@ -490,11 +539,131 @@ mod tests {
             conn.execute_batch("PRAGMA user_version = 1;").unwrap();
             run_migrations(&conn, Some(&db_path)).unwrap();
             let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-            assert_eq!(ver, 4);
+            assert_eq!(ver, 5);
         }
 
         assert!(bak_path.exists(), "Backup file should exist before v2 migration");
+        assert!(bak_v4_path.exists(), "Backup file should exist before v5 migration");
         let _ = std::fs::remove_file(&db_path);
         let _ = std::fs::remove_file(&bak_path);
+        let _ = std::fs::remove_file(&bak_v4_path);
+    }
+
+    /// Builds a database that is exactly at schema v4 (what existing installs have).
+    fn make_v4_db(conn: &Connection) {
+        migrate_v1(conn).unwrap();
+        migrate_v2(conn).unwrap();
+        migrate_v3(conn).unwrap();
+        migrate_v4(conn).unwrap();
+        conn.execute_batch("PRAGMA user_version = 4;").unwrap();
+    }
+
+    #[test]
+    fn test_v5_backfills_none_rows_as_manual_and_preserves_data() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_v4_db(&conn);
+        assert!(!column_exists(&conn, "tmdb_cache", "is_manual").unwrap());
+
+        conn.execute_batch(
+            "INSERT INTO tmdb_cache (query_title, lang, media_type, updated_at)
+                 VALUES ('legacy none', 'hu-HU', 'none', '2020-01-01 00:00:00');
+             INSERT INTO tmdb_cache (query_title, lang, tmdb_id, media_type, title, updated_at)
+                 VALUES ('dune', 'hu-HU', 438631, 'movie', 'Dune', '2020-01-01 00:00:00');",
+        )
+        .unwrap();
+
+        run_migrations(&conn, None).unwrap();
+
+        let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(ver, 5);
+
+        let none_manual: i64 = conn
+            .query_row("SELECT is_manual FROM tmdb_cache WHERE query_title = 'legacy none'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(none_manual, 1, "legacy 'none' rows must be protected as manual");
+
+        let (hit_manual, hit_title): (i64, String) = conn
+            .query_row("SELECT is_manual, title FROM tmdb_cache WHERE query_title = 'dune'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(hit_manual, 0);
+        assert_eq!(hit_title, "Dune");
+    }
+
+    #[test]
+    fn test_v5_backfill_runs_only_once() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn, None).unwrap();
+
+        // A new automatic negative written after v5 must NOT be turned manual by a re-run of the migration.
+        conn.execute(
+            "INSERT INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at)
+             VALUES ('auto none', 'hu-HU', 'none', 0, datetime('now','localtime'))",
+            [],
+        )
+        .unwrap();
+
+        migrate_v5(&conn).unwrap();
+        migrate_v5(&conn).unwrap();
+
+        let m: i64 = conn
+            .query_row("SELECT is_manual FROM tmdb_cache WHERE query_title = 'auto none'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(m, 0);
+    }
+
+    #[test]
+    fn test_v5_creates_backup_of_v4_database() {
+        let temp_dir = std::env::temp_dir();
+        let db_path = temp_dir.join("epg_test_mig_v5_backup.db");
+        let bak_v4_path = temp_dir.join("epg_test_mig_v5_backup.db.bak-v4");
+        let bak_v1_path = temp_dir.join("epg_test_mig_v5_backup.db.bak-v1");
+        for p in [&db_path, &bak_v4_path, &bak_v1_path] {
+            let _ = std::fs::remove_file(p);
+        }
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            make_v4_db(&conn);
+            conn.execute(
+                "INSERT INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES ('x', 'hu-HU', 'none', '2020-01-01 00:00:00')",
+                [],
+            )
+            .unwrap();
+            run_migrations(&conn, Some(&db_path)).unwrap();
+        }
+
+        assert!(bak_v4_path.exists(), "v4 backup must exist before the v5 migration");
+        assert!(!bak_v1_path.exists(), "v2 backup must not be created for a v4 database");
+
+        // The backup is the pre-migration state: it has no is_manual column yet.
+        let bak = Connection::open(&bak_v4_path).unwrap();
+        assert!(!column_exists(&bak, "tmdb_cache", "is_manual").unwrap());
+        drop(bak);
+
+        for p in [&db_path, &bak_v4_path, &bak_v1_path] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
+    #[test]
+    fn test_v5_is_additive_old_binary_compatible() {
+        // An "old binary" only knows MIGRATIONS[0..4]; opening a v5 DB must be a no-op for it.
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn, None).unwrap();
+        let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert!(ver as usize >= 4);
+        // The pre-v5 insert shape (no is_manual column mentioned) still works.
+        conn.execute(
+            "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES ('t', 'hu-HU', 'none', datetime('now','localtime'))",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO trakt_http_cache (key, body, etag, fetched_at, ttl_seconds) VALUES ('/k', '{}', NULL, '2026-01-01T00:00:00Z', 60)",
+            [],
+        )
+        .unwrap();
     }
 }

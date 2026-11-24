@@ -15,7 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-fn make_test_state(api_base: String, auth_base: String) -> AppState {
+pub(crate) fn make_test_state(api_base: String, auth_base: String) -> AppState {
     let conn = Connection::open_in_memory().unwrap();
     run_migrations(&conn, None).unwrap();
     let trakt = TraktState::with_bases(&conn, api_base, auth_base);
@@ -26,10 +26,11 @@ fn make_test_state(api_base: String, auth_base: String) -> AppState {
         http,
         http_epg,
         trakt,
+        tmdb: crate::TmdbRuntime::new(),
     }
 }
 
-async fn spawn_mock_server<F>(handler: F) -> String
+pub(crate) async fn spawn_mock_server<F>(handler: F) -> String
 where
     F: Fn(String, String, String) -> (u16, Vec<(String, String)>, String) + Send + Sync + 'static,
 {
@@ -69,7 +70,9 @@ where
                     304 => "Not Modified",
                     400 => "Bad Request",
                     401 => "Unauthorized",
+                    404 => "Not Found",
                     429 => "Too Many Requests",
+                    500 => "Internal Server Error",
                     _ => "Error",
                 };
 
