@@ -1,0 +1,26 @@
+{
+  "latestVersion": "1.0.0",
+  "releases": [
+    {
+      "version": "1.0.0",
+      "pubDate": "2026-11-25T00:00:00Z",
+      "installerFile": "epg-viewer_1.0.0_x64-setup.exe",
+      "sizeBytes": 0,
+      "sha256": "",
+      "changelog": {
+        "hu": [
+          "Első stabil kiadás: XML/GZ EPG műsorújság megjelenítő függőleges és vízszintes nézettel",
+          "TMDB és Trakt.tv integráció (poszterek, leírások, Watchlist, naptár, megtekintési előzmények)",
+          "Automatikus csatornalogó-keresés és duplikátum-kezelés helyi SQLite gyorsítótárral",
+          "Magyar és angol nyelvű felület, beállítások és csatornaadatok exportálása/importálása"
+        ],
+        "en": [
+          "Initial stable release: XML/GZ EPG TV guide viewer with vertical and horizontal layouts",
+          "TMDB and Trakt.tv integration (posters, descriptions, Watchlist, calendar, watch history)",
+          "Automatic channel logo matching and deduplication with local SQLite image cache",
+          "Hungarian and English UI with settings and channel data export/import"
+        ]
+      }
+    }
+  ]
+}

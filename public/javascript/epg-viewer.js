@@ -30,6 +30,7 @@ import {
 import { initTmdb } from "./tmdb/tmdb.js";
 import { initModal } from "./application/modal.js";
 import { initSettings } from "./application/settings.js";
+import { scheduleStartupUpdateCheck } from "./application/updater.js";
 import { initTraktUI } from "./trakt/trakt-ui.js";
 
 function initHeaderScroll() {
@@ -181,6 +182,8 @@ async function init() {
     document.getElementById("status").textContent = t("status_ready");
     renderEmptySourcesState();
   }
+
+  scheduleStartupUpdateCheck();
 }
 
 if (document.readyState === "loading") {

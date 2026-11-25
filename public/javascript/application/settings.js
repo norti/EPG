@@ -20,6 +20,7 @@ import {
 } from "./channels.js";
 import { loadSettingsTab as loadTraktSettingsTab } from "../trakt/trakt-ui.js";
 import { clearTraktImageCaches } from "../trakt/trakt-dashboard.js";
+import { initUpdater, loadAboutTab } from "./updater.js";
 
 export function switchSettingsTab(tabName) {
   document.querySelectorAll(".settings-nav-item").forEach((btn) => {
@@ -54,6 +55,9 @@ export function switchSettingsTab(tabName) {
     document.getElementById("tabPaneExport").classList.add("active");
     updateCacheSectionStats();
     updateDatabaseStats();
+  } else if (tabName === "about") {
+    document.getElementById("tabPaneAbout").classList.add("active");
+    loadAboutTab();
   }
 }
 
@@ -538,6 +542,7 @@ export function initSettings() {
   initSettingsExportHandlers();
   initChannelExportImportHandlers();
   initCacheClearHandlers();
+  initUpdater();
 
   const maintainDatabaseBtn = document.getElementById("maintainDatabaseBtn");
   if (maintainDatabaseBtn) {

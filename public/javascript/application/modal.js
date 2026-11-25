@@ -3,6 +3,7 @@ import { t } from "./i18n.js";
 import { iconHtml } from "./ui.js";
 import { toggleFavorite } from "./favorites.js";
 import { closeSettingsModal } from "./settings.js";
+import { closeUpdateModal } from "./updater.js";
 import {
   hidePosterZoom,
   resetModalTmdbUi,
@@ -119,6 +120,8 @@ export function initModal() {
         } else if (overlay.id === "settingsOverlay") {
           closeFixOverlay();
           closeSettingsModal();
+        } else if (overlay.id === "updateAvailableOverlay") {
+          closeUpdateModal();
         } else {
           closeFixOverlay();
           overlay.classList.remove("active");

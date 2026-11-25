@@ -2,6 +2,7 @@
 
 mod migrations;
 mod trakt;
+mod updater;
 #[cfg(test)]
 mod tmdb_tests;
 
@@ -103,6 +104,7 @@ pub struct AppState {
     pub stats: RequestStats,
     /// Coalesces concurrent image/logo downloads sharing the same URL.
     pub image_inflight: trakt::client::SharedInflightMap<Result<String, String>>,
+    pub updater: updater::UpdaterState,
 }
 
 /// Runtime settings of the TMDB layer. The base URL is injectable so tests can point it at a mock server.
@@ -3498,6 +3500,7 @@ pub(crate) fn is_internal_or_protected_setting_key(key: &str) -> bool {
         || key.starts_with("google_secure_")
         || key.starts_with("lng_hash_")
         || key.starts_with("migration_")
+        || key.starts_with("update_")
 }
 
 pub(crate) fn export_settings_from_conn(conn: &Connection) -> Result<BackupData, String> {
@@ -6044,6 +6047,7 @@ fn main() {
     });
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("epgimg", move |_ctx, request, responder| {
             let sha = request.uri().path().trim_start_matches('/').to_string();
             let conn_opt = images_ro_conn.clone();
@@ -6090,6 +6094,7 @@ fn main() {
             tmdb: TmdbRuntime::new(),
             stats: RequestStats::default(),
             image_inflight: std::sync::Mutex::new(HashMap::new()),
+            updater: updater::UpdaterState::default(),
         })
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -6183,6 +6188,9 @@ fn main() {
             get_request_stats,
             reset_request_stats,
             open_url,
+            updater::get_app_about_info,
+            updater::check_for_updates,
+            updater::install_available_update,
             trakt::commands::trakt_get_auth_status,
             trakt::commands::trakt_start_login,
             trakt::commands::trakt_cancel_login,
@@ -7700,6 +7708,12 @@ mod tests {
         assert!(cache_logo_inner(&state, bad_url.clone()).await.is_err());
         assert!(cache_logo_inner(&state, bad_url.clone()).await.is_err());
         assert_eq!(err_hits.load(Ordering::SeqCst), 1, "403 logo must be served from negative cache on retry");
+    }
+
+    #[test]
+    fn test_update_setting_key_is_protected() {
+        assert!(is_internal_or_protected_setting_key(updater::SETTING_LAST_CHECKED_AT));
+        assert!(!is_internal_or_protected_setting_key("language"));
     }
 }
 

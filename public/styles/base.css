@@ -5243,3 +5243,265 @@ body.trakt-mode #epgViewport {
   font-size: 10px;
   color: var(--text-disabled);
 }
+
+/* ==========================================================================
+   Settings About Tab & Update Modal
+   ========================================================================== */
+
+.settings-nav-item--bottom {
+  margin-top: auto;
+  border-top: 1px solid var(--border-divider);
+  padding-top: 12px;
+}
+
+.about-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.about-info-card,
+.about-changelog-card {
+  background: var(--bg-modal);
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.about-changelog-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.about-meta-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.about-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.about-meta-label {
+  min-width: 110px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.about-meta-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.about-version-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--accent-green-tint);
+  border: 1px solid var(--accent-green-border-alpha);
+  color: var(--accent-green-active);
+}
+
+.about-repo-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--accent-blue-text-soft);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.about-repo-link:hover {
+  color: var(--accent-blue-border);
+  text-decoration: underline;
+}
+
+.about-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-divider);
+}
+
+.about-actions-row .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.about-changelog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-divider);
+}
+
+.about-changelog-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.about-changelog-meta {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.about-changelog-list {
+  margin: 0;
+  padding-left: 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.about-changelog-empty {
+  list-style: none;
+  margin-left: -20px;
+  color: var(--text-dim);
+}
+
+#updateAvailableOverlay {
+  z-index: var(--z-confirm);
+}
+
+.update-modal-card {
+  width: 540px;
+  max-width: 92vw;
+}
+
+.update-modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.update-version-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-green-tint);
+  border: 1px solid var(--accent-green-border-alpha);
+  color: var(--accent-green-active);
+}
+
+.update-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.update-meta-line {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.update-changelog-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-panel-sub);
+  border: 1px solid var(--border-card);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.update-release-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.update-release-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.update-release-date {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.update-release-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.update-progress-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.update-progress-box .logo-progress-bar {
+  margin-bottom: 0;
+}
+
+.update-progress-text {
+  font-size: 12px;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.update-error-box {
+  font-size: 12px;
+  color: var(--accent-red-light);
+  background: var(--accent-red-tint);
+  border: 1px solid var(--accent-red-border-alpha);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+#updateInstallBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+

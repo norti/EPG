@@ -20,6 +20,8 @@ src-tauri/gen/
 *.log
 TODO/
 .addons/
+cloudflare-worker/
+scripts/
 .antigravityignore
 eslint.config.mjs
 

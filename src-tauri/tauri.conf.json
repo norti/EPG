@@ -23,6 +23,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
@@ -31,5 +32,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMwOERGMjkwMTI3MzIxOUIKUldTYklYTVNrUEtOd01XZUdjaGpueENpYWdZREl5a1M5MFpPKzhaWGlWV2o2aDNOR1kyL285R1oK",
+      "endpoints": [
+        "https://epg.norti.workers.dev/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

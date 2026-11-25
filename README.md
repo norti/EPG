@@ -2,6 +2,11 @@
 
 Under development...
 
+## Letöltés / Download (Windows x64)
+
+- **[Legfrissebb telepítő letöltése (Windows x64)](https://epg.norti.workers.dev/download/latest)** *(Cloudflare R2)*
+- **[Változásnapló / Changelog](CHANGELOG.md)** · **[Kiadások / Releases](https://github.com/norti/epg-viewer/releases)**
+
 ![](screenshots/epg-viewer_2K4EUzkr3W.jpg)
 ![](screenshots/epg-viewer_wd86r74dtW.png)
 ![](screenshots/epg-viewer_lv7GYArIR7.png)

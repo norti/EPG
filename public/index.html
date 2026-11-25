@@ -429,6 +429,10 @@
               <span data-icon="arrows-exchange" data-icon-size="16"></span>
               <span data-i18n="tab_export">Exportálás / Importálás</span>
             </div>
+            <div class="settings-nav-item settings-nav-item--bottom" data-tab="about">
+              <span data-icon="info-circle" data-icon-size="16"></span>
+              <span data-i18n="tab_about">Névjegy</span>
+            </div>
           </div>
 
           <div class="settings-content-area">
@@ -1163,6 +1167,49 @@
                 </div>
               </div>
             </div>
+
+            <!-- 6. NÉVJEGY / ABOUT TAB -->
+            <div class="settings-tab-pane" id="tabPaneAbout">
+              <div class="about-header-row">
+                <h3 data-i18n="about_heading">Névjegy és frissítések</h3>
+              </div>
+
+              <div class="about-info-card">
+                <div class="about-meta-grid">
+                  <div class="about-meta-row">
+                    <span class="about-meta-label" data-i18n="about_author_label">Készítette:</span>
+                    <span class="about-meta-value" id="aboutAuthorValue">norti</span>
+                  </div>
+                  <div class="about-meta-row">
+                    <span class="about-meta-label" data-i18n="about_version_label">Verzió:</span>
+                    <span class="about-version-badge" id="aboutVersionValue">-</span>
+                  </div>
+                  <div class="about-meta-row">
+                    <span class="about-meta-label" data-i18n="about_repo_label">GitHub repó:</span>
+                    <button type="button" class="about-repo-link" id="aboutRepoLinkBtn">
+                      <span data-icon="link" data-icon-size="14"></span>
+                      <span id="aboutRepoUrlText">https://github.com/norti/epg-viewer</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="about-actions-row">
+                  <button type="button" class="btn btn-blue" id="checkUpdatesBtn">
+                    <span data-icon="refresh" data-icon-size="15"></span>
+                    <span data-i18n="about_check_updates">Frissítések keresése</span>
+                  </button>
+                  <span id="aboutUpdateStatus" class="export-import-status u-hidden"></span>
+                </div>
+              </div>
+
+              <div class="about-changelog-card">
+                <div class="about-changelog-header">
+                  <h4 data-i18n="about_latest_changelog">Utolsó változásnapló</h4>
+                  <span class="about-changelog-meta" id="aboutChangelogMeta"></span>
+                </div>
+                <ul class="about-changelog-list custom-scroll" id="aboutChangelogList"></ul>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1361,6 +1408,39 @@
       <div class="jump-progress-card">
         <span class="spinner-small"></span>
         <span id="epgJumpOverlayText" data-i18n="trakt_jumping_to_epg">Ugrás a műsorhoz az EPG-ben...</span>
+      </div>
+    </div>
+
+    <!-- FRISSÍTÉS ELÉRHETŐ MODAL -->
+    <div class="modal-overlay" id="updateAvailableOverlay">
+      <div class="custom-dialog-card update-modal-card">
+        <div class="custom-dialog-header">
+          <div class="update-modal-title-group">
+            <span class="custom-dialog-title" data-i18n="update_modal_title">Új frissítés érhető el</span>
+            <span class="update-version-pill" id="updateVersionPill"></span>
+          </div>
+          <button class="modal-close" id="updateModalClose"><span data-icon="x" data-icon-size="18"></span></button>
+        </div>
+        <div class="custom-dialog-body update-modal-body">
+          <div class="update-meta-line" id="updateMetaLine"></div>
+          <div class="update-changelog-scroll custom-scroll" id="updateChangelogContainer"></div>
+          <div class="update-progress-box u-hidden" id="updateProgressBox">
+            <div class="logo-progress-bar">
+              <div class="logo-progress-fill" id="updateProgressFill"></div>
+            </div>
+            <div class="update-progress-text" id="updateProgressText"></div>
+          </div>
+          <div class="update-error-box u-hidden" id="updateErrorBox"></div>
+        </div>
+        <div class="custom-dialog-actions">
+          <button type="button" class="btn btn-blue" id="updateLaterBtn" data-i18n="btn_later">
+            Később
+          </button>
+          <button type="button" class="btn btn-green" id="updateInstallBtn">
+            <span data-icon="download" data-icon-size="15"></span>
+            <span data-i18n="btn_download_install">Letöltés és telepítés</span>
+          </button>
+        </div>
       </div>
     </div>
 
