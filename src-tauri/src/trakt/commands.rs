@@ -3,16 +3,18 @@ use crate::trakt::auth::{
     DeviceCodeResponse, TraktAuthStatus,
 };
 use crate::trakt::calendar::{
-    fetch_and_cache_global_calendar, fetch_and_cache_my_calendar, query_calendar_episodes,
-    query_global_calendar_merged, CalendarEpisodeItem,
+    fetch_and_cache_global_calendar, fetch_and_cache_my_calendar, load_global_calendar_filters,
+    query_calendar_episodes, query_global_calendar_merged, save_global_calendar_filters,
+    CalendarEpisodeItem, GlobalCalendarFilters,
 };
 use crate::trakt::client::{trakt_get_cached, trakt_post};
 use crate::trakt::matcher::{match_titles, rebuild_title_index};
 use crate::trakt::secret::default_secret_store;
 use crate::trakt::sync::{
     enrich_missing_history_posters, get_sync_runtime_state, get_sync_state_val, is_sync_overdue,
-    mark_sync_done, request_sync_cancel, resolve_calendar_start, resolve_force, run_manual_sync,
-    run_sync, sync_show_progress, SyncSummary,
+    mark_sync_done, maybe_record_mark_watched_activity, request_sync_cancel,
+    resolve_calendar_start, resolve_force, run_manual_sync, run_sync, sync_show_progress,
+    SyncSummary,
 };
 use crate::trakt::{is_trakt_enabled, iso_utc_to_epoch, now_epoch_millis, now_epoch_secs, now_iso_utc};
 use crate::{
@@ -674,6 +676,10 @@ pub async fn trakt_mark_watched(
         }
     }
 
+    if !queued && outcome == HistoryPostOutcome::Added {
+        maybe_record_mark_watched_activity(state.inner(), Some(&app), media_type).await;
+    }
+
     Ok(MarkWatchedResult {
         queued,
         watched_at: ts,
@@ -1072,6 +1078,10 @@ pub async fn trakt_get_show_seasons_progress(
             };
 
             let season_json_opt = if let Some(body) = cached_body {
+                state
+                    .stats
+                    .tmdb_cache_hit
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 serde_json::from_str::<TmdbSeasonApi>(&body).ok()
             } else {
                 // The batched prefetch above did not deliver this season: single request as a fallback.
@@ -1249,6 +1259,24 @@ pub async fn trakt_get_calendar_global(
 }
 
 #[tauri::command]
+pub async fn trakt_get_global_calendar_filters(
+    state: tauri::State<'_, AppState>,
+) -> Result<GlobalCalendarFilters, String> {
+    let conn = state.db.lock().await;
+    Ok(load_global_calendar_filters(&conn))
+}
+
+#[tauri::command]
+pub async fn trakt_set_global_calendar_filters(
+    state: tauri::State<'_, AppState>,
+    countries: String,
+    languages: String,
+) -> Result<GlobalCalendarFilters, String> {
+    let conn = state.db.lock().await;
+    save_global_calendar_filters(&conn, &countries, &languages)
+}
+
+#[tauri::command]
 pub async fn trakt_match_titles(
     state: tauri::State<'_, AppState>,
     raw_titles: Vec<String>,
@@ -1390,6 +1418,32 @@ pub async fn trakt_get_stats(
     })
 }
 
+pub(crate) fn clear_trakt_cache_db(conn: &mut rusqlite::Connection) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM trakt_cache", []).ok();
+    tx.execute("DELETE FROM trakt_watchlist_cache", []).ok();
+    tx.execute("DELETE FROM trakt_history_cache", []).ok();
+    tx.execute("DELETE FROM trakt_calendar_cache", []).ok();
+    tx.execute("DELETE FROM trakt_episodes", []).ok();
+    tx.execute("DELETE FROM trakt_show_progress", []).ok();
+    tx.execute("DELETE FROM trakt_show_fp", []).ok();
+    tx.execute("DELETE FROM trakt_http_cache", []).ok();
+    tx.execute(
+        "DELETE FROM trakt_sync_state WHERE key IN (
+            'last_activities',
+            'last_sync_ok_at',
+            'watched_shows_synced_v1',
+            'continue_watching_premiered_v1',
+            'history_dirty',
+            'watched_full_sync_at',
+            'history_cursor_at'
+        )",
+        [],
+    )
+    .ok();
+    tx.commit().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn trakt_clear_cache(
     state: tauri::State<'_, AppState>,
@@ -1397,20 +1451,7 @@ pub async fn trakt_clear_cache(
 ) -> Result<(), String> {
     {
         let mut conn = state.db.lock().await;
-        let tx = conn.transaction().map_err(|e| e.to_string())?;
-        tx.execute("DELETE FROM trakt_cache", []).ok();
-        tx.execute("DELETE FROM trakt_watchlist_cache", []).ok();
-        tx.execute("DELETE FROM trakt_history_cache", []).ok();
-        tx.execute("DELETE FROM trakt_calendar_cache", []).ok();
-        tx.execute("DELETE FROM trakt_episodes", []).ok();
-        tx.execute("DELETE FROM trakt_show_progress", []).ok();
-        tx.execute("DELETE FROM trakt_http_cache", []).ok();
-        tx.execute(
-            "DELETE FROM trakt_sync_state WHERE key IN ('last_activities', 'last_sync_ok_at')",
-            [],
-        )
-        .ok();
-        tx.commit().map_err(|e| e.to_string())?;
+        clear_trakt_cache_db(&mut conn)?;
     }
 
     let new_ver = rebuild_title_index(state.inner()).await;

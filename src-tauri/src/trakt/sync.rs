@@ -1,6 +1,6 @@
 use crate::trakt::auth::{ensure_valid_token, fetch_and_save_profile};
 use crate::trakt::calendar::fetch_and_cache_my_calendar;
-use crate::trakt::client::{trakt_get_cached, trakt_get_raw, trakt_post, TraktApiError};
+use crate::trakt::client::{trakt_get_cached, trakt_get_revalidated, trakt_post, TraktApiError};
 use crate::trakt::matcher::rebuild_title_index;
 use crate::trakt::{is_trakt_enabled, iso_utc_to_epoch, now_epoch_secs, now_iso_utc};
 use crate::{get_tmdb_api_key_from_state, get_tmdb_by_id, AppState};
@@ -56,10 +56,12 @@ struct ActivitySection {
     watchlisted_at: Option<String>,
     #[serde(default)]
     rated_at: Option<String>,
-    /// Only present on `shows`: last change of the hidden lists. Absent => the hidden list is refreshed
-    /// whenever the history changed (old behaviour).
+    /// Only present on `shows`: last change of the hidden/dropped lists. Absent => the hidden list
+    /// is refreshed whenever the history changed (old behaviour).
     #[serde(default)]
     hidden_at: Option<String>,
+    #[serde(default)]
+    dropped_at: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -678,6 +680,7 @@ pub async fn run_sync(
     let _sync_guard = state.trakt.sync_lock.lock().await;
     state.trakt.sync_cancel.store(false, Ordering::SeqCst);
     let _runtime_guard = SyncRuntimeResetGuard(state);
+    let stats_before = state.stats.snapshot();
 
     let (enabled, last_ok_prev) = {
         let conn = state.db.lock().await;
@@ -765,7 +768,7 @@ pub async fn run_sync(
         last_ok_prev.as_deref(),
         None,
     );
-    let act_resp = match trakt_get_raw(state, app, "/sync/last_activities", true).await {
+    let act_resp = match trakt_get_revalidated(state, app, "/sync/last_activities", true).await {
         Ok(r) => r,
         Err(e) => {
             let status = if e.is_transient() { "offline" } else { "error" };
@@ -861,7 +864,7 @@ pub async fn run_sync(
         if is_sync_cancelled(state) {
             return make_cancelled(wl_done, false, false, pending_flushed);
         }
-        if let Err(e) = sync_watched_shows(state, app).await {
+        if let Err(e) = sync_watched_shows_smart(state, app, force || history_dirty || !watched_shows_synced).await {
             update_and_emit_sync_state(state, app, "error", "", 0, 0, force, last_ok_prev.as_deref(), Some(&e));
             return Err(e);
         }
@@ -903,21 +906,29 @@ pub async fn run_sync(
     }
 
     let fresh_hidden_at = activities.shows.as_ref().and_then(|s| s.hidden_at.clone());
+    let fresh_dropped_at = activities.shows.as_ref().and_then(|s| s.dropped_at.clone());
     let stored_hidden_at = stored_act
         .as_ref()
         .and_then(|s| s.shows.as_ref())
         .and_then(|s| s.hidden_at.clone());
-    // `shows.hidden_at` in last_activities tells whether the hidden list changed; without it the list is
-    // re-read whenever the history changed (old behaviour, served by the 1 h cache).
+    let stored_dropped_at = stored_act
+        .as_ref()
+        .and_then(|s| s.shows.as_ref())
+        .and_then(|s| s.dropped_at.clone());
+    let has_hidden_stamps = fresh_hidden_at.is_some() || fresh_dropped_at.is_some();
+    let hidden_stamps_changed =
+        stored_hidden_at != fresh_hidden_at || stored_dropped_at != fresh_dropped_at;
+    // `shows.hidden_at` / `shows.dropped_at` in last_activities tell whether the hidden list changed;
+    // without them the list is re-read whenever the history changed (old behaviour, served by the 1 h cache).
     let hidden_refresh = if !cw_synced {
         true
-    } else if fresh_hidden_at.is_some() {
-        force || stored_hidden_at != fresh_hidden_at
+    } else if has_hidden_stamps {
+        force || hidden_stamps_changed
     } else {
         hist_changed
     };
     if hidden_refresh {
-        let bypass_cache = force || (fresh_hidden_at.is_some() && stored_hidden_at != fresh_hidden_at);
+        let bypass_cache = force || (has_hidden_stamps && hidden_stamps_changed);
         // A failed or cancelled request keeps the stored flags: an incomplete list would un-hide shows.
         if let Ok(hidden_ids) = fetch_hidden_progress_show_ids(state, app, bypass_cache).await {
             if !is_sync_cancelled(state) {
@@ -935,7 +946,9 @@ pub async fn run_sync(
                     );
                 }
                 save_activity_stage(&conn, |cur| {
-                    cur.shows.get_or_insert_default().hidden_at = fresh_hidden_at.clone();
+                    let shows = cur.shows.get_or_insert_default();
+                    shows.hidden_at = fresh_hidden_at.clone();
+                    shows.dropped_at = fresh_dropped_at.clone();
                 });
             }
         }
@@ -1007,6 +1020,19 @@ pub async fn run_sync(
 
     update_and_emit_sync_state(state, app, "idle", "", 0, 0, force, Some(&now_ok), None);
 
+    let stats_delta = state.stats.snapshot().diff(&stats_before);
+    eprintln!(
+        "[TraktSync] trakt_net={} trakt_304={} trakt_cache={} trakt_post={} trakt_429={} tmdb_net={} tmdb_cache={} tmdb_429={}",
+        stats_delta.trakt_net,
+        stats_delta.trakt_304,
+        stats_delta.trakt_cache_hit,
+        stats_delta.trakt_post,
+        stats_delta.trakt_429,
+        stats_delta.tmdb_net,
+        stats_delta.tmdb_cache_hit,
+        stats_delta.tmdb_429,
+    );
+
     Ok(SyncSummary {
         watchlist_updated: wl_changed,
         history_updated: hist_changed,
@@ -1036,7 +1062,7 @@ pub async fn sync_watchlist(
             "/sync/watchlist/all/added/desc?extended=full&page={}&limit=200",
             page
         );
-        let resp = trakt_get_raw(state, app, &path, true)
+        let resp = trakt_get_revalidated(state, app, &path, true)
             .await
             .map_err(|e| e.to_user_string())?;
 
@@ -1263,7 +1289,7 @@ pub async fn sync_watchlist(
 }
 
 pub async fn sync_history(state: &AppState) -> Result<(), String> {
-    let resp = trakt_get_raw(state, None, "/users/me/history/?page=1&limit=30", true)
+    let resp = trakt_get_revalidated(state, None, "/users/me/history/?page=1&limit=30", true)
         .await
         .map_err(|e| e.to_user_string())?;
 
@@ -1405,7 +1431,7 @@ pub async fn sync_watched_shows(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
 ) -> Result<(), String> {
-    let resp = trakt_get_raw(state, app, "/sync/watched/shows", true)
+    let resp = trakt_get_revalidated(state, app, "/sync/watched/shows", true)
         .await
         .map_err(|e| e.to_user_string())?;
 
@@ -1614,8 +1640,218 @@ pub async fn sync_watched_shows(
     tx.execute("DELETE FROM trakt_http_cache WHERE key LIKE '/users/%/stats'", [])
         .ok();
 
+    let latest_watched: Option<String> = tx
+        .query_row(
+            "SELECT MAX(watched_at) FROM trakt_episodes WHERE watched_at IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .ok()
+        .flatten();
+    let _ = set_sync_state_val(&tx, "watched_full_sync_at", &now);
+    let _ = set_sync_state_val(
+        &tx,
+        "history_cursor_at",
+        latest_watched.as_deref().unwrap_or(&now),
+    );
+
     tx.commit().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Full `/sync/watched/shows` reconciliation runs at least once a week so episodes unwatched on
+/// another device (or show resets) are cleaned up. In between, incremental `/sync/history/episodes`
+/// avoids downloading the entire watched library on every single episode mark.
+pub(crate) const WATCHED_FULL_SYNC_INTERVAL_SECS: i64 = 7 * 86_400;
+const INCREMENTAL_HISTORY_OVERLAP_SECS: i64 = 60;
+const INCREMENTAL_HISTORY_MAX_PAGES: u32 = 5;
+
+enum IncrementalOutcome {
+    Done,
+    FallbackToFull,
+}
+
+async fn sync_watched_shows_incremental(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+    cursor_iso: &str,
+) -> Result<IncrementalOutcome, String> {
+    let Some(cursor_epoch) = iso_utc_to_epoch(cursor_iso) else {
+        return Ok(IncrementalOutcome::FallbackToFull);
+    };
+    let start_at = crate::trakt::epoch_to_iso_utc(
+        cursor_epoch.saturating_sub(INCREMENTAL_HISTORY_OVERLAP_SECS),
+    );
+
+    let mut page = 1u32;
+    let mut collected: Vec<TraktHistoryEntry> = Vec::new();
+    loop {
+        if is_sync_cancelled(state) {
+            return Ok(IncrementalOutcome::Done);
+        }
+        let path = format!(
+            "/sync/history/episodes?start_at={}&page={}&limit=100",
+            start_at, page
+        );
+        let resp = match trakt_get_revalidated(state, app, &path, true).await {
+            Ok(r) => r,
+            Err(err) if err.is_transient() => return Err(err.to_user_string()),
+            // Non-transient error (e.g. unsupported endpoint / 404) -> fall back safely to full sync.
+            Err(_) => return Ok(IncrementalOutcome::FallbackToFull),
+        };
+        let entries: Vec<TraktHistoryEntry> = match serde_json::from_str(&resp.body) {
+            Ok(e) => e,
+            Err(_) => return Ok(IncrementalOutcome::FallbackToFull),
+        };
+        if entries.is_empty() {
+            break;
+        }
+        let total_pages = resp.page_count.unwrap_or(1);
+        if total_pages > INCREMENTAL_HISTORY_MAX_PAGES {
+            return Ok(IncrementalOutcome::FallbackToFull);
+        }
+        collected.extend(entries);
+        if page >= total_pages {
+            break;
+        }
+        page += 1;
+    }
+
+    let now = now_iso_utc();
+    let mut conn = state.db.lock().await;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+
+    let mut affected_shows: HashSet<i64> = HashSet::new();
+    let mut newest_watched: Option<String> = None;
+
+    {
+        let mut ep_stmt = tx
+            .prepare(
+                "INSERT INTO trakt_episodes (show_trakt_id, season, episode, episode_trakt_id, title, watched_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(show_trakt_id, season, episode) DO UPDATE SET
+                    episode_trakt_id = COALESCE(excluded.episode_trakt_id, trakt_episodes.episode_trakt_id),
+                    title = COALESCE(excluded.title, trakt_episodes.title),
+                    watched_at = CASE
+                        WHEN trakt_episodes.watched_at IS NULL OR excluded.watched_at > trakt_episodes.watched_at
+                            THEN excluded.watched_at
+                        ELSE trakt_episodes.watched_at
+                    END,
+                    updated_at = excluded.updated_at",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let mut show_stmt = tx
+            .prepare(
+                "INSERT INTO trakt_cache (
+                    media_type, trakt_id, tmdb_id, imdb_id, slug, title, year, not_found, updated_at
+                ) VALUES ('show', ?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)
+                ON CONFLICT(media_type, trakt_id) DO UPDATE SET
+                    tmdb_id = COALESCE(excluded.tmdb_id, trakt_cache.tmdb_id),
+                    imdb_id = COALESCE(excluded.imdb_id, trakt_cache.imdb_id),
+                    slug = COALESCE(excluded.slug, trakt_cache.slug),
+                    title = COALESCE(NULLIF(excluded.title, ''), trakt_cache.title),
+                    year = COALESCE(excluded.year, trakt_cache.year),
+                    not_found = 0",
+            )
+            .map_err(|e| e.to_string())?;
+
+        for entry in &collected {
+            let (Some(ep), Some(show)) = (entry.episode.as_ref(), entry.show.as_ref()) else {
+                continue;
+            };
+            let show_id = show.ids.trakt;
+            affected_shows.insert(show_id);
+            if newest_watched
+                .as_deref()
+                .is_none_or(|cur| entry.watched_at.as_str() > cur)
+            {
+                newest_watched = Some(entry.watched_at.clone());
+            }
+            let _ = ep_stmt.execute(params![
+                show_id,
+                ep.season,
+                ep.number,
+                ep.ids.trakt,
+                ep.title,
+                entry.watched_at,
+                now,
+            ]);
+            let _ = show_stmt.execute(params![
+                show_id,
+                show.ids.tmdb,
+                show.ids.imdb,
+                show.ids.slug,
+                show.title,
+                show.year,
+                now,
+            ]);
+        }
+    }
+
+    // Recompute fingerprints ONLY for the shows touched by the incremental delta.
+    for show_id in affected_shows {
+        let (cnt, max_w): (i64, Option<String>) = tx
+            .query_row(
+                "SELECT COUNT(*), MAX(watched_at)
+                 FROM trakt_episodes
+                 WHERE show_trakt_id = ?1 AND watched_at IS NOT NULL",
+                params![show_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap_or((0, None));
+        if cnt > 0 {
+            let fp = watched_fingerprint(cnt as usize, max_w.as_deref());
+            let _ = tx.execute(
+                "INSERT INTO trakt_show_fp (show_trakt_id, seen_fp, synced_fp, updated_at)
+                 VALUES (?1, ?2, NULL, ?3)
+                 ON CONFLICT(show_trakt_id) DO UPDATE SET
+                    seen_fp = excluded.seen_fp,
+                    updated_at = excluded.updated_at",
+                params![show_id, fp, now],
+            );
+        }
+    }
+
+    if let Some(ref ts) = newest_watched {
+        let _ = set_sync_state_val(&tx, "history_cursor_at", ts);
+    }
+    tx.execute("DELETE FROM trakt_http_cache WHERE key LIKE '/users/%/stats'", [])
+        .ok();
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(IncrementalOutcome::Done)
+}
+
+pub async fn sync_watched_shows_smart(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+    force_full: bool,
+) -> Result<(), String> {
+    if !force_full {
+        let (full_at, cursor_at) = {
+            let conn = state.db.lock().await;
+            (
+                get_sync_state_val(&conn, "watched_full_sync_at"),
+                get_sync_state_val(&conn, "history_cursor_at"),
+            )
+        };
+        let full_fresh = full_at
+            .as_deref()
+            .and_then(iso_utc_to_epoch)
+            .is_some_and(|ep| now_epoch_secs() - ep < WATCHED_FULL_SYNC_INTERVAL_SECS);
+        if full_fresh {
+            if let Some(cursor) = cursor_at {
+                if matches!(
+                    sync_watched_shows_incremental(state, app, &cursor).await?,
+                    IncrementalOutcome::Done
+                ) {
+                    return Ok(());
+                }
+            }
+        }
+    }
+    sync_watched_shows(state, app).await
 }
 
 async fn fetch_hidden_progress_show_ids(
@@ -1664,6 +1900,54 @@ fn save_activity_stage(conn: &Connection, update: impl FnOnce(&mut LastActivitie
     if let Ok(json) = serde_json::to_string(&cur) {
         let _ = set_sync_state_val(conn, "last_activities", &json);
     }
+}
+
+/// Optional (off by default, `settings.trakt_skip_next_history_sync_after_mark = 'true'`):
+/// After a confirmed local `mark_watched`, fetches `/sync/last_activities` and advances only the
+/// corresponding watched stamp so the next background sync can skip the history branch.
+/// Trade-off: changes made on another device in the same time window will wait until the next change.
+pub(crate) async fn maybe_record_mark_watched_activity(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+    media_type: &str,
+) {
+    let should_skip = {
+        let conn = state.db.lock().await;
+        let flag: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'trakt_skip_next_history_sync_after_mark'",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        let enabled = matches!(flag.as_deref(), Some("true") | Some("1"));
+        let has_prev = get_sync_state_val(&conn, "last_activities").is_some();
+        enabled && has_prev
+    };
+    if !should_skip {
+        return;
+    }
+
+    let Ok(resp) = trakt_get_revalidated(state, app, "/sync/last_activities", true).await else {
+        return;
+    };
+    let Ok(activities) = serde_json::from_str::<LastActivities>(&resp.body) else {
+        return;
+    };
+    let conn = state.db.lock().await;
+    save_activity_stage(&conn, |cur| match media_type {
+        "episode" => {
+            if let Some(ts) = activities.episodes.as_ref().and_then(|e| e.watched_at.clone()) {
+                cur.episodes.get_or_insert_default().watched_at = Some(ts);
+            }
+        }
+        "movie" => {
+            if let Some(ts) = activities.movies.as_ref().and_then(|m| m.watched_at.clone()) {
+                cur.movies.get_or_insert_default().watched_at = Some(ts);
+            }
+        }
+        _ => {}
+    });
 }
 
 async fn enrich_missing_continue_watching_tmdb(state: &AppState) {

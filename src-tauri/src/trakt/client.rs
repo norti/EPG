@@ -4,6 +4,7 @@ use crate::AppState;
 use rusqlite::params;
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{watch, Mutex};
@@ -311,13 +312,26 @@ where
     }
 }
 
+#[cfg(test)]
 pub async fn trakt_get_raw(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
     path: &str,
     use_auth: bool,
 ) -> Result<TraktHttpResponse, TraktApiError> {
-    trakt_get_with_ttl(state, app, path, use_auth, 0, false).await
+    trakt_get_with_ttl(state, app, path, use_auth, 0, false, false).await
+}
+
+/// Always contacts Trakt (never serves stale/cached data without revalidation), but sends
+/// `If-None-Match` when a previous answer supplied an `ETag` so unchanged payloads return `304`.
+/// Endpoints that do not return an `ETag` behave identically to `trakt_get_raw`.
+pub async fn trakt_get_revalidated(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+    path: &str,
+    use_auth: bool,
+) -> Result<TraktHttpResponse, TraktApiError> {
+    trakt_get_with_ttl(state, app, path, use_auth, 0, false, true).await
 }
 
 pub async fn trakt_get_cached(
@@ -330,7 +344,7 @@ pub async fn trakt_get_cached(
 ) -> Result<TraktHttpResponse, TraktApiError> {
     single_flight(&state.trakt.inflight, path, |waited| {
         let effective_force = if waited { false } else { force_refresh };
-        trakt_get_with_ttl(state, app, path, use_auth, ttl_seconds, effective_force)
+        trakt_get_with_ttl(state, app, path, use_auth, ttl_seconds, effective_force, false)
     })
     .await
 }
@@ -342,12 +356,13 @@ async fn trakt_get_with_ttl(
     use_auth: bool,
     ttl_seconds: i64,
     force_refresh: bool,
+    revalidate_only: bool,
 ) -> Result<TraktHttpResponse, TraktApiError> {
     let (enabled, client_id, cached_entry) = {
         let conn = state.db.lock().await;
         let en = is_trakt_enabled(&conn);
         let cid = get_client_id(&conn);
-        let cached = if ttl_seconds > 0 {
+        let cached = if ttl_seconds > 0 || revalidate_only {
             read_http_cache(&conn, path)
         } else {
             None
@@ -359,9 +374,10 @@ async fn trakt_get_with_ttl(
         return Err(TraktApiError::Disabled);
     }
 
-    if !force_refresh {
+    if !force_refresh && !revalidate_only {
         if let Some(ref entry) = cached_entry {
             if is_cache_fresh(entry) {
+                state.stats.trakt_cache_hit.fetch_add(1, Ordering::Relaxed);
                 return Ok(TraktHttpResponse {
                     status: 200,
                     body: entry.body.clone(),
@@ -419,6 +435,7 @@ async fn trakt_get_with_ttl(
         let resp = match req.send().await {
             Ok(r) => r,
             Err(e) => {
+                state.stats.trakt_net.fetch_add(1, Ordering::Relaxed);
                 if retries < 1 {
                     retries += 1;
                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -431,6 +448,7 @@ async fn trakt_get_with_ttl(
         let status = resp.status().as_u16();
 
         if status == 304 {
+            state.stats.trakt_304.fetch_add(1, Ordering::Relaxed);
             if let Some(ref entry) = cached_entry {
                 let conn = state.db.lock().await;
                 touch_http_cache(&conn, path, ttl_seconds);
@@ -441,6 +459,8 @@ async fn trakt_get_with_ttl(
                     from_cache: true,
                 });
             }
+        } else {
+            state.stats.trakt_net.fetch_add(1, Ordering::Relaxed);
         }
 
         if status == 401 && use_auth && !refreshed_once {
@@ -458,6 +478,7 @@ async fn trakt_get_with_ttl(
         }
 
         if status == 429 {
+            state.stats.trakt_429.fetch_add(1, Ordering::Relaxed);
             let retry_secs = resp
                 .headers()
                 .get("Retry-After")
@@ -501,9 +522,13 @@ async fn trakt_get_with_ttl(
             .map_err(|e| TraktApiError::Network(e.to_string()))?;
 
         if (200..300).contains(&status) {
-            if ttl_seconds > 0 {
+            if ttl_seconds > 0 || (revalidate_only && etag.is_some()) {
                 let conn = state.db.lock().await;
                 write_http_cache(&conn, path, etag.as_deref(), &body, ttl_seconds, page_count);
+            } else if revalidate_only && cached_entry.is_some() {
+                // Server stopped sending an ETag: drop the stale cached entry so its old ETag is never reused.
+                let conn = state.db.lock().await;
+                let _ = conn.execute("DELETE FROM trakt_http_cache WHERE key = ?1", params![path]);
             }
             return Ok(TraktHttpResponse {
                 status,
@@ -547,6 +572,7 @@ pub async fn trakt_post(
 
     loop {
         state.trakt.limiter.write_bucket.lock().await.acquire().await;
+        state.stats.trakt_post.fetch_add(1, Ordering::Relaxed);
 
         let resp = match state
             .trakt
@@ -580,6 +606,7 @@ pub async fn trakt_post(
         }
 
         if status == 429 {
+            state.stats.trakt_429.fetch_add(1, Ordering::Relaxed);
             let retry_secs = resp
                 .headers()
                 .get("Retry-After")

@@ -27,6 +27,7 @@ pub(crate) fn make_test_state(api_base: String, auth_base: String) -> AppState {
         http_epg,
         trakt,
         tmdb: crate::TmdbRuntime::new(),
+        stats: crate::RequestStats::default(),
     }
 }
 

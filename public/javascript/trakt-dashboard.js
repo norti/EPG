@@ -916,7 +916,7 @@
     }
   }
 
-  function renderCalendarView(viewport, episodes, mode) {
+  function renderCalendarView(viewport, episodes, mode, options = {}) {
     const isGlobal = mode === 'global';
     const titleKey = isGlobal ? 'trakt_calendar_global_title' : 'trakt_calendar_my_title';
     const iconName = isGlobal ? 'trakt-calendar-global' : 'trakt-calendar-my';
@@ -935,16 +935,52 @@
     const grouped = window.TraktDates.groupByLocalDay(filtered);
     const sortedDays = Array.from(grouped.keys()).sort();
 
+    let globalFilterHtml = '';
+    if (isGlobal && options.onChangeFilters) {
+      const f = options.filters || { countries: '', languages: '' };
+      const curKey = `${f.countries || ''}|${f.languages || ''}`;
+      const presets = [
+        { key: '|', label: t('trakt_cal_filter_all') },
+        { key: 'us,gb|en', label: t('trakt_cal_filter_us_gb') },
+        { key: 'us,gb,hu|en,hu', label: t('trakt_cal_filter_us_gb_hu') },
+        { key: 'hu|hu', label: t('trakt_cal_filter_hu') },
+      ];
+      if (!presets.some((p) => p.key === curKey)) {
+        presets.push({ key: curKey, label: `${f.countries || '*'} / ${f.languages || '*'}` });
+      }
+      globalFilterHtml = `
+        <select id="traktGlobalCalFilterSelect" class="trakt-select" title="${esc(t('trakt_cal_filter_title'))}">
+          ${presets
+            .map(
+              (p) =>
+                `<option value="${esc(p.key)}" ${p.key === curKey ? 'selected' : ''}>${esc(p.label)}</option>`
+            )
+            .join('')}
+        </select>
+      `;
+    }
+
     viewport.innerHTML = `
       <div class="trakt-subview">
         <div class="trakt-subview-toolbar">
           <h2 class="trakt-subview-title">${iconHtml(iconName, 20)} ${esc(t(titleKey))}</h2>
           <span class="trakt-cal-active-day" id="traktCalActiveDay" style="display:none;"></span>
+          ${globalFilterHtml}
           <span class="trakt-panel-count">${filtered.length}</span>
         </div>
         <div class="trakt-calendar-days custom-scroll" id="traktCalendarDays"></div>
       </div>
     `;
+
+    if (isGlobal && options.onChangeFilters) {
+      const sel = document.getElementById('traktGlobalCalFilterSelect');
+      if (sel) {
+        sel.onchange = (e) => {
+          const [countries = '', languages = ''] = String(e.target.value || '|').split('|');
+          options.onChangeFilters({ countries, languages });
+        };
+      }
+    }
 
     ensureImageObserver(viewport);
     const container = document.getElementById('traktCalendarDays');

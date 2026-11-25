@@ -368,5 +368,19 @@
   "trakt_btn_fav_add": "Add to favorite programmes",
   "trakt_btn_fav_remove": "Remove from favorite programmes",
   "trakt_jumping_to_epg": "Jumping to programme in EPG...",
-  "trakt_continue_badge": "Continue"
+  "trakt_continue_badge": "Continue",
+  "db_maintenance_title": "Database Maintenance",
+  "db_maintenance_desc": "Compacts epg.db and images.db (VACUUM), removes expired cache entries and orphaned images. Sources, favorites, settings, and manual TMDB matches are preserved.",
+  "db_stat_epg": "epg.db:",
+  "db_stat_images": "images.db:",
+  "db_stat_reclaimable": "Reclaimable:",
+  "btn_maintain_database": "DATABASE MAINTENANCE",
+  "confirm_maintain_database": "Run database maintenance now? This will prune expired cache entries, optimize stored images, and compact (VACUUM) the database files.",
+  "db_maintenance_running": "Maintenance in progress...",
+  "db_maintenance_done": "Maintenance complete! Size: {before} → {after} (freed: {freed}, pruned expired/orphan rows: {pruned}).",
+  "trakt_cal_filter_title": "Global calendar country/language filter",
+  "trakt_cal_filter_all": "All countries",
+  "trakt_cal_filter_us_gb": "US / UK (EN)",
+  "trakt_cal_filter_us_gb_hu": "US / UK / HU",
+  "trakt_cal_filter_hu": "Hungarian (HU)"
 }

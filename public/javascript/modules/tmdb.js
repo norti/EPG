@@ -50,6 +50,27 @@ function getLargePosterUrl(posterPath) {
   return `https://image.tmdb.org/t/p/original${posterPath}`;
 }
 
+async function loadCachedTmdbImage(url, isStillCurrent, applySrc) {
+  if (!url) return;
+  try {
+    const cached = await invoke("get_cached_logo", { url });
+    if (!isStillCurrent()) return;
+    if (cached) {
+      applySrc(cached);
+      return;
+    }
+    const downloaded = await invoke("cache_logo", { url });
+    if (!isStillCurrent()) return;
+    if (downloaded) {
+      applySrc(downloaded);
+      return;
+    }
+  } catch (_) {}
+  if (isStillCurrent()) {
+    applySrc(url);
+  }
+}
+
 async function preloadAndCacheLargePoster(posterPath) {
   if (!posterPath) return;
   const largeUrl = getLargePosterUrl(posterPath);
@@ -325,23 +346,35 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
   const tmdbOverview = document.getElementById("modalTmdbOverview");
   const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
 
-  // Poster
+  const renderFetchIndex = currentModalFetchIndex;
+  const renderSwitchIndex = currentModalLangSwitchIndex;
+  const isCurrentRender = () =>
+    renderFetchIndex === currentModalFetchIndex &&
+    renderSwitchIndex === currentModalLangSwitchIndex;
+
+  // Poster (served through images.db cache for offline & zero repeated CDN hits)
   if (tmdbData.posterPath) {
     currentModalPosterPath = tmdbData.posterPath;
     currentModalTmdbData = tmdbData;
-    posterImg.src = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
+    const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
     posterCol.style.display = "block";
     updateModalLeftColVisibility();
+    loadCachedTmdbImage(posterUrl, isCurrentRender, (src) => {
+      posterImg.src = src;
+    });
     preloadAndCacheLargePoster(tmdbData.posterPath);
   } else {
     currentModalPosterPath = "";
     currentModalTmdbData = tmdbData;
   }
 
-  // Backdrop
+  // Backdrop (served through images.db cache)
   if (tmdbData.backdropPath) {
-    backdrop.style.backgroundImage = `url('https://image.tmdb.org/t/p/w780${tmdbData.backdropPath}')`;
+    const backdropUrl = `https://image.tmdb.org/t/p/w780${tmdbData.backdropPath}`;
     backdrop.style.display = "block";
+    loadCachedTmdbImage(backdropUrl, isCurrentRender, (src) => {
+      backdrop.style.backgroundImage = `url('${src}')`;
+    });
   }
 
   // Media type badge
@@ -483,18 +516,28 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
       setActiveTitleVariantBadge(clickedBadgeEl);
     }
 
+    const isCurrentSwitch = () =>
+      fetchIndex === currentModalFetchIndex &&
+      switchIndex === currentModalLangSwitchIndex;
+
     if (details.posterPath) {
       currentModalPosterPath = details.posterPath;
       currentModalLargePosterSrc = "";
-      posterImg.src = `https://image.tmdb.org/t/p/w500${details.posterPath}`;
+      const posterUrl = `https://image.tmdb.org/t/p/w500${details.posterPath}`;
       posterCol.style.display = "block";
       updateModalLeftColVisibility();
+      loadCachedTmdbImage(posterUrl, isCurrentSwitch, (src) => {
+        posterImg.src = src;
+      });
       preloadAndCacheLargePoster(details.posterPath);
     }
 
     if (details.backdropPath) {
-      backdrop.style.backgroundImage = `url('https://image.tmdb.org/t/p/w780${details.backdropPath}')`;
+      const backdropUrl = `https://image.tmdb.org/t/p/w780${details.backdropPath}`;
       backdrop.style.display = "block";
+      loadCachedTmdbImage(backdropUrl, isCurrentSwitch, (src) => {
+        backdrop.style.backgroundImage = `url('${src}')`;
+      });
     }
 
     if (details.overview && details.overview.trim().length > 0) {

@@ -29,6 +29,7 @@ function switchSettingsTab(tabName) {
   } else if (tabName === "export") {
     document.getElementById("tabPaneExport").classList.add("active");
     updateCacheSectionStats();
+    updateDatabaseStats();
   }
 }
 
@@ -449,12 +450,75 @@ document.getElementById("clearAllCacheBtn").onclick = async () => {
     setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
     await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
     await updateCacheSectionStats();
+    await updateDatabaseStats();
     await fetchEPG();
   } catch (err) {
     setExportImportStatus("cacheDataStatus", String(err), "error");
     await showAlert(t("alert_error_title"), String(err));
   }
 };
+
+async function updateDatabaseStats() {
+  const epgEl = document.getElementById("dbStatEpgSize");
+  const imgEl = document.getElementById("dbStatImagesSize");
+  const recEl = document.getElementById("dbStatReclaimable");
+  if (!epgEl) return;
+
+  try {
+    const stats = await invoke("get_database_stats");
+    epgEl.textContent = formatByteSize(stats.epgDbBytes);
+    imgEl.textContent = formatByteSize(stats.imagesDbBytes);
+    const expiredTotal =
+      (stats.expiredHttpCacheRows || 0) +
+      (stats.expiredTmdbNegativeRows || 0) +
+      (stats.orphanedImageRows || 0);
+    recEl.textContent =
+      expiredTotal > 0
+        ? `${formatByteSize(stats.freelistBytes)} (+${expiredTotal})`
+        : formatByteSize(stats.freelistBytes);
+  } catch (err) {
+    console.error("Hiba az adatbázis statisztikák lekérésekor:", err);
+  }
+}
+
+const maintainDatabaseBtn = document.getElementById("maintainDatabaseBtn");
+if (maintainDatabaseBtn) {
+  maintainDatabaseBtn.onclick = async () => {
+    const confirmed = await showConfirm(
+      t("db_maintenance_title"),
+      t("confirm_maintain_database"),
+    );
+    if (!confirmed) return;
+
+    maintainDatabaseBtn.disabled = true;
+    try {
+      setExportImportStatus(
+        "dbMaintenanceStatus",
+        t("db_maintenance_running"),
+        "loading",
+      );
+      const res = await invoke("maintain_database");
+      const prunedCount =
+        (res.prunedHttpCache || 0) +
+        (res.prunedTmdbNegatives || 0) +
+        (res.prunedOrphanImages || 0);
+      const msg = t("db_maintenance_done")
+        .replace("{before}", formatByteSize(res.beforeBytes))
+        .replace("{after}", formatByteSize(res.afterBytes))
+        .replace("{freed}", formatByteSize(res.freedBytes))
+        .replace("{pruned}", String(prunedCount));
+      setExportImportStatus("dbMaintenanceStatus", msg, "success");
+      await showAlert(t("alert_success_title"), msg);
+      await updateDatabaseStats();
+      await updateCacheSectionStats();
+    } catch (err) {
+      setExportImportStatus("dbMaintenanceStatus", String(err), "error");
+      await showAlert(t("alert_error_title"), String(err));
+    } finally {
+      maintainDatabaseBtn.disabled = false;
+    }
+  };
+}
 
 document.getElementById("favListBtn").onclick = () => {
   switchSettingsTab("favorites");

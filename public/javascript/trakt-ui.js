@@ -422,11 +422,37 @@
         });
         window.TraktDashboard.renderCalendarView(viewport, eps, 'my');
       } else if (currentSubView === 'calendar_global') {
-        const eps = await invoke('trakt_get_calendar_global', {
-          startDate,
-          forceRefresh: false,
+        const [eps, filters] = await Promise.all([
+          invoke('trakt_get_calendar_global', {
+            startDate,
+            forceRefresh: false,
+          }),
+          invoke('trakt_get_global_calendar_filters').catch(() => ({ countries: '', languages: '' })),
+        ]);
+        const handleGlobalFilterChange = async (nextFilters) => {
+          try {
+            await invoke('trakt_set_global_calendar_filters', {
+              countries: nextFilters.countries || '',
+              languages: nextFilters.languages || '',
+            });
+            viewport.innerHTML = `<div class="trakt-loading-box"><span class="spinner-small"></span> ${esc(t('loading'))}</div>`;
+            const updated = await invoke('trakt_get_calendar_global', {
+              startDate,
+              forceRefresh: true,
+            });
+            const saved = await invoke('trakt_get_global_calendar_filters').catch(() => nextFilters);
+            window.TraktDashboard.renderCalendarView(viewport, updated, 'global', {
+              filters: saved,
+              onChangeFilters: handleGlobalFilterChange,
+            });
+          } catch (err) {
+            viewport.innerHTML = `<div class="trakt-error-box">${esc(formatTraktError(err))}</div>`;
+          }
+        };
+        window.TraktDashboard.renderCalendarView(viewport, eps, 'global', {
+          filters,
+          onChangeFilters: handleGlobalFilterChange,
         });
-        window.TraktDashboard.renderCalendarView(viewport, eps, 'global');
       }
     } catch (err) {
       viewport.innerHTML = `<div class="trakt-error-box">${esc(formatTraktError(err))}</div>`;

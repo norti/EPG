@@ -434,3 +434,153 @@ async fn test_trakt_single_flight_waiter_reuses_fresh_cache_on_force_refresh() {
     assert_eq!(r1.body, r#"{"ok":true}"#);
     assert_eq!(r2.body, r#"{"ok":true}"#);
 }
+
+#[tokio::test]
+async fn test_request_stats_counts_trakt_and_tmdb_events() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let base = spawn_mock_server(move |_method, path, _body| {
+        if path == "/stats/item" {
+            let n = c.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                return (200, vec![("ETag".to_string(), "\"v1\"".to_string())], r#"{"a":1}"#.to_string());
+            }
+            return (304, vec![], String::new());
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+
+    let state = make_test_state(base.clone(), base);
+    let before = state.stats.snapshot();
+
+    // 1. Network 200
+    trakt_get_cached(&state, None, "/stats/item", false, 3600, false).await.unwrap();
+    // 2. Fresh cache hit
+    trakt_get_cached(&state, None, "/stats/item", false, 3600, false).await.unwrap();
+    // 3. Expire cache -> 304 Not Modified
+    {
+        let conn = state.db.lock().await;
+        conn.execute(
+            "UPDATE trakt_http_cache SET fetched_at = '2020-01-01T00:00:00Z' WHERE key = '/stats/item'",
+            [],
+        )
+        .unwrap();
+    }
+    trakt_get_cached(&state, None, "/stats/item", false, 3600, false).await.unwrap();
+
+    let delta = state.stats.snapshot().diff(&before);
+    assert_eq!(delta.trakt_net, 1);
+    assert_eq!(delta.trakt_cache_hit, 1);
+    assert_eq!(delta.trakt_304, 1);
+    assert_eq!(delta.trakt_post, 0);
+
+    state.stats.reset();
+    assert_eq!(state.stats.snapshot().trakt_net, 0);
+}
+
+#[tokio::test]
+async fn test_trakt_get_revalidated_uses_etag_and_drops_when_absent() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let base = spawn_mock_server(move |_method, path, _body| {
+        if path == "/sync/last_activities" {
+            return match c.fetch_add(1, Ordering::SeqCst) {
+                0 => (200, vec![("ETag".to_string(), "\"act-1\"".to_string())], r#"{"all":"t1"}"#.to_string()),
+                1 => (304, vec![], String::new()),
+                _ => (200, vec![], r#"{"all":"t2"}"#.to_string()),
+            };
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+
+    let state = make_test_state(base.clone(), base);
+    // 1. First call stores body + ETag
+    let r1 = crate::trakt::client::trakt_get_revalidated(&state, None, "/sync/last_activities", false)
+        .await
+        .unwrap();
+    assert!(!r1.from_cache);
+    assert_eq!(r1.body, r#"{"all":"t1"}"#);
+
+    // 2. Immediate second call MUST still hit the network (not fresh cache) and get 304
+    let r2 = crate::trakt::client::trakt_get_revalidated(&state, None, "/sync/last_activities", false)
+        .await
+        .unwrap();
+    assert!(r2.from_cache);
+    assert_eq!(r2.body, r#"{"all":"t1"}"#);
+    assert_eq!(state.stats.snapshot().trakt_304, 1);
+
+    // 3. Third call returns 200 without ETag -> cached entry is removed so stale ETag is never reused
+    let r3 = crate::trakt::client::trakt_get_revalidated(&state, None, "/sync/last_activities", false)
+        .await
+        .unwrap();
+    assert!(!r3.from_cache);
+    assert_eq!(r3.body, r#"{"all":"t2"}"#);
+    let cached_rows: i64 = state
+        .db
+        .lock()
+        .await
+        .query_row(
+            "SELECT COUNT(*) FROM trakt_http_cache WHERE key = '/sync/last_activities'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(cached_rows, 0);
+}
+
+#[tokio::test]
+async fn test_global_calendar_filters_build_url_and_prune_old_key() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let s = seen.clone();
+    let base = spawn_mock_server(move |_method, path, _body| {
+        s.lock().unwrap().push(path);
+        (200, vec![], "[]".to_string())
+    })
+    .await;
+    let state = make_test_state(base.clone(), base);
+
+    // Default: no filter query params
+    crate::trakt::calendar::fetch_and_cache_global_calendar(&state, None, "2026-11-24", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        seen.lock().unwrap().last().map(String::as_str),
+        Some("/calendars/all/shows/2026-11-24/14?extended=full")
+    );
+
+    // Save normalized country + language filter
+    {
+        let conn = state.db.lock().await;
+        let saved = crate::trakt::calendar::save_global_calendar_filters(
+            &conn,
+            "US, gb, invalid, us",
+            "EN, hu",
+        )
+        .unwrap();
+        assert_eq!(saved.countries, "us,gb");
+        assert_eq!(saved.languages, "en,hu");
+    }
+
+    crate::trakt::calendar::fetch_and_cache_global_calendar(&state, None, "2026-11-24", false)
+        .await
+        .unwrap();
+    assert_eq!(
+        seen.lock().unwrap().last().map(String::as_str),
+        Some("/calendars/all/shows/2026-11-24/14?extended=full&countries=us,gb&languages=en,hu")
+    );
+
+    // Only the new filtered key should remain in trakt_http_cache
+    let count: i64 = state
+        .db
+        .lock()
+        .await
+        .query_row(
+            "SELECT COUNT(*) FROM trakt_http_cache WHERE key LIKE '/calendars/all/shows/%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+}

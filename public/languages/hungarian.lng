@@ -368,5 +368,19 @@
   "trakt_btn_fav_add": "Hozzáadás a kedvenc műsorokhoz",
   "trakt_btn_fav_remove": "Eltávolítás a kedvenc műsorokból",
   "trakt_jumping_to_epg": "Ugrás a műsorhoz az EPG-ben...",
-  "trakt_continue_badge": "Folytatás"
+  "trakt_continue_badge": "Folytatás",
+  "db_maintenance_title": "Adatbázis karbantartás",
+  "db_maintenance_desc": "Tömöríti az epg.db és images.db fájlokat (VACUUM), törli a lejárt gyorsítótár-bejegyzéseket és az árva képeket. A források, kedvencek, beállítások és kézi TMDB-párosítások megmaradnak.",
+  "db_stat_epg": "epg.db:",
+  "db_stat_images": "images.db:",
+  "db_stat_reclaimable": "Visszanyerhető:",
+  "btn_maintain_database": "ADATBÁZIS KARBANTARTÁS",
+  "confirm_maintain_database": "Elindítsam az adatbázis karbantartást? A művelet törli a lejárt gyorsítótár-bejegyzéseket, optimalizálja a tárolt képeket és tömöríti (VACUUM) az adatbázis-fájlokat.",
+  "db_maintenance_running": "Karbantartás folyamatban...",
+  "db_maintenance_done": "Karbantartás kész! Méret: {before} → {after} (felszabadítva: {freed}, törölt lejárt/árva sorok: {pruned}).",
+  "trakt_cal_filter_title": "Globális naptár ország/nyelv szűrő",
+  "trakt_cal_filter_all": "Összes ország",
+  "trakt_cal_filter_us_gb": "US / UK (EN)",
+  "trakt_cal_filter_us_gb_hu": "US / UK / HU",
+  "trakt_cal_filter_hu": "Magyar (HU)"
 }

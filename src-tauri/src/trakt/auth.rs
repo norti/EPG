@@ -538,7 +538,7 @@ async fn poll_device_token_task(
 }
 
 pub async fn fetch_and_save_profile(state: &AppState) -> Result<TraktProfile, String> {
-    let resp = crate::trakt::client::trakt_get_raw(state, None, "/users/settings", true).await?;
+    let resp = crate::trakt::client::trakt_get_revalidated(state, None, "/users/settings", true).await?;
     let val: serde_json::Value = serde_json::from_str(&resp.body)
         .map_err(|e| format!("Profil JSON hiba: {}", e))?;
 

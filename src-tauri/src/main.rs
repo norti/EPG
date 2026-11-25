@@ -8,6 +8,7 @@ mod tmdb_tests;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, RwLock};
 use tokio::sync::Mutex;
 use std::fs;
@@ -16,12 +17,90 @@ use std::path::PathBuf;
 use flate2::read::GzDecoder;
 use regex::Regex;
 
+#[derive(Default)]
+pub struct RequestStats {
+    pub trakt_net: AtomicU64,
+    pub trakt_304: AtomicU64,
+    pub trakt_cache_hit: AtomicU64,
+    pub trakt_post: AtomicU64,
+    pub trakt_429: AtomicU64,
+    pub tmdb_net: AtomicU64,
+    pub tmdb_429: AtomicU64,
+    pub tmdb_cache_hit: AtomicU64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestStatsSnapshot {
+    pub trakt_net: u64,
+    pub trakt_304: u64,
+    pub trakt_cache_hit: u64,
+    pub trakt_post: u64,
+    pub trakt_429: u64,
+    pub tmdb_net: u64,
+    pub tmdb_429: u64,
+    pub tmdb_cache_hit: u64,
+}
+
+impl RequestStats {
+    pub fn snapshot(&self) -> RequestStatsSnapshot {
+        RequestStatsSnapshot {
+            trakt_net: self.trakt_net.load(Ordering::Relaxed),
+            trakt_304: self.trakt_304.load(Ordering::Relaxed),
+            trakt_cache_hit: self.trakt_cache_hit.load(Ordering::Relaxed),
+            trakt_post: self.trakt_post.load(Ordering::Relaxed),
+            trakt_429: self.trakt_429.load(Ordering::Relaxed),
+            tmdb_net: self.tmdb_net.load(Ordering::Relaxed),
+            tmdb_429: self.tmdb_429.load(Ordering::Relaxed),
+            tmdb_cache_hit: self.tmdb_cache_hit.load(Ordering::Relaxed),
+        }
+    }
+
+    pub fn reset(&self) {
+        self.trakt_net.store(0, Ordering::Relaxed);
+        self.trakt_304.store(0, Ordering::Relaxed);
+        self.trakt_cache_hit.store(0, Ordering::Relaxed);
+        self.trakt_post.store(0, Ordering::Relaxed);
+        self.trakt_429.store(0, Ordering::Relaxed);
+        self.tmdb_net.store(0, Ordering::Relaxed);
+        self.tmdb_429.store(0, Ordering::Relaxed);
+        self.tmdb_cache_hit.store(0, Ordering::Relaxed);
+    }
+}
+
+impl RequestStatsSnapshot {
+    pub fn diff(&self, before: &Self) -> Self {
+        Self {
+            trakt_net: self.trakt_net.saturating_sub(before.trakt_net),
+            trakt_304: self.trakt_304.saturating_sub(before.trakt_304),
+            trakt_cache_hit: self.trakt_cache_hit.saturating_sub(before.trakt_cache_hit),
+            trakt_post: self.trakt_post.saturating_sub(before.trakt_post),
+            trakt_429: self.trakt_429.saturating_sub(before.trakt_429),
+            tmdb_net: self.tmdb_net.saturating_sub(before.tmdb_net),
+            tmdb_429: self.tmdb_429.saturating_sub(before.tmdb_429),
+            tmdb_cache_hit: self.tmdb_cache_hit.saturating_sub(before.tmdb_cache_hit),
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_request_stats(state: tauri::State<'_, AppState>) -> Result<RequestStatsSnapshot, String> {
+    Ok(state.stats.snapshot())
+}
+
+#[tauri::command]
+async fn reset_request_stats(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.stats.reset();
+    Ok(())
+}
+
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub http: reqwest::Client,
     pub http_epg: reqwest::Client,
     pub trakt: trakt::TraktState,
     pub tmdb: TmdbRuntime,
+    pub stats: RequestStats,
 }
 
 /// Runtime settings of the TMDB layer. The base URL is injectable so tests can point it at a mock server.
@@ -305,7 +384,8 @@ async fn get_all_favorites_epg_data(state: &AppState) -> Result<EpgResponse, Str
                 COALESCE(cus.is_favorite, 0),
                 COALESCE(cus.is_hidden, 0),
                 COALESCE(s.country_code, 'HU') AS country_code,
-                COALESCE(s.time_offset, 0) AS time_offset
+                COALESCE(s.time_offset, 0) AS time_offset,
+                img.mime_type
          FROM channels c 
          JOIN sources s ON s.id = c.source_id
          JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
@@ -331,6 +411,11 @@ async fn get_all_favorites_epg_data(state: &AppState) -> Result<EpgResponse, Str
         let is_fav: i32 = row.get(9)?;
         let is_hid: i32 = row.get(10)?;
         let country_code: String = row.get(11)?;
+        let mime: Option<String> = row.get(13)?;
+        let cached_icon = row
+            .get_ref(8)
+            .ok()
+            .and_then(|v| image_row_to_data_uri(mime.as_deref(), v));
         Ok(Channel {
             id: composite_id,
             name: row.get(3)?,
@@ -338,7 +423,7 @@ async fn get_all_favorites_epg_data(state: &AppState) -> Result<EpgResponse, Str
             custom_name: row.get(5)?,
             icon: row.get(6)?,
             custom_icon: row.get(7)?,
-            cached_icon: row.get(8)?,
+            cached_icon,
             is_favorite: is_fav == 1,
             is_hidden: is_hid == 1,
             source_id: Some(src_id),
@@ -403,7 +488,8 @@ async fn get_epg_data(state: tauri::State<'_, AppState>, source_id: String) -> R
                 COALESCE(cus.is_favorite, 0),
                 COALESCE(cus.is_hidden, 0),
                 COALESCE(s.country_code, 'HU') AS country_code,
-                COALESCE(s.name, '') AS source_name
+                COALESCE(s.name, '') AS source_name,
+                img.mime_type
          FROM channels c 
          JOIN sources s ON s.id = c.source_id
          LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
@@ -423,6 +509,11 @@ async fn get_epg_data(state: tauri::State<'_, AppState>, source_id: String) -> R
         let is_hid: i32 = row.get(8)?;
         let country_code: String = row.get(9)?;
         let src_name: String = row.get(10)?;
+        let mime: Option<String> = row.get(11)?;
+        let cached_icon = row
+            .get_ref(6)
+            .ok()
+            .and_then(|v| image_row_to_data_uri(mime.as_deref(), v));
         Ok(Channel {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -430,7 +521,7 @@ async fn get_epg_data(state: tauri::State<'_, AppState>, source_id: String) -> R
             custom_name: row.get(3)?,
             icon: row.get(4)?,
             custom_icon: row.get(5)?,
-            cached_icon: row.get(6)?,
+            cached_icon,
             is_favorite: is_fav == 1,
             is_hidden: is_hid == 1,
             source_id: Some(source_id.clone()),
@@ -753,6 +844,99 @@ async fn rename_channel(state: tauri::State<'_, AppState>, source_id: String, ch
     Ok(())
 }
 
+/// Converts an `images_db.images.data` value (legacy base64 `TEXT` data URI or raw `BLOB`) into a
+/// `data:<mime>;base64,...` URI for the frontend.
+pub(crate) fn image_row_to_data_uri(
+    mime: Option<&str>,
+    val: rusqlite::types::ValueRef<'_>,
+) -> Option<String> {
+    match val {
+        rusqlite::types::ValueRef::Text(bytes) => {
+            let s = std::str::from_utf8(bytes).ok()?;
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        }
+        rusqlite::types::ValueRef::Blob(bytes) => {
+            if bytes.is_empty() {
+                return None;
+            }
+            use base64::Engine;
+            let m = mime.filter(|s| !s.trim().is_empty()).unwrap_or("image/png");
+            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+            Some(format!("data:{};base64,{}", m, b64))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn read_cached_image_data_uri(conn: &Connection, url: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT img.mime_type, img.data FROM images_db.image_urls iu
+         JOIN images_db.images img ON img.id = iu.image_id
+         WHERE iu.url = ?1",
+        params![url],
+        |row| {
+            let mime: Option<String> = row.get(0)?;
+            let data = row
+                .get_ref(1)
+                .ok()
+                .and_then(|v| image_row_to_data_uri(mime.as_deref(), v));
+            Ok(data)
+        },
+    )
+    .ok()
+    .flatten()
+}
+
+/// Converts legacy base64 `TEXT` rows in `images_db.images` to raw `BLOB` storage (~25% smaller).
+/// Safe to run repeatedly; rows already stored as `BLOB` are untouched.
+pub(crate) fn convert_legacy_text_images_to_blobs(conn: &Connection) -> usize {
+    let rows: Vec<(i64, String)> = {
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT id, data FROM images_db.images
+             WHERE typeof(data) = 'text' AND data LIKE 'data:%base64,%'",
+        ) else {
+            return 0;
+        };
+        let Ok(mapped) = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))) else {
+            return 0;
+        };
+        mapped.flatten().collect()
+    };
+
+    if rows.is_empty() {
+        return 0;
+    }
+
+    use base64::Engine;
+    let Ok(mut upd) = conn.prepare(
+        "UPDATE images_db.images SET data = ?1, byte_size = ?2 WHERE id = ?3",
+    ) else {
+        return 0;
+    };
+
+    let mut converted = 0usize;
+    for (id, data_uri) in rows {
+        let Some((_, b64_part)) = data_uri.split_once("base64,") else {
+            continue;
+        };
+        let cleaned: String = b64_part.chars().filter(|c| !c.is_whitespace()).collect();
+        if let Ok(raw) = base64::engine::general_purpose::STANDARD.decode(&cleaned) {
+            if !raw.is_empty()
+                && upd
+                    .execute(params![raw.as_slice(), raw.len() as i64, id])
+                    .is_ok()
+            {
+                converted += 1;
+            }
+        }
+    }
+    converted
+}
+
 #[tauri::command]
 async fn get_cached_logo(state: tauri::State<'_, AppState>, url: String) -> Result<Option<String>, String> {
     let clean_url = url.trim();
@@ -760,14 +944,7 @@ async fn get_cached_logo(state: tauri::State<'_, AppState>, url: String) -> Resu
         return Ok(None);
     }
     let conn = state.db.lock().await;
-    let res: Option<String> = conn.query_row(
-        "SELECT img.data FROM images_db.image_urls iu
-         JOIN images_db.images img ON img.id = iu.image_id
-         WHERE iu.url = ?1",
-        params![clean_url],
-        |row| row.get(0),
-    ).ok();
-    Ok(res)
+    Ok(read_cached_image_data_uri(&conn, clean_url))
 }
 
 pub(crate) async fn cache_logo_inner(state: &AppState, url: String) -> Result<String, String> {
@@ -782,15 +959,7 @@ pub(crate) async fn cache_logo_inner(state: &AppState, url: String) -> Result<St
     // 1. Előzetes gyorsítótár ellenőrzés (a zár azonnal feloldódik a hálózati kérés előtt)
     {
         let conn = state.db.lock().await;
-        let cached: Option<String> = conn.query_row(
-            "SELECT img.data FROM images_db.image_urls iu
-             JOIN images_db.images img ON img.id = iu.image_id
-             WHERE iu.url = ?1",
-            params![clean_url],
-            |row| row.get(0),
-        ).ok();
-
-        if let Some(data) = cached {
+        if let Some(data) = read_cached_image_data_uri(&conn, &clean_url) {
             if !data.is_empty() {
                 return Ok(data);
             }
@@ -872,7 +1041,7 @@ pub(crate) async fn cache_logo_inner(state: &AppState, url: String) -> Result<St
             conn.execute(
                 "INSERT INTO images_db.images (sha256, mime_type, byte_size, data, created_at)
                  VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-                params![hash_hex, mime, byte_size, data_uri],
+                params![hash_hex, mime, byte_size, bytes.as_ref()],
             ).map_err(|e| e.to_string())?;
             conn.last_insert_rowid()
         }
@@ -975,7 +1144,13 @@ fn find_duplicate_logos_inner(conn: &Connection) -> Result<DuplicateReport, Stri
 
     let group_rows: Vec<(i64, String, String, i64, String)> = {
         let mapped = stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            let mime: String = row.get(2)?;
+            let data = row
+                .get_ref(4)
+                .ok()
+                .and_then(|v| image_row_to_data_uri(Some(&mime), v))
+                .unwrap_or_default();
+            Ok((row.get(0)?, row.get(1)?, mime, row.get(3)?, data))
         }).map_err(|e| e.to_string())?;
         mapped.flatten().collect()
     };
@@ -1313,6 +1488,220 @@ async fn clear_all_image_cache(state: tauri::State<'_, AppState>) -> Result<(), 
     let _ = conn.execute("DELETE FROM images_db.images", []);
     let _ = conn.execute("VACUUM images_db", []);
     Ok(())
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseStats {
+    pub epg_db_bytes: u64,
+    pub images_db_bytes: u64,
+    pub total_db_bytes: u64,
+    pub freelist_bytes: u64,
+    pub expired_http_cache_rows: usize,
+    pub expired_tmdb_negative_rows: usize,
+    pub orphaned_image_rows: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MaintenanceResult {
+    pub pruned_http_cache: usize,
+    pub pruned_tmdb_negatives: usize,
+    pub pruned_orphan_images: usize,
+    pub converted_blob_images: usize,
+    pub before_bytes: u64,
+    pub after_bytes: u64,
+    pub freed_bytes: u64,
+}
+
+fn is_images_db_attached(conn: &Connection) -> bool {
+    let Ok(mut stmt) = conn.prepare("PRAGMA database_list") else {
+        return false;
+    };
+    let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(1)) else {
+        return false;
+    };
+    let attached = rows.flatten().any(|name| name == "images_db");
+    attached
+}
+
+fn sqlite_db_bytes(conn: &Connection, schema: &str, file_path: Option<&std::path::Path>) -> u64 {
+    if let Some(p) = file_path {
+        if let Ok(meta) = fs::metadata(p) {
+            return meta.len();
+        }
+    }
+    let page_count: u64 = conn
+        .query_row(&format!("PRAGMA {}.page_count", schema), [], |r| r.get(0))
+        .unwrap_or(0);
+    let page_size: u64 = conn
+        .query_row(&format!("PRAGMA {}.page_size", schema), [], |r| r.get(0))
+        .unwrap_or(0);
+    page_count.saturating_mul(page_size)
+}
+
+fn sqlite_freelist_bytes(conn: &Connection, schema: &str) -> u64 {
+    let freelist: u64 = conn
+        .query_row(&format!("PRAGMA {}.freelist_count", schema), [], |r| r.get(0))
+        .unwrap_or(0);
+    let page_size: u64 = conn
+        .query_row(&format!("PRAGMA {}.page_size", schema), [], |r| r.get(0))
+        .unwrap_or(0);
+    freelist.saturating_mul(page_size)
+}
+
+pub(crate) fn get_database_stats_inner(
+    conn: &Connection,
+    epg_path: Option<&std::path::Path>,
+    images_path: Option<&std::path::Path>,
+) -> DatabaseStats {
+    let has_images = is_images_db_attached(conn);
+    let epg_db_bytes = sqlite_db_bytes(conn, "main", epg_path);
+    let images_db_bytes = if has_images {
+        sqlite_db_bytes(conn, "images_db", images_path)
+    } else {
+        0
+    };
+    let freelist_bytes = sqlite_freelist_bytes(conn, "main")
+        .saturating_add(if has_images {
+            sqlite_freelist_bytes(conn, "images_db")
+        } else {
+            0
+        });
+
+    let expired_http_cache_rows: usize = conn
+        .query_row(
+            "SELECT COUNT(*) FROM trakt_http_cache
+             WHERE CAST(strftime('%s', fetched_at) AS INTEGER) + ttl_seconds + ?1
+                   < CAST(strftime('%s', 'now') AS INTEGER)",
+            params![trakt::client::HTTP_CACHE_PRUNE_GRACE_SECS],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        .max(0) as usize;
+
+    let expired_tmdb_negative_rows: usize = conn
+        .query_row(
+            "SELECT COUNT(*) FROM tmdb_cache
+             WHERE media_type = 'none' AND is_manual = 0
+               AND updated_at < datetime('now', 'localtime', ?1)",
+            params![format!("-{} days", TMDB_NEGATIVE_TTL_DAYS)],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        .max(0) as usize;
+
+    let orphaned_image_rows: usize = if has_images {
+        conn.query_row(
+            "SELECT COUNT(*) FROM images_db.images
+             WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        .max(0) as usize
+    } else {
+        0
+    };
+
+    DatabaseStats {
+        epg_db_bytes,
+        images_db_bytes,
+        total_db_bytes: epg_db_bytes.saturating_add(images_db_bytes),
+        freelist_bytes,
+        expired_http_cache_rows,
+        expired_tmdb_negative_rows,
+        orphaned_image_rows,
+    }
+}
+
+pub(crate) fn maintain_database_inner(
+    conn: &Connection,
+    epg_path: Option<&std::path::Path>,
+    images_path: Option<&std::path::Path>,
+) -> Result<MaintenanceResult, String> {
+    let has_images = is_images_db_attached(conn);
+    let before_bytes = sqlite_db_bytes(conn, "main", epg_path).saturating_add(if has_images {
+        sqlite_db_bytes(conn, "images_db", images_path)
+    } else {
+        0
+    });
+
+    let pruned_http_cache = trakt::client::prune_http_cache(conn);
+    let pruned_tmdb_negatives = conn
+        .execute(
+            "DELETE FROM tmdb_cache
+             WHERE media_type = 'none' AND is_manual = 0
+               AND updated_at < datetime('now', 'localtime', ?1)",
+            params![format!("-{} days", TMDB_NEGATIVE_TTL_DAYS)],
+        )
+        .unwrap_or(0);
+
+    let pruned_orphan_images = if has_images {
+        conn.execute(
+            "DELETE FROM images_db.images
+             WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
+            [],
+        )
+        .unwrap_or(0)
+    } else {
+        0
+    };
+
+    let converted_blob_images = if has_images {
+        convert_legacy_text_images_to_blobs(conn)
+    } else {
+        0
+    };
+
+    let _ = conn.execute("PRAGMA optimize", []);
+    conn.execute("VACUUM", [])
+        .map_err(|e| format!("epg.db VACUUM hiba: {}", e))?;
+    if has_images {
+        conn.execute("VACUUM images_db", [])
+            .map_err(|e| format!("images.db VACUUM hiba: {}", e))?;
+    }
+
+    let after_bytes = sqlite_db_bytes(conn, "main", epg_path).saturating_add(if has_images {
+        sqlite_db_bytes(conn, "images_db", images_path)
+    } else {
+        0
+    });
+
+    Ok(MaintenanceResult {
+        pruned_http_cache,
+        pruned_tmdb_negatives,
+        pruned_orphan_images,
+        converted_blob_images,
+        before_bytes,
+        after_bytes,
+        freed_bytes: before_bytes.saturating_sub(after_bytes),
+    })
+}
+
+#[tauri::command]
+async fn get_database_stats(state: tauri::State<'_, AppState>) -> Result<DatabaseStats, String> {
+    let epg_path = get_db_path();
+    let images_path = get_images_db_path();
+    let conn = state.db.lock().await;
+    Ok(get_database_stats_inner(
+        &conn,
+        Some(epg_path.as_path()),
+        Some(images_path.as_path()),
+    ))
+}
+
+#[tauri::command]
+async fn maintain_database(state: tauri::State<'_, AppState>) -> Result<MaintenanceResult, String> {
+    let _sync_guard = state
+        .trakt
+        .sync_lock
+        .try_lock()
+        .map_err(|_| "TRAKT_SYNC_ACTIVE: Trakt szinkronizálás közben az adatbázis karbantartás nem futtatható.".to_string())?;
+    let epg_path = get_db_path();
+    let images_path = get_images_db_path();
+    let conn = state.db.lock().await;
+    maintain_database_inner(&conn, Some(epg_path.as_path()), Some(images_path.as_path()))
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -3554,6 +3943,7 @@ where
 
         let mut attempt: u32 = 0;
         loop {
+            state.stats.tmdb_net.fetch_add(1, Ordering::Relaxed);
             match make_req().send().await {
                 Ok(resp) => {
                     let status = resp.status();
@@ -3567,6 +3957,7 @@ where
                         401 => return Err(TmdbError::Unauthorized),
                         404 => return Err(TmdbError::NotFound),
                         429 => {
+                            state.stats.tmdb_429.fetch_add(1, Ordering::Relaxed);
                             if attempt >= TMDB_MAX_RATE_LIMIT_RETRIES {
                                 return Err(TmdbError::RateLimited);
                             }
@@ -3825,6 +4216,7 @@ pub(crate) async fn get_tmdb_details_inner(
             // Manual rows (the user's "not this title" marker included) never expire.
             let expired_negative = is_negative && stale_negative.unwrap_or(0) == 1;
             if !expired_negative {
+                state.stats.tmdb_cache_hit.fetch_add(1, Ordering::Relaxed);
                 if is_negative {
                     return Ok(None);
                 }
@@ -3842,6 +4234,48 @@ pub(crate) async fn get_tmdb_details_inner(
                     vote_average,
                     release_date,
                 }));
+            }
+        }
+
+        // 1b. Sibling-language lookup for full app language switches (0 HTTP calls when the other
+        //     language row already carries both title and overview, or a manual negative marker).
+        {
+            let conn = state.db.lock().await;
+            let sibling: Option<(Option<i64>, Option<String>, i64)> = conn
+                .query_row(
+                    "SELECT tmdb_id, media_type, is_manual
+                     FROM tmdb_cache
+                     WHERE query_title = ?1 AND lang != ?2
+                       AND ((media_type = 'none' AND is_manual = 1)
+                            OR (tmdb_id IS NOT NULL AND media_type IN ('movie', 'tv')))
+                     ORDER BY is_manual DESC, updated_at DESC
+                     LIMIT 1",
+                    params![clean, target_lang],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .ok();
+            if let Some((sib_id, sib_mt, sib_manual)) = sibling {
+                if sib_mt.as_deref() == Some("none") && sib_manual != 0 {
+                    state.stats.tmdb_cache_hit.fetch_add(1, Ordering::Relaxed);
+                    return Ok(None);
+                }
+                if let (Some(tid), Some(mt)) = (sib_id, sib_mt.as_deref()) {
+                    if let Some((details, hu_over, en_over)) =
+                        derive_details_from_sibling_lang(&conn, tid, mt, &target_lang)
+                    {
+                        let _ = write_tmdb_row(
+                            &conn,
+                            &clean,
+                            &target_lang,
+                            &details,
+                            &hu_over,
+                            &en_over,
+                            sib_manual != 0,
+                        );
+                        state.stats.tmdb_cache_hit.fetch_add(1, Ordering::Relaxed);
+                        return Ok(Some(details));
+                    }
+                }
             }
         }
 
@@ -4251,6 +4685,7 @@ async fn get_tmdb_by_id_inner(
 
             if let Some((Some(cached_id), media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
                 if media.as_deref() == Some(media_type) && cached_id == tmdb_id {
+                    state.stats.tmdb_cache_hit.fetch_add(1, Ordering::Relaxed);
                     return Ok(TmdbDetails {
                         tmdb_id: cached_id,
                         title: title.unwrap_or_default(),
@@ -4275,6 +4710,7 @@ async fn get_tmdb_by_id_inner(
                     None => format!("~id:{}:{}", media_type, tmdb_id),
                 };
                 let _ = write_tmdb_row(&conn, &key, lang, &details, &hu_over, &en_over, mark_manual);
+                state.stats.tmdb_cache_hit.fetch_add(1, Ordering::Relaxed);
                 return Ok(details);
             }
         }
@@ -5096,6 +5532,7 @@ fn main() {
             http_epg: http_epg_client,
             trakt: trakt_state,
             tmdb: TmdbRuntime::new(),
+            stats: RequestStats::default(),
         })
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -5159,6 +5596,8 @@ fn main() {
             clear_logo_cache,
             clear_poster_cache,
             clear_all_image_cache,
+            get_database_stats,
+            maintain_database,
             get_channel_logo_stats,
             get_missing_logo_channels,
             preload_logo_sources,
@@ -5188,6 +5627,8 @@ fn main() {
             search_tmdb,
             set_tmdb_match,
             clear_tmdb_match,
+            get_request_stats,
+            reset_request_stats,
             open_url,
             trakt::commands::trakt_get_auth_status,
             trakt::commands::trakt_start_login,
@@ -5206,6 +5647,8 @@ fn main() {
             trakt::commands::trakt_get_show_seasons_progress,
             trakt::commands::trakt_get_calendar_my,
             trakt::commands::trakt_get_calendar_global,
+            trakt::commands::trakt_get_global_calendar_filters,
+            trakt::commands::trakt_set_global_calendar_filters,
             trakt::commands::trakt_match_titles,
             trakt::commands::trakt_find_epg_airings,
             trakt::commands::trakt_get_stats,
@@ -6191,6 +6634,156 @@ mod tests {
             .query_row("SELECT value FROM settings WHERE key = 'language'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(lang_after, "english");
+    }
+
+    #[test]
+    fn test_maintain_database_prunes_and_vacuums_preserving_manual_rows() {
+        let temp_dir = std::env::temp_dir();
+        let db_path = temp_dir.join("epg_test_maintain_epg.db");
+        let img_path = temp_dir.join("epg_test_maintain_images.db");
+        let _ = fs::remove_file(&db_path);
+        let _ = fs::remove_file(&img_path);
+
+        let conn = Connection::open(&db_path).unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+        conn.execute(
+            &format!("ATTACH DATABASE '{}' AS images_db", img_path.to_string_lossy().replace('\'', "''")),
+            [],
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TABLE images_db.images (id INTEGER PRIMARY KEY AUTOINCREMENT, sha256 TEXT NOT NULL UNIQUE, mime_type TEXT NOT NULL, byte_size INTEGER NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
+             CREATE TABLE images_db.image_urls (url TEXT PRIMARY KEY, image_id INTEGER NOT NULL, image_type TEXT NOT NULL, created_at TEXT NOT NULL);",
+        )
+        .unwrap();
+
+        // Populate large expired trakt_http_cache row so VACUUM visibly shrinks the file
+        let big_body = "x".repeat(250_000);
+        conn.execute(
+            "INSERT INTO trakt_http_cache (key, etag, body, fetched_at, ttl_seconds, page_count)
+             VALUES ('/calendars/my/shows/2020-01-01/32', NULL, ?1, '2020-01-01T00:00:00Z', 60, 0)",
+            params![big_body],
+        )
+        .unwrap();
+        // Expired automatic negative vs permanent manual negative
+        conn.execute(
+            "INSERT INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at)
+             VALUES ('auto_expired', 'hu-HU', 'none', 0, '2020-01-01 00:00:00'),
+                    ('manual_keep', 'hu-HU', 'none', 1, '2020-01-01 00:00:00')",
+            [],
+        )
+        .unwrap();
+        // One orphan image + one referenced image
+        conn.execute(
+            "INSERT INTO images_db.images (id, sha256, mime_type, byte_size, data, created_at)
+             VALUES (1, 'keep_h', 'image/png', 10, 'data:image/png;base64,AAAA', datetime('now')),
+                    (2, 'orphan_h', 'image/png', 100000, ?1, datetime('now'))",
+            params![format!("data:image/png;base64,{}", "A".repeat(100_000))],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO images_db.image_urls (url, image_id, image_type, created_at)
+             VALUES ('https://example.com/a.png', 1, 'logo', datetime('now'))",
+            [],
+        )
+        .unwrap();
+
+        let stats_before = get_database_stats_inner(&conn, Some(&db_path), Some(&img_path));
+        assert_eq!(stats_before.expired_http_cache_rows, 1);
+        assert_eq!(stats_before.expired_tmdb_negative_rows, 1);
+        assert_eq!(stats_before.orphaned_image_rows, 1);
+
+        let res = maintain_database_inner(&conn, Some(&db_path), Some(&img_path)).unwrap();
+        assert_eq!(res.pruned_http_cache, 1);
+        assert_eq!(res.pruned_tmdb_negatives, 1);
+        assert_eq!(res.pruned_orphan_images, 1);
+        assert_eq!(res.converted_blob_images, 1);
+        assert!(res.after_bytes < res.before_bytes, "VACUUM must shrink disk size");
+        assert!(res.freed_bytes > 100_000);
+
+        let manual_still_exists: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tmdb_cache WHERE query_title = 'manual_keep'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(manual_still_exists, 1, "Manual negative marker must survive maintenance");
+
+        drop(conn);
+        let _ = fs::remove_file(&db_path);
+        let _ = fs::remove_file(&img_path);
+    }
+
+    #[test]
+    fn test_images_db_blob_storage_and_legacy_text_conversion() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS images_db", []).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE images_db.images (id INTEGER PRIMARY KEY AUTOINCREMENT, sha256 TEXT NOT NULL UNIQUE, mime_type TEXT NOT NULL, byte_size INTEGER NOT NULL, data BLOB NOT NULL, created_at TEXT NOT NULL);
+             CREATE TABLE images_db.image_urls (url TEXT PRIMARY KEY, image_id INTEGER NOT NULL, image_type TEXT NOT NULL, created_at TEXT NOT NULL);",
+        )
+        .unwrap();
+
+        let raw_png: &[u8] = b"\x89PNG\r\n\x1a\nhello";
+        use base64::Engine;
+        let expected_uri = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(raw_png)
+        );
+
+        // 1. Native BLOB row
+        conn.execute(
+            "INSERT INTO images_db.images (id, sha256, mime_type, byte_size, data, created_at)
+             VALUES (1, 'blob_h', 'image/png', ?1, ?2, datetime('now'))",
+            params![raw_png.len() as i64, raw_png],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO images_db.image_urls (url, image_id, image_type, created_at)
+             VALUES ('https://example.com/blob.png', 1, 'logo', datetime('now'))",
+            [],
+        )
+        .unwrap();
+
+        // 2. Legacy base64 TEXT row
+        conn.execute(
+            "INSERT INTO images_db.images (id, sha256, mime_type, byte_size, data, created_at)
+             VALUES (2, 'text_h', 'image/png', 999, ?1, datetime('now'))",
+            params![expected_uri],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO images_db.image_urls (url, image_id, image_type, created_at)
+             VALUES ('https://example.com/text.png', 2, 'poster', datetime('now'))",
+            [],
+        )
+        .unwrap();
+
+        // Both read identically as data URIs
+        assert_eq!(
+            read_cached_image_data_uri(&conn, "https://example.com/blob.png").as_deref(),
+            Some(expected_uri.as_str())
+        );
+        assert_eq!(
+            read_cached_image_data_uri(&conn, "https://example.com/text.png").as_deref(),
+            Some(expected_uri.as_str())
+        );
+
+        // Converting legacy TEXT rows turns id=2 into raw BLOB and fixes byte_size
+        let converted = convert_legacy_text_images_to_blobs(&conn);
+        assert_eq!(converted, 1);
+        let (kind, size): (String, i64) = conn
+            .query_row(
+                "SELECT typeof(data), byte_size FROM images_db.images WHERE id = 2",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(kind, "blob");
+        assert_eq!(size, raw_png.len() as i64);
+        assert_eq!(
+            read_cached_image_data_uri(&conn, "https://example.com/text.png").as_deref(),
+            Some(expected_uri.as_str())
+        );
+        // Second conversion pass is a no-op
+        assert_eq!(convert_legacy_text_images_to_blobs(&conn), 0);
     }
 }
 

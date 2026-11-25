@@ -191,6 +191,49 @@ async fn start_server() -> (String, Server) {
         if path == "/sync/watched/shows" {
             return (200, vec![], w.lock().unwrap().clone());
         }
+        if path.starts_with("/sync/history/episodes") {
+            let start_at = path
+                .split("start_at=")
+                .nth(1)
+                .and_then(|s| s.split('&').next())
+                .unwrap_or("");
+            let watched_json: serde_json::Value =
+                serde_json::from_str(&w.lock().unwrap()).unwrap_or(serde_json::json!([]));
+            let mut out: Vec<serde_json::Value> = Vec::new();
+            let mut hid = 100i64;
+            if let Some(arr) = watched_json.as_array() {
+                for item in arr {
+                    let show = &item["show"];
+                    if let Some(seasons) = item["seasons"].as_array() {
+                        for s in seasons {
+                            let snum = s["number"].as_i64().unwrap_or(1);
+                            if let Some(eps) = s["episodes"].as_array() {
+                                for ep in eps {
+                                    let ts = ep["last_watched_at"].as_str().unwrap_or("");
+                                    if ts >= start_at {
+                                        hid += 1;
+                                        let enum_ = ep["number"].as_i64().unwrap_or(1);
+                                        out.push(serde_json::json!({
+                                            "id": hid,
+                                            "watched_at": ts,
+                                            "type": "episode",
+                                            "show": show,
+                                            "episode": {
+                                                "season": snum,
+                                                "number": enum_,
+                                                "title": format!("E{}", enum_),
+                                                "ids": { "trakt": hid * 10 }
+                                            }
+                                        }));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return (200, vec![], serde_json::Value::Array(out).to_string());
+        }
         if path.starts_with("/calendars/my/shows/") && *fc.lock().unwrap() {
             return (500, vec![], "{}".to_string());
         }
@@ -360,4 +403,171 @@ async fn test_hidden_list_is_only_requested_when_hidden_at_changes() {
     server.log.lock().unwrap().clear();
     run_sync(&state, None, false).await.unwrap();
     assert_eq!(hits_with_prefix(&server, "/users/hidden/"), 0);
+
+    // Changing shows.dropped_at while hidden_at stays unchanged must also refresh the hidden list
+    *server.activities.lock().unwrap() = r#"{"episodes":{"watched_at":"2026-11-20T12:00:00Z"},"movies":{"watched_at":"2026-11-10T10:00:00Z"},"shows":{"hidden_at":"2026-11-24T00:00:00Z","dropped_at":"2026-11-25T09:00:00Z"},"watchlist":{"updated_at":"2026-11-10T10:00:00Z"}}"#.to_string();
+    server.log.lock().unwrap().clear();
+    run_sync(&state, None, false).await.unwrap();
+    assert_eq!(hits_with_prefix(&server, "/users/hidden/"), 1, "changed dropped_at -> one request");
+
+    server.log.lock().unwrap().clear();
+    run_sync(&state, None, false).await.unwrap();
+    assert_eq!(hits_with_prefix(&server, "/users/hidden/"), 0);
+}
+
+#[tokio::test]
+async fn test_clear_trakt_cache_clears_fingerprints_and_sync_flags() {
+    let (base, _server) = start_server().await;
+    let state = logged_in_state(base).await;
+    run_sync(&state, None, false).await.unwrap();
+
+    let fp_before: i64 = state
+        .db
+        .lock()
+        .await
+        .query_row("SELECT COUNT(*) FROM trakt_show_fp", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(fp_before, 3);
+
+    {
+        let mut conn = state.db.lock().await;
+        crate::trakt::commands::clear_trakt_cache_db(&mut conn).unwrap();
+    }
+
+    let fp_after: i64 = state
+        .db
+        .lock()
+        .await
+        .query_row("SELECT COUNT(*) FROM trakt_show_fp", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(fp_after, 0, "trakt_show_fp must be emptied by clear_trakt_cache");
+}
+
+#[tokio::test]
+async fn test_optional_mark_watched_activity_skip_respects_setting() {
+    let (base, server) = start_server().await;
+    let state = logged_in_state(base).await;
+    run_sync(&state, None, false).await.unwrap();
+
+    // Default (off): maybe_record_mark_watched_activity does not touch last_activities
+    *server.activities.lock().unwrap() = activities("2026-11-25T10:00:00Z");
+    server.log.lock().unwrap().clear();
+    crate::trakt::sync::maybe_record_mark_watched_activity(&state, None, "episode").await;
+    assert_eq!(hits_with_prefix(&server, "/sync/last_activities"), 0);
+
+    // Enabled: advances episodes.watched_at so the next sync skips the history branch
+    state
+        .db
+        .lock()
+        .await
+        .execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('trakt_skip_next_history_sync_after_mark', 'true')",
+            [],
+        )
+        .unwrap();
+    crate::trakt::sync::maybe_record_mark_watched_activity(&state, None, "episode").await;
+    assert_eq!(hits_with_prefix(&server, "/sync/last_activities"), 1);
+
+    server.log.lock().unwrap().clear();
+    run_sync(&state, None, false).await.unwrap();
+    assert_eq!(hits_with_prefix(&server, "/sync/watched/shows"), 0);
+    assert_eq!(hits_with_prefix(&server, "/users/me/history/"), 0);
+}
+
+#[tokio::test]
+async fn test_incremental_watched_sync_avoids_full_download_and_reconciles_weekly() {
+    let log: Arc<StdMutex<Vec<String>>> = Arc::new(StdMutex::new(Vec::new()));
+    let activities_body = Arc::new(StdMutex::new(activities("2026-11-20T12:00:00Z")));
+    let watched_body = Arc::new(StdMutex::new(format!(
+        "[{},{}]",
+        watched_entry(101, &[(1, "2026-11-20T10:00:00Z")]),
+        watched_entry(102, &[(1, "2026-11-20T11:00:00Z")]),
+    )));
+    let inc_body = Arc::new(StdMutex::new("[]".to_string()));
+
+    let (l, a, w, inc) = (
+        log.clone(),
+        activities_body.clone(),
+        watched_body.clone(),
+        inc_body.clone(),
+    );
+    let base = spawn_mock_server(move |method, path, _body| {
+        l.lock().unwrap().push(path.clone());
+        if method != "GET" {
+            return (404, vec![], "{}".to_string());
+        }
+        if path == "/sync/last_activities" {
+            return (200, vec![], a.lock().unwrap().clone());
+        }
+        if path == "/sync/watched/shows" {
+            return (200, vec![], w.lock().unwrap().clone());
+        }
+        if path.starts_with("/sync/history/episodes") {
+            return (200, vec![], inc.lock().unwrap().clone());
+        }
+        if path.starts_with("/sync/watchlist/")
+            || path.starts_with("/calendars/my/shows/")
+            || path.starts_with("/users/hidden/")
+        {
+            return (200, vec![], "[]".to_string());
+        }
+        if path.starts_with("/users/me/history/") {
+            return (
+                200,
+                vec![],
+                r#"[{"id":1,"watched_at":"2026-11-20T12:00:00Z","type":"episode","show":{"title":"Show 102","ids":{"trakt":102}},"episode":{"season":1,"number":1,"title":"E1","ids":{"trakt":9102}}}]"#.to_string(),
+            );
+        }
+        if path == "/users/settings" {
+            return (200, vec![], r#"{"user":{"username":"tester"}}"#.to_string());
+        }
+        if path.contains("/progress/watched") {
+            return (
+                200,
+                vec![],
+                r#"{"aired":5,"completed":2,"last_watched_at":"2026-11-23T09:00:00Z","seasons":[{"number":1,"episodes":[{"number":1,"completed":true,"last_watched_at":"2026-11-20T11:00:00Z"},{"number":2,"completed":true,"last_watched_at":"2026-11-23T09:00:00Z"}]}]}"#.to_string(),
+            );
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+
+    let state = logged_in_state(base).await;
+
+    // 1st sync: no full sync yet -> calls /sync/watched/shows
+    run_sync(&state, None, false).await.unwrap();
+    assert!(log.lock().unwrap().iter().any(|p| p == "/sync/watched/shows"));
+
+    // 2nd sync with 1 new episode -> uses incremental /sync/history/episodes, 0 /sync/watched/shows!
+    *inc_body.lock().unwrap() = r#"[{"id":2,"watched_at":"2026-11-23T09:00:00Z","type":"episode","show":{"title":"Show 102","year":2024,"ids":{"trakt":102,"tmdb":1102}},"episode":{"season":1,"number":2,"title":"E2","ids":{"trakt":9202}}}]"#.to_string();
+    *activities_body.lock().unwrap() = activities("2026-11-23T09:00:00Z");
+    log.lock().unwrap().clear();
+    run_sync(&state, None, false).await.unwrap();
+    {
+        let reqs = log.lock().unwrap();
+        assert_eq!(reqs.iter().filter(|p| p.as_str() == "/sync/watched/shows").count(), 0, "incremental sync must not call /sync/watched/shows");
+        assert_eq!(reqs.iter().filter(|p| p.starts_with("/sync/history/episodes?start_at=")).count(), 1);
+        let prog: Vec<&String> = reqs.iter().filter(|p| p.contains("/progress/watched")).collect();
+        assert_eq!(prog.len(), 1);
+        assert!(prog[0].starts_with("/shows/102/progress/watched"));
+    }
+
+    // 3rd sync after >7 days since last full sync -> falls back to full /sync/watched/shows reconciliation
+    state
+        .db
+        .lock()
+        .await
+        .execute(
+            "UPDATE trakt_sync_state SET value = '2020-01-01T00:00:00Z' WHERE key = 'watched_full_sync_at'",
+            [],
+        )
+        .unwrap();
+    *activities_body.lock().unwrap() = activities("2026-11-24T10:00:00Z");
+    log.lock().unwrap().clear();
+    run_sync(&state, None, false).await.unwrap();
+    assert_eq!(
+        log.lock().unwrap().iter().filter(|p| p.as_str() == "/sync/watched/shows").count(),
+        1,
+        "stale watched_full_sync_at (>7d) must trigger full reconciliation"
+    );
 }

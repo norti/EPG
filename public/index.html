@@ -1082,6 +1082,52 @@
                 </div>
               </div>
 
+              <!-- Szekció 3.5: Adatbázis karbantartás -->
+              <div class="export-section-card">
+                <div
+                  class="export-section-title"
+                  data-i18n="db_maintenance_title"
+                >
+                  Adatbázis karbantartás
+                </div>
+                <div
+                  class="export-section-desc"
+                  data-i18n="db_maintenance_desc"
+                >
+                  Tömöríti az epg.db és images.db fájlokat (VACUUM), törli a lejárt gyorsítótár-bejegyzéseket és az árva képeket. A források, kedvencek, beállítások és kézi TMDB-párosítások megmaradnak.
+                </div>
+
+                <div class="cache-stats-row" id="dbStatsRow">
+                  <div class="cache-stat-item">
+                    <span class="cache-stat-label" data-i18n="db_stat_epg">epg.db:</span>
+                    <span class="cache-stat-val" id="dbStatEpgSize">-</span>
+                  </div>
+                  <div class="cache-stat-item">
+                    <span class="cache-stat-label" data-i18n="db_stat_images">images.db:</span>
+                    <span class="cache-stat-val" id="dbStatImagesSize">-</span>
+                  </div>
+                  <div class="cache-stat-item">
+                    <span class="cache-stat-label" data-i18n="db_stat_reclaimable">Visszanyerhető:</span>
+                    <span class="cache-stat-val" id="dbStatReclaimable">-</span>
+                  </div>
+                </div>
+
+                <div class="export-section-actions">
+                  <button
+                    class="btn btn-blue"
+                    id="maintainDatabaseBtn"
+                    data-i18n="btn_maintain_database"
+                  >
+                    ADATBÁZIS KARBANTARTÁS
+                  </button>
+                  <span
+                    id="dbMaintenanceStatus"
+                    class="export-import-status"
+                    style="display: none"
+                  ></span>
+                </div>
+              </div>
+
               <!-- Szekció 4: Adatbázis törlése (Danger Zone) -->
               <div class="export-section-card--danger">
                 <div

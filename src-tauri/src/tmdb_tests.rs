@@ -665,3 +665,59 @@ async fn test_lang_switch_ignores_stale_id_and_does_not_leak_hu_overview() {
     assert_eq!(de.tmdb_id, 2691);
     assert_eq!(de.overview, None);
 }
+
+#[tokio::test]
+async fn test_app_language_switch_reuses_sibling_row_in_get_tmdb_details() {
+    let log: Log = Arc::new(StdMutex::new(Vec::new()));
+    let l = log.clone();
+    let base = spawn_mock_server(move |_method, path, _body| {
+        l.lock().unwrap().push(path.clone());
+        if path.starts_with("/search/multi") {
+            return (
+                200,
+                vec![],
+                r#"{"results":[{"id":301,"media_type":"tv","name":"Sötétség","original_name":"Dark","original_language":"de","poster_path":"/d.jpg","first_air_date":"2017-12-01","overview":"Magyar leírás","vote_average":8.4}]}"#.to_string(),
+            );
+        }
+        if path.starts_with("/tv/301/translations") {
+            return (
+                200,
+                vec![],
+                r#"{"translations":[{"iso_639_1":"hu","data":{"name":"Sötétség","overview":"Magyar leírás"}},{"iso_639_1":"en","data":{"name":"Dark","overview":"English overview"}}]}"#.to_string(),
+            );
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+    let state = tmdb_state(base).await;
+
+    let hu = get_tmdb_details_inner(&state, "Sötétség".to_string(), Some("hu-HU".to_string()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(hu.title, "Sötétség");
+    assert_eq!(hu.overview.as_deref(), Some("Magyar leírás"));
+    let reqs_after_hu = log.lock().unwrap().len();
+    assert_eq!(reqs_after_hu, 2);
+
+    // Switching app language to English for the same title costs 0 network requests
+    let en = get_tmdb_details_inner(&state, "Sötétség".to_string(), Some("en-US".to_string()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(en.tmdb_id, 301);
+    assert_eq!(en.title, "Dark");
+    assert_eq!(en.overview.as_deref(), Some("English overview"));
+    assert_eq!(log.lock().unwrap().len(), reqs_after_hu, "app language switch must use 0 HTTP calls");
+
+    // A manual 'none' marker in Hungarian also stays respected after switching to English
+    {
+        let conn = state.db.lock().await;
+        store_manual_none(&conn, "NoMatchShow", "hu-HU").unwrap();
+    }
+    let none_en = get_tmdb_details_inner(&state, "NoMatchShow".to_string(), Some("en-US".to_string()))
+        .await
+        .unwrap();
+    assert!(none_en.is_none());
+    assert_eq!(log.lock().unwrap().len(), reqs_after_hu, "manual none must not trigger a search after language switch");
+}

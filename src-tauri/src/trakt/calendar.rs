@@ -188,13 +188,96 @@ pub async fn enrich_missing_my_calendar_posters(state: &AppState) {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalCalendarFilters {
+    #[serde(default)]
+    pub countries: String,
+    #[serde(default)]
+    pub languages: String,
+}
+
+const GLOBAL_CAL_COUNTRIES_KEY: &str = "trakt_global_calendar_countries";
+const GLOBAL_CAL_LANGUAGES_KEY: &str = "trakt_global_calendar_languages";
+
+pub fn normalize_filter_codes(raw: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for part in raw.split(|c: char| c == ',' || c.is_whitespace() || c == ';') {
+        let code = part.trim().to_ascii_lowercase();
+        if code.len() == 2 && code.bytes().all(|b| b.is_ascii_alphabetic()) && !out.contains(&code) {
+            out.push(code);
+        }
+    }
+    out.join(",")
+}
+
+pub fn load_global_calendar_filters(conn: &Connection) -> GlobalCalendarFilters {
+    let read_key = |k: &str| -> String {
+        conn.query_row("SELECT value FROM settings WHERE key = ?1", params![k], |r| {
+            r.get::<_, String>(0)
+        })
+        .ok()
+        .map(|s| normalize_filter_codes(&s))
+        .unwrap_or_default()
+    };
+    GlobalCalendarFilters {
+        countries: read_key(GLOBAL_CAL_COUNTRIES_KEY),
+        languages: read_key(GLOBAL_CAL_LANGUAGES_KEY),
+    }
+}
+
+pub fn save_global_calendar_filters(
+    conn: &Connection,
+    countries: &str,
+    languages: &str,
+) -> Result<GlobalCalendarFilters, String> {
+    let norm = GlobalCalendarFilters {
+        countries: normalize_filter_codes(countries),
+        languages: normalize_filter_codes(languages),
+    };
+    for (key, val) in [
+        (GLOBAL_CAL_COUNTRIES_KEY, &norm.countries),
+        (GLOBAL_CAL_LANGUAGES_KEY, &norm.languages),
+    ] {
+        if val.is_empty() {
+            conn.execute("DELETE FROM settings WHERE key = ?1", params![key])
+                .map_err(|e| e.to_string())?;
+        } else {
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, val],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(norm)
+}
+
+pub fn build_global_calendar_path(start_date: &str, filters: &GlobalCalendarFilters) -> String {
+    let mut path = format!("/calendars/all/shows/{}/14?extended=full", start_date);
+    if !filters.countries.is_empty() {
+        path.push_str("&countries=");
+        path.push_str(&filters.countries);
+    }
+    if !filters.languages.is_empty() {
+        path.push_str("&languages=");
+        path.push_str(&filters.languages);
+    }
+    path
+}
+
 pub async fn fetch_and_cache_global_calendar(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
     start_date: &str,
     force_refresh: bool,
 ) -> Result<(), String> {
-    let path = format!("/calendars/all/shows/{}/14?extended=full", start_date);
+    let filters = {
+        let conn = state.db.lock().await;
+        load_global_calendar_filters(&conn)
+    };
+    let path = build_global_calendar_path(start_date, &filters);
     let resp = trakt_get_cached(state, app, &path, false, 10800, force_refresh)
         .await
         .map_err(|e| e.to_user_string())?;
