@@ -19,6 +19,7 @@ import {
   applyActiveSortToEpgChannels,
   fetchEPG,
   renderEPG,
+  invalidateEpgSourceCache,
 } from "./epg.js";
 
 export async function openMissingLogosModal(sourceId, onStatsChanged) {
@@ -72,6 +73,8 @@ export async function openMissingLogosModal(sourceId, onStatsChanged) {
   };
 
   const syncEpgChannelLogo = (item, logoUrl, cachedData) => {
+    invalidateChannelOrderCache(item.sourceId);
+    invalidateEpgSourceCache(item.sourceId);
     if (!state.epgData || !state.epgData.channels) return;
     const matchesChannel = (c) =>
       (c.sourceId
@@ -84,6 +87,7 @@ export async function openMissingLogosModal(sourceId, onStatsChanged) {
       if (matchesChannel(liveCh)) {
         liveCh.customIcon = logoUrl;
         liveCh.cachedIcon = cachedData || null;
+        liveCh.iconFailed = false;
         touched = true;
       }
     });
@@ -92,6 +96,7 @@ export async function openMissingLogosModal(sourceId, onStatsChanged) {
         if (matchesChannel(rawCh)) {
           rawCh.customIcon = logoUrl;
           rawCh.cachedIcon = cachedData || null;
+          rawCh.iconFailed = false;
         }
       });
     }
@@ -629,6 +634,10 @@ export async function loadChannelLogosTab() {
     });
 
     // Frissítjük a memóriában lévő EPG adatokat és újrarajzoljuk az EPG-t
+    if (matchedList.length > 0) {
+      invalidateChannelOrderCache(targetSource);
+      invalidateEpgSourceCache(targetSource);
+    }
     if (state.epgData && state.epgData.channels && matchedList.length > 0) {
       matchedList.forEach((m) => {
         const liveCh = state.epgData.channels.find(
@@ -637,6 +646,7 @@ export async function loadChannelLogosTab() {
         if (liveCh) {
           liveCh.customIcon = m.logoUrl;
           liveCh.cachedIcon = m.cachedData || m.logoUrl;
+          liveCh.iconFailed = false;
         }
         if (state.epgData.rawChannels) {
           const rawCh = state.epgData.rawChannels.find(
@@ -645,6 +655,7 @@ export async function loadChannelLogosTab() {
           if (rawCh) {
             rawCh.customIcon = m.logoUrl;
             rawCh.cachedIcon = m.cachedData || m.logoUrl;
+            rawCh.iconFailed = false;
           }
         }
       });
@@ -796,7 +807,10 @@ function setupLogoDeduplicationHandlers() {
       resultsEl.classList.add("u-hidden");
       dedupBtn.classList.add("u-hidden");
 
-      await fetchEPG();
+      clearChannelLogoPreviewCache();
+      invalidateChannelOrderCache();
+      invalidateEpgSourceCache();
+      await fetchEPG({ forceReload: true });
     } catch (err) {
       console.error(err);
       setExportImportStatus(
@@ -885,6 +899,7 @@ function pumpChannelLogoQueue() {
         const currentUrl = (task.ch.customIcon || task.ch.icon || "").trim();
         if (currentUrl !== task.url) return;
         if (dataUri) {
+          task.ch.iconFailed = false;
           syncCachedLogoToEpgState(task.ch, dataUri);
           if (task.previewEl.isConnected) {
             setLogoPreviewImg(task.previewEl, dataUri);
@@ -893,12 +908,15 @@ function pumpChannelLogoQueue() {
             renderEPG();
           }
         } else if (task.previewEl.isConnected) {
-          setLogoPreviewImg(task.previewEl, task.url);
+          task.previewEl.innerHTML = getTvPlaceholderHtml();
         }
       } catch (_) {
         const currentUrl = (task.ch.customIcon || task.ch.icon || "").trim();
-        if (currentUrl === task.url && task.previewEl.isConnected) {
-          setLogoPreviewImg(task.previewEl, task.url);
+        if (currentUrl === task.url) {
+          task.ch.iconFailed = true;
+          if (task.previewEl.isConnected) {
+            task.previewEl.innerHTML = getTvPlaceholderHtml();
+          }
         }
       } finally {
         activeChannelLogoLoads--;
@@ -948,7 +966,7 @@ function renderChannelLogoPreview(previewEl, ch, options = {}) {
     return;
   }
 
-  if (!rawUrl) {
+  if (!rawUrl || (ch.iconFailed && !options.immediate)) {
     previewEl.innerHTML = getTvPlaceholderHtml();
     return;
   }
@@ -994,6 +1012,12 @@ async function applyFullChannelOrder(targetSourceId, orderedIds) {
     sourceId: targetSourceId,
     order: orderedIds,
   });
+
+  if (targetSourceId !== state.currentSourceId) {
+    invalidateEpgSourceCache(targetSourceId);
+  } else if (state.currentSourceId !== "__ALL_FAVORITES__") {
+    invalidateEpgSourceCache("__ALL_FAVORITES__");
+  }
 
   if (targetSourceId === state.currentSourceId) {
     if (state.epgData.rawChannels) {
@@ -1541,6 +1565,7 @@ export async function renderChannelOrderList() {
         channelId: actualChannelId,
       });
       ch.isFavorite = newFav;
+      invalidateEpgSourceCache(actualSourceId);
       if (targetSourceId === "__ALL_FAVORITES__" && !newFav) {
         sourceChannels = sourceChannels.filter((c) => c.id !== ch.id);
       }
@@ -1576,6 +1601,7 @@ export async function renderChannelOrderList() {
         channelId: actualChannelId,
       });
       ch.isHidden = newHidden;
+      invalidateEpgSourceCache(actualSourceId);
       if (targetSourceId === state.currentSourceId) {
         const liveCh = state.epgData.channels.find((c) => c.id === ch.id);
         if (liveCh) liveCh.isHidden = newHidden;
@@ -1633,6 +1659,8 @@ export async function renderChannelOrderList() {
       ch.customName = newName || null;
       ch.customIcon = newLogo || null;
       ch.cachedIcon = null;
+      ch.iconFailed = false;
+      invalidateEpgSourceCache(actualSourceId);
 
       if (targetSourceId === state.currentSourceId) {
         const liveCh = state.epgData.channels.find((c) => c.id === ch.id);
@@ -1708,6 +1736,8 @@ export async function renderChannelOrderList() {
       ch.customName = null;
       ch.customIcon = null;
       ch.cachedIcon = null;
+      ch.iconFailed = false;
+      invalidateEpgSourceCache(actualSourceId);
 
       if (targetSourceId === state.currentSourceId) {
         const liveCh = state.epgData.channels.find((c) => c.id === ch.id);
@@ -1844,8 +1874,9 @@ export function initChannels() {
       order: [],
     });
     invalidateChannelOrderCache(targetSourceId);
+    invalidateEpgSourceCache(targetSourceId);
     if (targetSourceId === state.currentSourceId) {
-      await fetchEPG();
+      await fetchEPG({ forceReload: true });
     } else if (state.currentSourceId === "__ALL_FAVORITES__") {
       state.settingsEpgDirty = true;
     }

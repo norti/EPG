@@ -271,17 +271,54 @@ pub fn save_cached_profile(conn: &Connection, profile: &TraktProfile) -> Result<
 }
 
 pub async fn get_auth_status(state: &AppState) -> Result<TraktAuthStatus, String> {
-    let store = default_secret_store();
-    let conn = state.db.lock().await;
-    let enabled = is_trakt_enabled(&conn);
-    let custom_client_id = get_custom_client_id(&conn);
-    let has_custom_secret = has_custom_client_secret(&conn);
-    let profile = load_cached_profile(&conn);
+    // Fast path: check in-memory cached token first to avoid repeated DPAPI decryptions
+    // (especially during login polling or settings navigation).
+    let cached_tok_expires = {
+        let guard = state.trakt.token.lock().await;
+        guard.as_ref().map(|t| t.expires_at)
+    };
 
-    let tok_opt = load_tokens_from_db(&conn, store.as_ref()).ok().flatten();
-    let (logged_in, expires_at) = match tok_opt {
-        Some(t) => (true, Some(t.expires_at)),
-        None => (false, None),
+    let (enabled, custom_client_id, has_custom_secret, profile, has_db_token) = {
+        let conn = state.db.lock().await;
+        let enabled = is_trakt_enabled(&conn);
+        let custom_client_id = get_custom_client_id(&conn);
+        let has_custom_secret = has_custom_client_secret(&conn);
+        let profile = load_cached_profile(&conn);
+        let has_db_token = if cached_tok_expires.is_some() {
+            true
+        } else {
+            conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM trakt_auth WHERE id = 1 AND access_blob != '' AND refresh_blob != '')",
+                [],
+                |r| r.get::<_, bool>(0),
+            )
+            .unwrap_or(false)
+        };
+        (enabled, custom_client_id, has_custom_secret, profile, has_db_token)
+    };
+
+    let (logged_in, expires_at) = if let Some(exp) = cached_tok_expires {
+        (true, Some(exp))
+    } else if !has_db_token {
+        (false, None)
+    } else {
+        // Populate in-memory token cache once via DPAPI so future calls hit the fast path
+        let mut guard = state.trakt.token.lock().await;
+        if let Some(ref t) = *guard {
+            (true, Some(t.expires_at))
+        } else {
+            let store = default_secret_store();
+            let conn = state.db.lock().await;
+            let loaded = load_tokens_from_db(&conn, store.as_ref()).ok().flatten();
+            match loaded {
+                Some(t) => {
+                    let exp = t.expires_at;
+                    *guard = Some(t);
+                    (true, Some(exp))
+                }
+                None => (false, None),
+            }
+        }
     };
 
     Ok(TraktAuthStatus {

@@ -101,6 +101,8 @@ pub struct AppState {
     pub trakt: trakt::TraktState,
     pub tmdb: TmdbRuntime,
     pub stats: RequestStats,
+    /// Coalesces concurrent image/logo downloads sharing the same URL.
+    pub image_inflight: trakt::client::SharedInflightMap<Result<String, String>>,
 }
 
 /// Runtime settings of the TMDB layer. The base URL is injectable so tests can point it at a mock server.
@@ -114,6 +116,8 @@ pub struct TmdbRuntime {
     pub cache_inflight: trakt::client::InflightMap,
     /// Coalesces concurrent raw HTTP TMDB calls sharing the same flight key.
     pub(crate) http_inflight: trakt::client::SharedInflightMap<Result<String, TmdbError>>,
+    /// In-memory cache of the decrypted TMDB API key (`None` = unloaded, `Some(None)` = unset).
+    pub(crate) api_key_cache: tokio::sync::RwLock<Option<Option<zeroize::Zeroizing<String>>>>,
 }
 
 impl TmdbRuntime {
@@ -131,6 +135,7 @@ impl TmdbRuntime {
             retry_delay,
             cache_inflight: std::sync::Mutex::new(HashMap::new()),
             http_inflight: std::sync::Mutex::new(HashMap::new()),
+            api_key_cache: tokio::sync::RwLock::new(None),
         }
     }
 }
@@ -151,6 +156,8 @@ struct Channel {
     icon: String,
     custom_icon: Option<String>,
     cached_icon: Option<String>,
+    #[serde(default)]
+    icon_failed: bool,
     is_favorite: bool,
     is_hidden: bool,
     #[serde(default)]
@@ -260,7 +267,16 @@ fn open_and_init_db() -> Result<Connection, String> {
             created_at TEXT NOT NULL,
             FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
         );
-        CREATE INDEX IF NOT EXISTS images_db.idx_image_urls_image_id ON image_urls (image_id);",
+        CREATE INDEX IF NOT EXISTS images_db.idx_image_urls_image_id ON image_urls (image_id);
+
+        CREATE TABLE IF NOT EXISTS images_db.failed_logo_cache (
+            url TEXT PRIMARY KEY,
+            status_code INTEGER,
+            error TEXT NOT NULL,
+            failed_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS images_db.idx_failed_logo_expires ON failed_logo_cache (expires_at);",
     )
     .map_err(|e| format!("images_db táblák inicializálási hiba: {}", e))?;
 
@@ -371,6 +387,7 @@ fn open_and_init_db() -> Result<Connection, String> {
 }
 
 fn query_all_favorites_channels(conn: &Connection) -> Result<Vec<Channel>, String> {
+    let now_ts = trakt::now_epoch_secs();
     let mut stmt = conn.prepare(
         "SELECT c.id,
                 c.source_id,
@@ -383,7 +400,8 @@ fn query_all_favorites_channels(conn: &Connection) -> Result<Vec<Channel>, Strin
                 img.sha256 AS cached_sha,
                 COALESCE(cus.is_favorite, 0),
                 COALESCE(cus.is_hidden, 0),
-                COALESCE(s.country_code, 'HU') AS country_code
+                COALESCE(s.country_code, 'HU') AS country_code,
+                CASE WHEN flc.url IS NOT NULL THEN 1 ELSE 0 END AS icon_failed
          FROM channels c
          JOIN sources s ON s.id = c.source_id
          JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
@@ -391,6 +409,9 @@ fn query_all_favorites_channels(conn: &Connection) -> Result<Vec<Channel>, Strin
          LEFT JOIN channel_orders co_fav ON co_fav.source_id = '__ALL_FAVORITES__' AND co_fav.channel_id = (c.source_id || '::' || c.id)
          LEFT JOIN images_db.image_urls iu ON iu.url = COALESCE(NULLIF(cus.custom_icon, ''), c.icon)
          LEFT JOIN images_db.images img ON img.id = iu.image_id
+         LEFT JOIN images_db.failed_logo_cache flc
+           ON flc.url = COALESCE(NULLIF(cus.custom_icon, ''), c.icon)
+          AND flc.expires_at > ?1
          WHERE cus.is_favorite = 1 AND COALESCE(cus.is_hidden, 0) = 0
          ORDER BY
             CASE WHEN co_fav.position IS NOT NULL THEN 0 ELSE 1 END,
@@ -401,7 +422,7 @@ fn query_all_favorites_channels(conn: &Connection) -> Result<Vec<Channel>, Strin
             display_name ASC"
     ).map_err(|e| e.to_string())?;
 
-    let channel_iter = stmt.query_map([], |row| {
+    let channel_iter = stmt.query_map(params![now_ts], |row| {
         let raw_id: String = row.get(0)?;
         let src_id: String = row.get(1)?;
         let src_name: String = row.get(2)?;
@@ -410,6 +431,7 @@ fn query_all_favorites_channels(conn: &Connection) -> Result<Vec<Channel>, Strin
         let is_fav: i32 = row.get(9)?;
         let is_hid: i32 = row.get(10)?;
         let country_code: String = row.get(11)?;
+        let icon_failed: i32 = row.get(12)?;
         let cached_icon = cached_sha
             .filter(|s| !s.trim().is_empty())
             .map(|sha| image_protocol_url(&sha));
@@ -420,7 +442,8 @@ fn query_all_favorites_channels(conn: &Connection) -> Result<Vec<Channel>, Strin
             custom_name: row.get(5)?,
             icon: row.get(6)?,
             custom_icon: row.get(7)?,
-            cached_icon,
+            cached_icon: cached_icon.clone(),
+            icon_failed: cached_icon.is_none() && icon_failed == 1,
             is_favorite: is_fav == 1,
             is_hidden: is_hid == 1,
             source_id: Some(src_id),
@@ -433,6 +456,7 @@ fn query_all_favorites_channels(conn: &Connection) -> Result<Vec<Channel>, Strin
 }
 
 fn query_source_channels(conn: &Connection, source_id: &str) -> Result<Vec<Channel>, String> {
+    let now_ts = trakt::now_epoch_secs();
     let mut stmt = conn.prepare(
         "SELECT c.id,
                 COALESCE(NULLIF(cus.custom_name, ''), c.name) AS display_name,
@@ -444,13 +468,17 @@ fn query_source_channels(conn: &Connection, source_id: &str) -> Result<Vec<Chann
                 COALESCE(cus.is_favorite, 0),
                 COALESCE(cus.is_hidden, 0),
                 COALESCE(s.country_code, 'HU') AS country_code,
-                COALESCE(s.name, '') AS source_name
+                COALESCE(s.name, '') AS source_name,
+                CASE WHEN flc.url IS NOT NULL THEN 1 ELSE 0 END AS icon_failed
          FROM channels c
          JOIN sources s ON s.id = c.source_id
          LEFT JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
          LEFT JOIN channel_orders co ON co.source_id = c.source_id AND co.channel_id = c.id
          LEFT JOIN images_db.image_urls iu ON iu.url = COALESCE(NULLIF(cus.custom_icon, ''), c.icon)
          LEFT JOIN images_db.images img ON img.id = iu.image_id
+         LEFT JOIN images_db.failed_logo_cache flc
+           ON flc.url = COALESCE(NULLIF(cus.custom_icon, ''), c.icon)
+          AND flc.expires_at > ?2
          WHERE c.source_id = ?1
          ORDER BY
             COALESCE(cus.is_favorite, 0) DESC,
@@ -459,12 +487,13 @@ fn query_source_channels(conn: &Connection, source_id: &str) -> Result<Vec<Chann
             display_name ASC"
     ).map_err(|e| e.to_string())?;
 
-    let channel_iter = stmt.query_map(params![source_id], |row| {
+    let channel_iter = stmt.query_map(params![source_id, now_ts], |row| {
         let cached_sha: Option<String> = row.get(6)?;
         let is_fav: i32 = row.get(7)?;
         let is_hid: i32 = row.get(8)?;
         let country_code: String = row.get(9)?;
         let src_name: String = row.get(10)?;
+        let icon_failed: i32 = row.get(11)?;
         let cached_icon = cached_sha
             .filter(|s| !s.trim().is_empty())
             .map(|sha| image_protocol_url(&sha));
@@ -475,7 +504,8 @@ fn query_source_channels(conn: &Connection, source_id: &str) -> Result<Vec<Chann
             custom_name: row.get(3)?,
             icon: row.get(4)?,
             custom_icon: row.get(5)?,
-            cached_icon,
+            cached_icon: cached_icon.clone(),
+            icon_failed: cached_icon.is_none() && icon_failed == 1,
             is_favorite: is_fav == 1,
             is_hidden: is_hid == 1,
             source_id: Some(source_id.to_string()),
@@ -608,7 +638,9 @@ async fn save_source(state: tauri::State<'_, AppState>, source: Source) -> Resul
             last_downloaded = COALESCE(excluded.last_downloaded, sources.last_downloaded),
             country_code = excluded.country_code,
             time_offset = excluded.time_offset,
-            sort_position = COALESCE(excluded.sort_position, sources.sort_position)",
+            sort_position = COALESCE(excluded.sort_position, sources.sort_position),
+            etag = CASE WHEN sources.url != excluded.url THEN NULL ELSE sources.etag END,
+            last_modified = CASE WHEN sources.url != excluded.url THEN NULL ELSE sources.last_modified END",
         params![source.id, source.name, source.url, source.last_downloaded, source.country_code, source.time_offset, source.sort_position],
     ).map_err(|e| e.to_string())?;
     Ok(())
@@ -661,7 +693,7 @@ async fn clear_entire_database(state: tauri::State<'_, AppState>) -> Result<(), 
     tx.execute("DELETE FROM channels", []).ok();
     tx.execute("DELETE FROM programmes", []).ok();
     tx.execute("DELETE FROM tmdb_cache", []).ok();
-    tx.execute("UPDATE sources SET last_downloaded = NULL", []).ok();
+    tx.execute("UPDATE sources SET last_downloaded = NULL, etag = NULL, last_modified = NULL", []).ok();
 
     tx.commit().map_err(|e| format!("Törlési mentési hiba: {}", e))?;
     Ok(())
@@ -1087,6 +1119,47 @@ pub(crate) fn detect_and_validate_image_mime(
     Err("A válasz nem érvényes képformátum".to_string())
 }
 
+const FAILED_LOGO_PERMANENT_TTL_SECS: i64 = 14 * 86_400;
+const FAILED_LOGO_TRANSIENT_TTL_SECS: i64 = 6 * 3600;
+
+fn read_negative_logo_cache(conn: &Connection, url: &str) -> Option<String> {
+    let now_ts = trakt::now_epoch_secs();
+    conn.query_row(
+        "SELECT error FROM images_db.failed_logo_cache WHERE url = ?1 AND expires_at > ?2",
+        params![url, now_ts],
+        |r| r.get::<_, String>(0),
+    )
+    .ok()
+}
+
+fn write_negative_logo_cache(
+    conn: &Connection,
+    url: &str,
+    status_code: Option<i64>,
+    error: &str,
+    ttl_secs: i64,
+) {
+    let now_ts = trakt::now_epoch_secs();
+    let expires_at = now_ts + ttl_secs;
+    let _ = conn.execute(
+        "INSERT INTO images_db.failed_logo_cache (url, status_code, error, failed_at, expires_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(url) DO UPDATE SET
+            status_code = excluded.status_code,
+            error = excluded.error,
+            failed_at = excluded.failed_at,
+            expires_at = excluded.expires_at",
+        params![url, status_code, error, now_ts, expires_at],
+    );
+}
+
+fn clear_negative_logo_cache_entry(conn: &Connection, url: &str) {
+    let _ = conn.execute(
+        "DELETE FROM images_db.failed_logo_cache WHERE url = ?1",
+        params![url],
+    );
+}
+
 pub(crate) async fn cache_logo_inner(state: &AppState, url: String) -> Result<String, String> {
     cache_logo_with_type_inner(state, url, None).await
 }
@@ -1107,14 +1180,15 @@ async fn cache_logo_with_type_inner(
         return Ok(clean_url);
     }
 
-    let resolved_override = match image_type_override.map(str::trim).filter(|s| !s.is_empty()) {
-        Some("avatar") => Some("avatar"),
-        Some("poster") => Some("poster"),
-        Some("logo") => Some("logo"),
-        _ => None,
-    };
+    let resolved_override: Option<&'static str> =
+        match image_type_override.map(str::trim).filter(|s| !s.is_empty()) {
+            Some("avatar") => Some("avatar"),
+            Some("poster") => Some("poster"),
+            Some("logo") => Some("logo"),
+            _ => None,
+        };
 
-    // 1. Előzetes gyorsítótár ellenőrzés (a zár azonnal feloldódik a hálózati kérés előtt)
+    // 1. Előzetes gyorsítótár + negatív cache ellenőrzés (a zár azonnal feloldódik)
     {
         let conn = state.db.lock().await;
         if let Some(proto_url) = read_cached_image_url(&conn, &clean_url) {
@@ -1126,78 +1200,135 @@ async fn cache_logo_with_type_inner(
             }
             return Ok(proto_url);
         }
+        if let Some(cached_err) = read_negative_logo_cache(&conn, &clean_url) {
+            return Err(cached_err);
+        }
     }
 
     if !clean_url.starts_with("http://") && !clean_url.starts_with("https://") {
         return Err("Nem támogatott URL protokoll".to_string());
     }
 
-    // 2. Hálózati letöltés DB zárolás nélkül
-    let resp = state.http.get(&clean_url).send().await.map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP hiba: {}", resp.status()));
-    }
-
-    if let Some(len) = resp.content_length() {
-        if len > MAX_CACHED_IMAGE_BYTES as u64 {
-            return Err(format!(
-                "A kép túl nagy ({} bájt, max {} bájt)",
-                len, MAX_CACHED_IMAGE_BYTES
-            ));
+    // 2. Single-flight deduplikáció: párhuzamos azonos URL kérések egyetlen HTTP letöltésen osztoznak
+    let flight_url = clean_url.clone();
+    trakt::client::single_flight_shared(&state.image_inflight, &flight_url, || async move {
+        // Újraellenőrzés a hálózati hívás előtt (hátha épp most került cache-be)
+        {
+            let conn = state.db.lock().await;
+            if let Some(proto_url) = read_cached_image_url(&conn, &clean_url) {
+                return Ok(proto_url);
+            }
+            if let Some(cached_err) = read_negative_logo_cache(&conn, &clean_url) {
+                return Err(cached_err);
+            }
         }
-    }
 
-    let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+        let resp = match state.http.get(&clean_url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                let err_msg = e.to_string();
+                let conn = state.db.lock().await;
+                write_negative_logo_cache(&conn, &clean_url, None, &err_msg, FAILED_LOGO_TRANSIENT_TTL_SECS);
+                return Err(err_msg);
+            }
+        };
 
-    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
-    let mime = detect_and_validate_image_mime(content_type.as_deref(), &bytes)?;
-
-    // 3. Tartalom-alapú SHA-256 hash generálás a nyers bájtokból
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    let hash_hex = format!("{:x}", hasher.finalize());
-
-    let byte_size = bytes.len() as i64;
-    let img_type = match resolved_override {
-        Some(t) => t,
-        None if clean_url.contains("image.tmdb.org") => "poster",
-        None => "logo",
-    };
-
-    let conn = state.db.lock().await;
-
-    // 4. Deduplikáció: ha a hash már szerepel az images.db-ben, újrahasznosítjuk az ID-t
-    let existing_id: Option<i64> = conn.query_row(
-        "SELECT id FROM images_db.images WHERE sha256 = ?1",
-        params![hash_hex],
-        |row| row.get(0),
-    ).ok();
-
-    let image_id = match existing_id {
-        Some(id) => id,
-        None => {
-            conn.execute(
-                "INSERT INTO images_db.images (sha256, mime_type, byte_size, data, created_at)
-                 VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-                params![hash_hex, mime, byte_size, bytes.as_ref()],
-            ).map_err(|e| e.to_string())?;
-            conn.last_insert_rowid()
+        if !resp.status().is_success() {
+            let code = resp.status().as_u16() as i64;
+            let err_msg = format!("HTTP hiba: {}", resp.status());
+            let ttl = if matches!(code, 403 | 404 | 410 | 451) {
+                FAILED_LOGO_PERMANENT_TTL_SECS
+            } else {
+                FAILED_LOGO_TRANSIENT_TTL_SECS
+            };
+            let conn = state.db.lock().await;
+            write_negative_logo_cache(&conn, &clean_url, Some(code), &err_msg, ttl);
+            return Err(err_msg);
         }
-    };
 
-    conn.execute(
-        "INSERT INTO images_db.image_urls (url, image_id, image_type, created_at)
-         VALUES (?1, ?2, ?3, datetime('now'))
-         ON CONFLICT(url) DO UPDATE SET image_id = excluded.image_id, image_type = excluded.image_type, created_at = excluded.created_at",
-        params![clean_url, image_id, img_type],
-    ).map_err(|e| e.to_string())?;
+        if let Some(len) = resp.content_length() {
+            if len > MAX_CACHED_IMAGE_BYTES as u64 {
+                let err_msg = format!(
+                    "A kép túl nagy ({} bájt, max {} bájt)",
+                    len, MAX_CACHED_IMAGE_BYTES
+                );
+                let conn = state.db.lock().await;
+                write_negative_logo_cache(&conn, &clean_url, Some(200), &err_msg, FAILED_LOGO_PERMANENT_TTL_SECS);
+                return Err(err_msg);
+            }
+        }
 
-    Ok(image_protocol_url(&hash_hex))
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        let bytes = match resp.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                let err_msg = e.to_string();
+                let conn = state.db.lock().await;
+                write_negative_logo_cache(&conn, &clean_url, None, &err_msg, FAILED_LOGO_TRANSIENT_TTL_SECS);
+                return Err(err_msg);
+            }
+        };
+
+        let mime = match detect_and_validate_image_mime(content_type.as_deref(), &bytes) {
+            Ok(m) => m,
+            Err(err_msg) => {
+                let conn = state.db.lock().await;
+                write_negative_logo_cache(&conn, &clean_url, Some(200), &err_msg, FAILED_LOGO_PERMANENT_TTL_SECS);
+                return Err(err_msg);
+            }
+        };
+
+        // 3. Tartalom-alapú SHA-256 hash generálás a nyers bájtokból
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let hash_hex = format!("{:x}", hasher.finalize());
+
+        let byte_size = bytes.len() as i64;
+        let img_type = match resolved_override {
+            Some(t) => t,
+            None if clean_url.contains("image.tmdb.org") => "poster",
+            None => "logo",
+        };
+
+        let conn = state.db.lock().await;
+
+        // 4. Deduplikáció: ha a hash már szerepel az images.db-ben, újrahasznosítjuk az ID-t
+        let existing_id: Option<i64> = conn.query_row(
+            "SELECT id FROM images_db.images WHERE sha256 = ?1",
+            params![hash_hex],
+            |row| row.get(0),
+        ).ok();
+
+        let image_id = match existing_id {
+            Some(id) => id,
+            None => {
+                conn.execute(
+                    "INSERT INTO images_db.images (sha256, mime_type, byte_size, data, created_at)
+                     VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                    params![hash_hex, mime, byte_size, bytes.as_ref()],
+                ).map_err(|e| e.to_string())?;
+                conn.last_insert_rowid()
+            }
+        };
+
+        conn.execute(
+            "INSERT INTO images_db.image_urls (url, image_id, image_type, created_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(url) DO UPDATE SET image_id = excluded.image_id, image_type = excluded.image_type, created_at = excluded.created_at",
+            params![clean_url, image_id, img_type],
+        ).map_err(|e| e.to_string())?;
+
+        clear_negative_logo_cache_entry(&conn, &clean_url);
+
+        Ok(image_protocol_url(&hash_hex))
+    })
+    .await
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1654,6 +1785,10 @@ async fn clear_logo_cache(state: tauri::State<'_, AppState>) -> Result<usize, St
     ).map_err(|e| e.to_string())?;
 
     let _ = conn.execute(
+        "DELETE FROM images_db.failed_logo_cache WHERE url NOT LIKE '%image.tmdb.org%'",
+        [],
+    );
+    let _ = conn.execute(
         "DELETE FROM images_db.images WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
         [],
     );
@@ -1670,6 +1805,10 @@ async fn clear_poster_cache(state: tauri::State<'_, AppState>) -> Result<usize, 
     ).map_err(|e| e.to_string())?;
 
     let _ = conn.execute(
+        "DELETE FROM images_db.failed_logo_cache WHERE url LIKE '%image.tmdb.org%'",
+        [],
+    );
+    let _ = conn.execute(
         "DELETE FROM images_db.images WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
         [],
     );
@@ -1682,6 +1821,7 @@ async fn clear_all_image_cache(state: tauri::State<'_, AppState>) -> Result<(), 
     let conn = state.db.lock().await;
     let _ = conn.execute("DELETE FROM images_db.image_urls", []);
     let _ = conn.execute("DELETE FROM images_db.images", []);
+    let _ = conn.execute("DELETE FROM images_db.failed_logo_cache", []);
     let _ = conn.execute("VACUUM images_db", []);
     Ok(())
 }
@@ -1838,6 +1978,10 @@ pub(crate) fn maintain_database_inner(
         .unwrap_or(0);
 
     let pruned_orphan_images = if has_images {
+        let _ = conn.execute(
+            "DELETE FROM images_db.failed_logo_cache WHERE expires_at <= ?1",
+            params![trakt::now_epoch_secs()],
+        );
         conn.execute(
             "DELETE FROM images_db.images
              WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
@@ -2376,8 +2520,16 @@ impl IptvOrgLogoIndex {
     }
 }
 
-static TV_LOGO_INDEX_CACHE: RwLock<Option<TvLogoIndex>> = RwLock::new(None);
-static IPTV_LOGOS_INDEX_CACHE: RwLock<Option<IptvOrgLogoIndex>> = RwLock::new(None);
+const LOGO_INDEX_MEM_TTL: std::time::Duration = std::time::Duration::from_secs(7 * 86_400);
+const WIKIMEDIA_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+const WIKIMEDIA_CACHE_MAX_ENTRIES: usize = 256;
+
+type WikimediaCacheMap = HashMap<String, (std::time::Instant, Vec<LogoSearchResult>)>;
+
+static TV_LOGO_INDEX_CACHE: RwLock<Option<(std::time::Instant, TvLogoIndex)>> = RwLock::new(None);
+static IPTV_LOGOS_INDEX_CACHE: RwLock<Option<(std::time::Instant, IptvOrgLogoIndex)>> = RwLock::new(None);
+static WIKIMEDIA_SEARCH_CACHE: LazyLock<RwLock<WikimediaCacheMap>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 #[derive(Debug, Deserialize)]
 struct MwQueryResponse {
@@ -2686,13 +2838,23 @@ fn match_iptv_org_logos_any(
 }
 
 async fn search_wikimedia_commons(state: &AppState, clean_name: &str, country_name: &str) -> Vec<LogoSearchResult> {
-    let client = &state.http;
-
     let query = if country_name.trim().is_empty() {
         format!("{} logo", clean_name.trim())
     } else {
         format!("{} {} logo", clean_name.trim(), country_name.trim())
     };
+    let cache_key = query.to_lowercase();
+
+    {
+        let r = WIKIMEDIA_SEARCH_CACHE.read().unwrap_or_else(|e| e.into_inner());
+        if let Some((fetched_at, cached)) = r.get(&cache_key) {
+            if fetched_at.elapsed() < WIKIMEDIA_CACHE_TTL {
+                return cached.clone();
+            }
+        }
+    }
+
+    let client = &state.http;
 
     let resp = client
         .get("https://commons.wikimedia.org/w/api.php")
@@ -2710,10 +2872,12 @@ async fn search_wikimedia_commons(state: &AppState, clean_name: &str, country_na
         .await;
 
     let mut results = Vec::new();
+    let mut got_valid_response = false;
     if let Ok(r) = resp {
         if r.status().is_success() {
             if let Ok(text) = r.text().await {
                 if let Ok(data) = serde_json::from_str::<MwQueryResponse>(&text) {
+                    got_valid_response = true;
                     if let Some(q) = data.query {
                         if let Some(pages) = q.pages {
                             let mut sorted_pages: Vec<MwPage> = pages.into_values().collect();
@@ -2759,6 +2923,24 @@ async fn search_wikimedia_commons(state: &AppState, clean_name: &str, country_na
             }
         }
     }
+
+    if got_valid_response {
+        let mut w = WIKIMEDIA_SEARCH_CACHE.write().unwrap_or_else(|e| e.into_inner());
+        if w.len() >= WIKIMEDIA_CACHE_MAX_ENTRIES {
+            w.retain(|_, (ts, _)| ts.elapsed() < WIKIMEDIA_CACHE_TTL);
+            if w.len() >= WIKIMEDIA_CACHE_MAX_ENTRIES {
+                if let Some(oldest_key) = w
+                    .iter()
+                    .min_by_key(|(_, (ts, _))| *ts)
+                    .map(|(k, _)| k.clone())
+                {
+                    w.remove(&oldest_key);
+                }
+            }
+        }
+        w.insert(cache_key, (std::time::Instant::now(), results.clone()));
+    }
+
     results
 }
 
@@ -2826,30 +3008,30 @@ async fn get_missing_logo_channels_inner(state: &AppState, source_id: Option<Str
 }
 
 async fn ensure_tv_logo_tree_loaded(state: &AppState) -> Result<(), String> {
-    let already_have = {
+    let already_fresh = {
         let r = TV_LOGO_INDEX_CACHE.read().unwrap_or_else(|e| e.into_inner());
-        r.is_some()
+        r.as_ref().is_some_and(|(ts, _)| ts.elapsed() < LOGO_INDEX_MEM_TTL)
     };
-    if !already_have {
+    if !already_fresh {
         if let Ok(paths) = fetch_tv_logo_full_tree(state).await {
             let index = TvLogoIndex::from_paths(paths);
             let mut w = TV_LOGO_INDEX_CACHE.write().unwrap_or_else(|e| e.into_inner());
-            *w = Some(index);
+            *w = Some((std::time::Instant::now(), index));
         }
     }
     Ok(())
 }
 
 async fn ensure_iptv_logos_loaded(state: &AppState) -> Result<(), String> {
-    let already_have = {
+    let already_fresh = {
         let r = IPTV_LOGOS_INDEX_CACHE.read().unwrap_or_else(|e| e.into_inner());
-        r.is_some()
+        r.as_ref().is_some_and(|(ts, _)| ts.elapsed() < LOGO_INDEX_MEM_TTL)
     };
-    if !already_have {
+    if !already_fresh {
         if let Ok(logos) = fetch_iptv_org_logos(state).await {
             let index = IptvOrgLogoIndex::from_items(logos);
             let mut w = IPTV_LOGOS_INDEX_CACHE.write().unwrap_or_else(|e| e.into_inner());
-            *w = Some(index);
+            *w = Some((std::time::Instant::now(), index));
         }
     }
     Ok(())
@@ -2880,7 +3062,7 @@ async fn find_channel_logo_github_inner(state: &AppState,
     let _ = ensure_tv_logo_tree_loaded(state).await;
     {
         let r = TV_LOGO_INDEX_CACHE.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(ref idx) = *r {
+        if let Some((_, ref idx)) = *r {
             if let Some(res) = idx.match_logo(country_dir, &c_code, &slug) {
                 candidate = Some((res.url, res.source_name));
             }
@@ -2891,7 +3073,7 @@ async fn find_channel_logo_github_inner(state: &AppState,
     if candidate.is_none() {
         let _ = ensure_iptv_logos_loaded(state).await;
         let r = IPTV_LOGOS_INDEX_CACHE.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(ref idx) = *r {
+        if let Some((_, ref idx)) = *r {
             if !c_code.is_empty() {
                 if let Some(res) = idx.match_country(&slug, &c_code) {
                     candidate = Some((res.url, "iptv-org".to_string()));
@@ -3077,7 +3259,7 @@ async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, 
     // 1. Forrás A: tv-logo (indexed)
     {
         let r = TV_LOGO_INDEX_CACHE.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(ref idx) = *r {
+        if let Some((_, ref idx)) = *r {
             for m in idx.search_logos(country_dir, &c_code, &slug, &clean) {
                 if seen_urls.insert(m.url.clone()) {
                     all_results.push(m);
@@ -3090,7 +3272,7 @@ async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, 
     let clean_lower = clean.to_lowercase();
     {
         let r = IPTV_LOGOS_INDEX_CACHE.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(ref idx) = *r {
+        if let Some((_, ref idx)) = *r {
             all_results.extend(idx.search(&slug, &clean_lower, &c_code, &mut seen_urls));
         }
     }
@@ -4294,9 +4476,22 @@ pub(crate) fn migrate_plaintext_tmdb_api_key(
 }
 
 pub(crate) async fn get_tmdb_api_key_from_state(state: &AppState) -> Option<String> {
-    let store = trakt::secret::default_secret_store();
-    let conn = state.db.lock().await;
-    load_tmdb_api_key_with_store(&conn, store.as_ref())
+    {
+        let r = state.tmdb.api_key_cache.read().await;
+        if let Some(ref cached) = *r {
+            return cached.as_ref().map(|z| z.as_str().to_string());
+        }
+    }
+
+    let loaded = {
+        let store = trakt::secret::default_secret_store();
+        let conn = state.db.lock().await;
+        load_tmdb_api_key_with_store(&conn, store.as_ref())
+    };
+
+    let mut w = state.tmdb.api_key_cache.write().await;
+    *w = Some(loaded.clone().map(zeroize::Zeroizing::new));
+    loaded
 }
 
 #[tauri::command]
@@ -4306,9 +4501,19 @@ async fn get_tmdb_api_key(state: tauri::State<'_, AppState>) -> Result<Option<St
 
 #[tauri::command]
 async fn set_tmdb_api_key(state: tauri::State<'_, AppState>, api_key: String) -> Result<(), String> {
-    let store = trakt::secret::default_secret_store();
-    let conn = state.db.lock().await;
-    save_tmdb_api_key_with_store(&conn, store.as_ref(), &api_key)
+    {
+        let store = trakt::secret::default_secret_store();
+        let conn = state.db.lock().await;
+        save_tmdb_api_key_with_store(&conn, store.as_ref(), &api_key)?;
+    }
+    let clean = api_key.trim();
+    let mut w = state.tmdb.api_key_cache.write().await;
+    *w = Some(if clean.is_empty() {
+        None
+    } else {
+        Some(zeroize::Zeroizing::new(clean.to_string()))
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -5128,8 +5333,11 @@ fn decode_xmltv_bytes(bytes: &[u8]) -> Result<String, String> {
     Err("UTF8 konverziós hiba: a fájl nem érvényes UTF-8 és nincs felismerhető XML encoding fejléc".to_string())
 }
 
-#[tauri::command]
-async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String, url: String) -> Result<(), String> {
+pub(crate) async fn update_source_epg_inner(
+    state: &AppState,
+    source_id: &str,
+    url: &str,
+) -> Result<(), String> {
     if url.trim().is_empty() {
         return Err("Az EPG URL címe üres!".to_string());
     }
@@ -5141,7 +5349,7 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
     //   -> raw.githubusercontent.com/owner/repo/branch/path
     let url = {
         let trimmed = url.trim();
-        let rewritten = if let Some(rest) = trimmed.strip_prefix("https://github.com/") {
+        if let Some(rest) = trimmed.strip_prefix("https://github.com/") {
             let parts: Vec<&str> = rest.splitn(4, '/').collect();
             // parts: [owner, repo, "raw", "refs/heads/branch/path" or "branch/path"]
             if parts.len() == 4 && parts[2] == "raw" {
@@ -5151,14 +5359,74 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
             }
         } else {
             trimmed.to_string()
-        };
-        rewritten
+        }
     };
 
-    let response = state.http_epg.get(&url).send().await.map_err(|e| format!("Hálózati hiba: {}", e))?;
+    // Read cached HTTP validators only if we actually have imported channels for this source
+    let (cached_etag, cached_last_modified) = {
+        let conn = state.db.lock().await;
+        let has_channels: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM channels WHERE source_id = ?1)",
+                params![source_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if has_channels {
+            conn.query_row(
+                "SELECT etag, last_modified FROM sources WHERE id = ?1",
+                params![source_id],
+                |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?)),
+            )
+            .unwrap_or((None, None))
+        } else {
+            (None, None)
+        }
+    };
+
+    let mut req = state.http_epg.get(&url);
+    if let Some(ref etag) = cached_etag {
+        if !etag.trim().is_empty() {
+            req = req.header(reqwest::header::IF_NONE_MATCH, etag.trim());
+        }
+    }
+    if let Some(ref lm) = cached_last_modified {
+        if !lm.trim().is_empty() {
+            req = req.header(reqwest::header::IF_MODIFIED_SINCE, lm.trim());
+        }
+    }
+
+    let response = req
+        .send()
+        .await
+        .map_err(|e| format!("Hálózati hiba: {}", e))?;
+
+    if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+        let conn = state.db.lock().await;
+        conn.execute(
+            "UPDATE sources SET last_downloaded = datetime('now', 'localtime') WHERE id = ?1",
+            params![source_id],
+        )
+        .ok();
+        return Ok(());
+    }
+
     if !response.status().is_success() {
         return Err(format!("A szerver hibakódot adott vissza: {}", response.status()));
     }
+
+    let new_etag = response
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let new_last_modified = response
+        .headers()
+        .get(reqwest::header::LAST_MODIFIED)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     let bytes = response.bytes().await.map_err(|e| format!("Adatolvasási hiba: {}", e))?;
 
@@ -5174,15 +5442,20 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
     let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
-    write_parsed_xmltv_into_tx(&tx, &source_id, parsed_channels, programmes)?;
+    write_parsed_xmltv_into_tx(&tx, source_id, parsed_channels, programmes)?;
 
     tx.execute(
-        "UPDATE sources SET last_downloaded = datetime('now', 'localtime') WHERE id = ?1",
-        params![source_id],
+        "UPDATE sources SET last_downloaded = datetime('now', 'localtime'), etag = ?2, last_modified = ?3 WHERE id = ?1",
+        params![source_id, new_etag, new_last_modified],
     ).ok();
 
     tx.commit().map_err(|e| format!("Mentési hiba: {}", e))?;
     Ok(())
+}
+
+#[tauri::command]
+async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String, url: String) -> Result<(), String> {
+    update_source_epg_inner(state.inner(), &source_id, &url).await
 }
 
 pub(crate) const DUMMY_STOP_SECS: i64 = 1800;
@@ -5745,11 +6018,11 @@ fn main() {
         .build()
         .expect("HTTP kliens létrehozási hiba");
 
-    // Dedicated client for EPG downloads: shares base settings (user agent, redirects, pool limits),
-    // but adds no_gzip() (so raw .gz bytes are preserved for GzDecoder) and a 60s timeout for large XML/GZ downloads.
+    // Dedicated client for EPG downloads: shares base settings (user agent, redirects, pool limits)
+    // with gzip transport compression enabled for plain .xml feeds (while decode_xmltv_bytes still
+    // transparently handles .xml.gz files via magic bytes) and a 60s timeout for large XML/GZ downloads.
     let http_epg_client = base_http_builder()
         .timeout(std::time::Duration::from_secs(60))
-        .no_gzip()
         .build()
         .expect("EPG HTTP kliens létrehozási hiba");
 
@@ -5816,6 +6089,7 @@ fn main() {
             trakt: trakt_state,
             tmdb: TmdbRuntime::new(),
             stats: RequestStats::default(),
+            image_inflight: std::sync::Mutex::new(HashMap::new()),
         })
         .setup(|app| {
             #[cfg(target_os = "windows")]
@@ -7282,6 +7556,150 @@ mod tests {
             )
             .unwrap();
         assert_eq!(new_type, "avatar", "Legacy avatar row should be reclassified as 'avatar'");
+    }
+
+    #[tokio::test]
+    async fn test_update_source_epg_etag_304_skips_redownload_and_reparse() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else { break };
+                let h = hits_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+                    h.fetch_add(1, Ordering::SeqCst);
+                    if req.contains("if-none-match: \"epg-v1\"") {
+                        let resp = "HTTP/1.1 304 Not Modified\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = socket.write_all(resp.as_bytes()).await;
+                    } else {
+                        let xml = r#"<?xml version="1.0"?><tv><channel id="c1"><display-name>Ch 1</display-name></channel><programme start="20261125200000 +0100" stop="20261125210000 +0100" channel="c1"><title>Show</title></programme></tv>"#;
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nETag: \"epg-v1\"\r\nLast-Modified: Wed, 25 Nov 2026 12:00:00 GMT\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            xml.len(),
+                            xml
+                        );
+                        let _ = socket.write_all(resp.as_bytes()).await;
+                    }
+                });
+            }
+        });
+
+        let state = trakt::tests::make_test_state("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into());
+        let url = format!("http://{}/epg.xml", addr);
+        {
+            let conn = state.db.lock().await;
+            conn.execute(
+                "INSERT INTO sources (id, name, url) VALUES ('s1', 'Test', ?1)",
+                params![url],
+            )
+            .unwrap();
+        }
+
+        // First download: 200 OK -> imports channel and stores ETag
+        update_source_epg_inner(&state, "s1", &url).await.unwrap();
+        {
+            let conn = state.db.lock().await;
+            let (etag, lm): (Option<String>, Option<String>) = conn
+                .query_row("SELECT etag, last_modified FROM sources WHERE id = 's1'", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap();
+            assert_eq!(etag.as_deref(), Some("\"epg-v1\""));
+            assert_eq!(lm.as_deref(), Some("Wed, 25 Nov 2026 12:00:00 GMT"));
+        }
+
+        // Second download: sends If-None-Match -> receives 304 Not Modified and preserves data
+        update_source_epg_inner(&state, "s1", &url).await.unwrap();
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        {
+            let conn = state.db.lock().await;
+            let ch_cnt: i64 = conn
+                .query_row("SELECT COUNT(*) FROM channels WHERE source_id = 's1'", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(ch_cnt, 1, "304 Not Modified must keep existing imported channels intact");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cache_logo_single_flight_and_negative_cache() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let ok_hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let err_hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let ok_srv = ok_hits.clone();
+        let err_srv = err_hits.clone();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else { break };
+                let ok_h = ok_srv.clone();
+                let err_h = err_srv.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 2048];
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]);
+                    let path = req.lines().next().unwrap_or("").split_whitespace().nth(1).unwrap_or("");
+                    if path == "/ok.png" {
+                        ok_h.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                        let body: &[u8] = b"\x89PNG\r\n\x1a\n123456";
+                        let hdr = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = socket.write_all(hdr.as_bytes()).await;
+                        let _ = socket.write_all(body).await;
+                    } else {
+                        err_h.fetch_add(1, Ordering::SeqCst);
+                        let resp = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = socket.write_all(resp.as_bytes()).await;
+                    }
+                });
+            }
+        });
+
+        let state = trakt::tests::make_test_state("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into());
+        {
+            let conn = state.db.lock().await;
+            conn.execute("ATTACH DATABASE ':memory:' AS images_db", []).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE images_db.images (id INTEGER PRIMARY KEY AUTOINCREMENT, sha256 TEXT NOT NULL UNIQUE, mime_type TEXT NOT NULL, byte_size INTEGER NOT NULL, data BLOB NOT NULL, created_at TEXT NOT NULL);
+                 CREATE TABLE images_db.image_urls (url TEXT PRIMARY KEY, image_id INTEGER NOT NULL, image_type TEXT NOT NULL, created_at TEXT NOT NULL);
+                 CREATE TABLE images_db.failed_logo_cache (url TEXT PRIMARY KEY, status_code INTEGER, error TEXT NOT NULL, failed_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);",
+            )
+            .unwrap();
+        }
+
+        // 3 concurrent calls for the same valid URL -> only 1 HTTP request via single_flight_shared
+        let ok_url = format!("http://{}/ok.png", addr);
+        let (r1, r2, r3) = tokio::join!(
+            cache_logo_inner(&state, ok_url.clone()),
+            cache_logo_inner(&state, ok_url.clone()),
+            cache_logo_inner(&state, ok_url.clone()),
+        );
+        assert!(r1.is_ok() && r2.is_ok() && r3.is_ok());
+        assert_eq!(ok_hits.load(Ordering::SeqCst), 1, "Concurrent identical logo downloads must coalesce");
+
+        // 403 error is stored in negative cache -> second call skips HTTP completely
+        let bad_url = format!("http://{}/missing.png", addr);
+        assert!(cache_logo_inner(&state, bad_url.clone()).await.is_err());
+        assert!(cache_logo_inner(&state, bad_url.clone()).await.is_err());
+        assert_eq!(err_hits.load(Ordering::SeqCst), 1, "403 logo must be served from negative cache on retry");
     }
 }
 

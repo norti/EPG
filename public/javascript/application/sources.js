@@ -9,7 +9,7 @@ import {
   renderEmptySourcesState,
   escapeHtml,
 } from "./ui.js";
-import { fetchEPG, renderEPG } from "./epg.js";
+import { fetchEPG, renderEPG, invalidateEpgSourceCache } from "./epg.js";
 import {
   loadChannelOrderSourcesDropdown,
   renderChannelOrderList,
@@ -53,6 +53,7 @@ async function saveSourceOrderFromDom() {
     if (badge) badge.textContent = i + 1;
   });
   await invoke("save_source_order", { order: newOrder });
+  invalidateEpgSourceCache("__ALL_FAVORITES__");
   if (state.currentSourceId === "__ALL_FAVORITES__") {
     state.settingsEpgDirty = true;
   }
@@ -280,6 +281,7 @@ export async function downloadSource(id, options = {}) {
   try {
     await invoke("update_source_epg", { sourceId: src.id, url: src.url });
     state.downloadingSources.delete(id);
+    invalidateEpgSourceCache(id);
     await refreshSourcesFromDb();
 
     document.getElementById("status").textContent = t("status_download_success");
@@ -288,7 +290,7 @@ export async function downloadSource(id, options = {}) {
       (id === state.currentSourceId ||
         state.currentSourceId === "__ALL_FAVORITES__")
     ) {
-      await fetchEPG();
+      await fetchEPG({ forceReload: true });
     }
     return true;
   } catch (err) {
@@ -350,6 +352,7 @@ export async function updateAllSources() {
   }
 
   await refreshSourcesFromDb();
+  invalidateEpgSourceCache();
 
   if (btn) btn.textContent = originalText;
   const statusEl = document.getElementById("status");
@@ -367,7 +370,7 @@ export async function updateAllSources() {
   }
 
   if (state.currentSourceId) {
-    await fetchEPG();
+    await fetchEPG({ forceReload: true });
   }
 }
 
@@ -406,6 +409,7 @@ export async function deleteSource(id) {
 
   try {
     await invoke("delete_source", { sourceId: id });
+    invalidateEpgSourceCache(id);
     if (document.getElementById("editSourceId")?.value === id) {
       resetSourceForm();
     }
@@ -455,6 +459,7 @@ export function initSources() {
     try {
       state.activeSingleChannelId = null;
       await invoke("clear_entire_database");
+      invalidateEpgSourceCache();
       await refreshSourcesFromDb();
       state.epgData = { channels: [], programmes: [] };
       renderEPG();
@@ -492,6 +497,7 @@ export function initSources() {
     };
 
     await invoke("save_source", { source: sourceObj });
+    invalidateEpgSourceCache(sourceObj.id);
     await refreshSourcesFromDb();
 
     resetSourceForm();
@@ -499,7 +505,7 @@ export function initSources() {
     if (!state.currentSourceId || editId === state.currentSourceId) {
       state.currentSourceId = sourceObj.id;
       document.getElementById("sourceSelect").value = state.currentSourceId;
-      await fetchEPG();
+      await fetchEPG({ forceReload: true });
     }
   };
 }

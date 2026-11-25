@@ -168,6 +168,35 @@ function buildEpgIndices(programmes) {
 }
 
 let epgFetchGen = 0;
+const epgSourceCache = new Map();
+const MAX_CACHED_EPG_SOURCES = 3;
+
+export function invalidateEpgSourceCache(sourceId = null) {
+  if (!sourceId) {
+    epgSourceCache.clear();
+    return;
+  }
+  epgSourceCache.delete(sourceId);
+  epgSourceCache.delete("__ALL_FAVORITES__");
+}
+
+function getCachedEpgSource(sourceId) {
+  if (!epgSourceCache.has(sourceId)) return null;
+  const entry = epgSourceCache.get(sourceId);
+  epgSourceCache.delete(sourceId);
+  epgSourceCache.set(sourceId, entry);
+  return entry;
+}
+
+function setCachedEpgSource(sourceId, epgData) {
+  if (epgSourceCache.has(sourceId)) {
+    epgSourceCache.delete(sourceId);
+  } else if (epgSourceCache.size >= MAX_CACHED_EPG_SOURCES) {
+    const oldest = epgSourceCache.keys().next().value;
+    epgSourceCache.delete(oldest);
+  }
+  epgSourceCache.set(sourceId, epgData);
+}
 
 export async function fetchEPG(options = {}) {
   const gen = ++epgFetchGen;
@@ -179,6 +208,32 @@ export async function fetchEPG(options = {}) {
   }
 
   updateAllFavBtnState();
+
+  // Fast path: serve from in-memory client-side LRU cache of recent sources (0 IPC, 0 parsing)
+  const cachedEntry = !options.forceReload
+    ? getCachedEpgSource(requestedSourceId)
+    : null;
+  if (cachedEntry) {
+    state.epgData = cachedEntry;
+    applyActiveSortToEpgChannels();
+    await prepareMatchesForEpg(state.epgData.programmes);
+    if (gen !== epgFetchGen || state.currentSourceId !== requestedSourceId) {
+      return;
+    }
+    document.getElementById("status").textContent = t("status_ready");
+    setupDateSelector(options.targetDateStr || null);
+    renderEPG();
+    if (!options.skipScrollToNow) {
+      scrollToNow();
+    }
+    if (
+      document.getElementById("settingsOverlay").classList.contains("active")
+    ) {
+      renderChannelOrderList();
+    }
+    return;
+  }
+
   document.getElementById("status").textContent = t("status_loading");
   try {
     let epgData = await invoke("get_epg_data", { sourceId: requestedSourceId });
@@ -233,6 +288,10 @@ export async function fetchEPG(options = {}) {
     state.epgData.progsByChannelAndDate = indices.progsByChannelAndDate;
     state.epgData.dates = indices.dates;
 
+    if (state.epgData.channels && state.epgData.channels.length > 0) {
+      setCachedEpgSource(requestedSourceId, state.epgData);
+    }
+
     await prepareMatchesForEpg(state.epgData.programmes);
     if (gen !== epgFetchGen || state.currentSourceId !== requestedSourceId) {
       return;
@@ -245,8 +304,9 @@ export async function fetchEPG(options = {}) {
       scrollToNow();
     }
 
-    // Cache logos in the background for channels that have a URL but no cached data (throttled queue)
+    // Cache logos in the background for channels that have a URL, no cached data, and aren't in negative cache
     const uncachedChannels = state.epgData.channels.filter((c) => {
+      if (c.iconFailed) return false;
       const logoUrl = c.customIcon || c.icon;
       return (
         logoUrl &&
@@ -269,8 +329,13 @@ export async function fetchEPG(options = {}) {
                 const dataUri = await invoke("cache_logo", { url: logoUrl });
                 if (gen === epgFetchGen) {
                   channel.cachedIcon = dataUri;
+                  channel.iconFailed = false;
                 }
-              } catch (_) {}
+              } catch (_) {
+                if (gen === epgFetchGen) {
+                  channel.iconFailed = true;
+                }
+              }
             }),
           );
         }
@@ -876,9 +941,10 @@ export function renderEPG() {
       : "channel-header-item";
     headerItem.dataset.channelId = channel.id;
 
-    // Use cached base64 icon if available, else fall back to URL
+    // Use cached icon if available; skip broken external URLs known to be in negative cache
     const effectiveLogo =
-      channel.cachedIcon || channel.customIcon || channel.icon || "";
+      channel.cachedIcon ||
+      (channel.iconFailed ? "" : channel.customIcon || channel.icon || "");
 
     const showSourceBadge =
       state.currentSourceId === "__ALL_FAVORITES__" || !!channel.sourceName;
@@ -959,16 +1025,25 @@ export function renderEPG() {
           channel.name = result.name || channel.originalName || channel.name;
           channel.customIcon = result.logo || null;
           channel.cachedIcon = null;
+          channel.iconFailed = false;
           if (result.logo) {
             invoke("cache_logo", { url: result.logo })
               .then((dataUri) => {
                 channel.cachedIcon = dataUri;
+                channel.iconFailed = false;
                 renderEPG();
               })
-              .catch(() => {});
+              .catch(() => {
+                channel.iconFailed = true;
+              });
           }
         }
 
+        if (state.currentSourceId === "__ALL_FAVORITES__") {
+          epgSourceCache.delete(targetSrc);
+        } else {
+          epgSourceCache.delete("__ALL_FAVORITES__");
+        }
         renderEPG();
         if (
           document
@@ -993,6 +1068,11 @@ export function renderEPG() {
           channelId: targetChId,
         });
         channel.isFavorite = newFav;
+        if (state.currentSourceId === "__ALL_FAVORITES__") {
+          epgSourceCache.delete(targetSrc);
+        } else {
+          epgSourceCache.delete("__ALL_FAVORITES__");
+        }
         if (state.currentSourceId === "__ALL_FAVORITES__" && !newFav) {
           state.epgData.channels = state.epgData.channels.filter(
             (c) => c.id !== channel.id,

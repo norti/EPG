@@ -23,11 +23,72 @@ import {
   const imageQueue = [];
   let activeImageLoads = 0;
   const MAX_CONCURRENT_IMAGES = 3;
-  const memoryImageCache = new Map();
-  const memoryTmdbPosterCache = new Map();
+  const MAX_LRU_ENTRIES = 200;
+
+  function createLruCache(maxSize) {
+    const map = new Map();
+    return {
+      has(key) {
+        return map.has(key);
+      },
+      get(key) {
+        if (!map.has(key)) return undefined;
+        const val = map.get(key);
+        map.delete(key);
+        map.set(key, val);
+        return val;
+      },
+      set(key, val) {
+        if (map.has(key)) {
+          map.delete(key);
+        } else if (map.size >= maxSize) {
+          const oldest = map.keys().next().value;
+          map.delete(oldest);
+        }
+        map.set(key, val);
+      },
+      clear() {
+        map.clear();
+      },
+    };
+  }
+
+  const memoryImageCache = createLruCache(MAX_LRU_ENTRIES);
+  const memoryTmdbPosterCache = createLruCache(MAX_LRU_ENTRIES);
+  const pendingImagePromises = new Map();
   const pendingTmdbPosterPromises = new Map();
   let imageObserver = null;
+  let drawerStillObserver = null;
   let furtherWeekIndex = 0;
+
+  function clearTraktImageCaches() {
+    memoryImageCache.clear();
+    memoryTmdbPosterCache.clear();
+  }
+
+  function resolveImageUrlCached(url) {
+    if (!url) return Promise.resolve(null);
+    if (memoryImageCache.has(url)) {
+      return Promise.resolve(memoryImageCache.get(url));
+    }
+    if (pendingImagePromises.has(url)) {
+      return pendingImagePromises.get(url);
+    }
+    // cache_logo already checks images.db first (single IPC)
+    const p = invoke('cache_logo', { url })
+      .then((resolved) => {
+        if (resolved) {
+          memoryImageCache.set(url, resolved);
+        }
+        return resolved || null;
+      })
+      .catch(() => null)
+      .finally(() => {
+        pendingImagePromises.delete(url);
+      });
+    pendingImagePromises.set(url, p);
+    return p;
+  }
 
   function resolveTmdbPosterCached(tmdbId, mediaType, size) {
     const key = `${mediaType}:${tmdbId}:${size}`;
@@ -87,16 +148,7 @@ import {
         try {
           let dataUri = null;
           if (task.url) {
-            dataUri = memoryImageCache.get(task.url);
-            if (!dataUri) {
-              dataUri = await invoke('get_cached_logo', { url: task.url });
-            }
-            if (!dataUri) {
-              dataUri = await invoke('cache_logo', { url: task.url });
-            }
-            if (dataUri) {
-              memoryImageCache.set(task.url, dataUri);
-            }
+            dataUri = await resolveImageUrlCached(task.url);
           } else if (task.tmdbId) {
             dataUri = await resolveTmdbPosterCached(
               task.tmdbId,
@@ -1136,15 +1188,40 @@ import {
       if (activeSeasonIdx < 0) activeSeasonIdx = 0;
 
       const renderSeasonEpisodes = (season) => {
+        if (drawerStillObserver) {
+          drawerStillObserver.disconnect();
+        }
+        drawerStillObserver = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (!entry.isIntersecting) return;
+              const wrap = entry.target;
+              drawerStillObserver.unobserve(wrap);
+              const url = wrap.dataset.imgUrl || '';
+              const imgEl = wrap.querySelector('.trakt-ep-still');
+              const phEl = wrap.querySelector('.trakt-thumb-placeholder');
+              if (url && imgEl) {
+                enqueueImageLoad({ url, imgEl, placeholderEl: phEl });
+              }
+            });
+          },
+          { root: episodesEl, rootMargin: '150px', threshold: 0.01 }
+        );
+
         episodesEl.innerHTML = '';
+        const frag = document.createDocumentFragment();
+        const stillsToObserve = [];
+
         (season.episodes || []).forEach((ep) => {
           const row = document.createElement('div');
           row.className = `trakt-ep-row ${ep.watched ? 'is-watched' : ''}`;
           const code = formatEpisodeCode(ep.season, ep.episode);
-          const placeholderHtml = `<span class="trakt-thumb-placeholder${ep.stillPath ? ' u-hidden' : ''}">${iconHtml('photo', 20)}</span>`;
+          const stillUrl = ep.stillPath ? `https://image.tmdb.org/t/p/w300${ep.stillPath}` : '';
+          const cachedStill = stillUrl ? memoryImageCache.get(stillUrl) : null;
+          const placeholderHtml = `<span class="trakt-thumb-placeholder${cachedStill ? ' u-hidden' : ''}">${iconHtml('photo', 20)}</span>`;
           const stillHtml = `<div class="trakt-ep-still-wrap">${
-            ep.stillPath
-              ? `<img class="trakt-ep-still" src="https://image.tmdb.org/t/p/w300${esc(ep.stillPath)}" alt="" loading="lazy" />`
+            stillUrl
+              ? `<img class="trakt-ep-still${cachedStill ? '' : ' u-hidden'}"${cachedStill ? ` src="${esc(cachedStill)}"` : ''} alt="" />`
               : ''
           }${placeholderHtml}</div>`;
           row.innerHTML = `
@@ -1162,9 +1239,19 @@ import {
               const ph = row.querySelector('.trakt-ep-still-wrap .trakt-thumb-placeholder');
               if (ph) ph.classList.remove('u-hidden');
             };
+            if (stillUrl && !cachedStill) {
+              const wrap = row.querySelector('.trakt-ep-still-wrap');
+              if (wrap) {
+                wrap.dataset.imgUrl = stillUrl;
+                stillsToObserve.push(wrap);
+              }
+            }
           }
-          episodesEl.appendChild(row);
+          frag.appendChild(row);
         });
+
+        episodesEl.appendChild(frag);
+        stillsToObserve.forEach((wrap) => drawerStillObserver.observe(wrap));
       };
 
       progress.seasons.forEach((s, idx) => {
@@ -1286,4 +1373,5 @@ export {
   renderCalendarView,
   renderProgressAndAiringsInto,
   prependToHistoryRow,
+  clearTraktImageCaches,
 };

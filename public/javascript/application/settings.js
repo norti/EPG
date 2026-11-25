@@ -8,8 +8,8 @@ import {
 } from "./ui.js";
 import { refreshSourcesFromDb } from "./sources.js";
 import { renderFavoritesList } from "./favorites.js";
-import { fetchEPG } from "./epg.js";
-import { loadTmdbSettings } from "../tmdb/tmdb.js";
+import { fetchEPG, invalidateEpgSourceCache } from "./epg.js";
+import { loadTmdbSettings, clearTmdbPosterMemoryCache } from "../tmdb/tmdb.js";
 import {
   loadChannelLogosTab,
   loadChannelSortPresetsDropdown,
@@ -19,6 +19,7 @@ import {
   invalidateChannelOrderCache,
 } from "./channels.js";
 import { loadSettingsTab as loadTraktSettingsTab } from "../trakt/trakt-ui.js";
+import { clearTraktImageCaches } from "../trakt/trakt-dashboard.js";
 
 export function switchSettingsTab(tabName) {
   document.querySelectorAll(".settings-nav-item").forEach((btn) => {
@@ -116,9 +117,10 @@ function initSettingsExportHandlers() {
       );
       await showAlert(t("alert_success_title"), t("alert_import_success"));
       invalidateChannelOrderCache();
+      invalidateEpgSourceCache();
       await refreshSourcesFromDb();
       setFavoritesList(await invoke("get_favorites"));
-      await fetchEPG();
+      await fetchEPG({ forceReload: true });
       renderFavoritesList();
       await renderChannelOrderList();
     } catch (err) {
@@ -384,8 +386,9 @@ document.getElementById("importChannelDataInput").onchange = async (e) => {
       t("alert_channel_import_success"),
     );
     invalidateChannelOrderCache();
+    invalidateEpgSourceCache();
     await refreshSourcesFromDb();
-    await fetchEPG();
+    await fetchEPG({ forceReload: true });
     await renderChannelOrderList();
   } catch (err) {
     setExportImportStatus(
@@ -440,10 +443,11 @@ document.getElementById("clearLogoCacheBtn").onclick = async () => {
     await invoke("clear_logo_cache");
     clearChannelLogoPreviewCache();
     invalidateChannelOrderCache();
+    invalidateEpgSourceCache();
     setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
     await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
     await updateCacheSectionStats();
-    await fetchEPG();
+    await fetchEPG({ forceReload: true });
   } catch (err) {
     setExportImportStatus("cacheDataStatus", String(err), "error");
     await showAlert(t("alert_error_title"), String(err));
@@ -460,6 +464,8 @@ document.getElementById("clearPosterCacheBtn").onclick = async () => {
   try {
     setExportImportStatus("cacheDataStatus", t("status_deleting"), "loading");
     await invoke("clear_poster_cache");
+    clearTraktImageCaches();
+    clearTmdbPosterMemoryCache();
     setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
     await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
     await updateCacheSectionStats();
@@ -480,12 +486,15 @@ document.getElementById("clearAllCacheBtn").onclick = async () => {
     setExportImportStatus("cacheDataStatus", t("status_deleting"), "loading");
     await invoke("clear_all_image_cache");
     clearChannelLogoPreviewCache();
+    clearTraktImageCaches();
+    clearTmdbPosterMemoryCache();
     invalidateChannelOrderCache();
+    invalidateEpgSourceCache();
     setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
     await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
     await updateCacheSectionStats();
     await updateDatabaseStats();
-    await fetchEPG();
+    await fetchEPG({ forceReload: true });
   } catch (err) {
     setExportImportStatus("cacheDataStatus", String(err), "error");
     await showAlert(t("alert_error_title"), String(err));
@@ -521,7 +530,7 @@ export function closeSettingsModal() {
   if (overlay) overlay.classList.remove("active");
   if (state.settingsEpgDirty) {
     state.settingsEpgDirty = false;
-    fetchEPG();
+    fetchEPG({ forceReload: true });
   }
 }
 

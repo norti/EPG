@@ -17,6 +17,7 @@ pub const MIGRATIONS: &[MigFn] = &[
     migrate_v8,
     migrate_v9,
     migrate_v10,
+    migrate_v11,
 ];
 
 fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
@@ -662,6 +663,14 @@ fn migrate_v10(conn: &Connection) -> rusqlite::Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_trakt_cal_ep ON trakt_calendar_cache (episode_trakt_id);
          CREATE INDEX IF NOT EXISTS idx_tmdb_cache_id_type ON tmdb_cache (tmdb_id, media_type);",
     )?;
+    Ok(())
+}
+
+/// v11 adds HTTP conditional-GET validators (`etag`, `last_modified`) to `sources`
+/// so unchanged EPG XMLTV feeds resolve with `304 Not Modified` without re-downloading or re-parsing.
+fn migrate_v11(conn: &Connection) -> rusqlite::Result<()> {
+    add_column_if_missing(conn, "sources", "etag", "TEXT")?;
+    add_column_if_missing(conn, "sources", "last_modified", "TEXT")?;
     Ok(())
 }
 
