@@ -225,6 +225,7 @@ export function updateModalLeftColVisibility() {
 export function resetModalTmdbUi(preserveTrakt = false) {
   hidePosterZoom();
   currentModalLangSwitchIndex++;
+  currentModalPosterPath = "";
   currentModalLargePosterSrc = "";
   const posterCol = document.getElementById("modalPosterCol");
   const posterImg = document.getElementById("modalPoster");

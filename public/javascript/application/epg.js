@@ -834,7 +834,8 @@ export function renderEPG() {
       );
       if (channel) {
         const effectiveLogo =
-          channel.cachedIcon || channel.customIcon || channel.icon || "";
+          channel.cachedIcon ||
+          (channel.iconFailed ? "" : channel.customIcon || channel.icon || "");
         if (activeLogo) {
           if (effectiveLogo) {
             activeLogo.src = effectiveLogo;
