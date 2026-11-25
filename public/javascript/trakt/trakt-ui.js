@@ -44,6 +44,7 @@ import {
   let activeDeviceFlow = null;
   let loginPollFallbackTimer = null;
   let modalAttachSeq = 0;
+  let viewLoadSeq = 0;
   let manualSyncInFlight = false;
   let cachedAvatarUrl = null;
   let cachedAvatarDataUri = null;
@@ -312,7 +313,7 @@ import {
     });
   }
 
-  function renderLoginCard(container, onSuccess) {
+  function renderLoginCard(container) {
     container.innerHTML = `
       <div class="trakt-login-wrapper">
         <div class="trakt-login-card">
@@ -404,6 +405,7 @@ import {
   }
 
   async function loadActiveTraktView() {
+    const seq = ++viewLoadSeq;
     const viewport = document.getElementById('traktViewport');
     if (!viewport) return;
 
@@ -423,6 +425,7 @@ import {
           startDate,
           forceRefresh: false,
         });
+        if (seq !== viewLoadSeq || !traktModeActive) return;
         syncStatus.lastSyncOkAt = data.lastSyncOkAt;
         syncStatus.overdue = data.overdue;
         syncStatus.pendingCount = data.pendingCount;
@@ -431,12 +434,14 @@ import {
         renderDashboard(viewport, data);
       } else if (currentSubView === 'watchlist') {
         const items = await invoke('trakt_get_watchlist', { filter: null });
+        if (seq !== viewLoadSeq || !traktModeActive) return;
         renderWatchlistView(viewport, items, watchlistState);
       } else if (currentSubView === 'calendar_my') {
         const eps = await invoke('trakt_get_calendar_my', {
           startDate,
           forceRefresh: false,
         });
+        if (seq !== viewLoadSeq || !traktModeActive) return;
         renderCalendarView(viewport, eps, 'my');
       } else if (currentSubView === 'calendar_global') {
         const [eps, filters] = await Promise.all([
@@ -446,23 +451,28 @@ import {
           }),
           invoke('trakt_get_global_calendar_filters').catch(() => ({ countries: '', languages: '' })),
         ]);
+        if (seq !== viewLoadSeq || !traktModeActive) return;
         const handleGlobalFilterChange = async (nextFilters) => {
+          const filterSeq = ++viewLoadSeq;
           try {
             await invoke('trakt_set_global_calendar_filters', {
               countries: nextFilters.countries || '',
               languages: nextFilters.languages || '',
             });
-            viewport.innerHTML = `<div class="trakt-loading-box"><span class="spinner-small"></span> ${esc(t('loading'))}</div>`;
+            if (filterSeq !== viewLoadSeq || !traktModeActive) return;
+            viewport.innerHTML = `<div class="trakt-loading-box"><span class="spinner-small"></span> ${esc(t('trakt_loading'))}</div>`;
             const updated = await invoke('trakt_get_calendar_global', {
               startDate,
               forceRefresh: true,
             });
             const saved = await invoke('trakt_get_global_calendar_filters').catch(() => nextFilters);
+            if (filterSeq !== viewLoadSeq || !traktModeActive) return;
             renderCalendarView(viewport, updated, 'global', {
               filters: saved,
               onChangeFilters: handleGlobalFilterChange,
             });
           } catch (err) {
+            if (filterSeq !== viewLoadSeq || !traktModeActive) return;
             viewport.innerHTML = `<div class="trakt-error-box">${esc(formatTraktError(err))}</div>`;
           }
         };
@@ -472,6 +482,7 @@ import {
         });
       }
     } catch (err) {
+      if (seq !== viewLoadSeq || !traktModeActive) return;
       viewport.innerHTML = `<div class="trakt-error-box">${esc(formatTraktError(err))}</div>`;
     }
   }
@@ -491,6 +502,7 @@ import {
 
   function exitTraktMode(options = {}) {
     traktModeActive = false;
+    viewLoadSeq++;
     document.body.classList.remove('trakt-mode');
     document.getElementById('traktViewport').classList.add('u-hidden');
     document.getElementById('epgViewport').classList.remove('u-hidden');
@@ -999,7 +1011,7 @@ import {
         if (prof.avatarUrl && !avatarSrc) {
           const avatarUrl = prof.avatarUrl;
           const phEl = accountCard.querySelector('#traktProfileAvatarPh');
-          invoke('cache_logo', { url: avatarUrl })
+          invoke('cache_logo', { url: avatarUrl, imageType: 'avatar' })
             .then((dataUri) => {
               if (!dataUri) return;
               cachedAvatarUrl = avatarUrl;
@@ -1039,6 +1051,8 @@ import {
             authStatus.profile = null;
             cachedAvatarUrl = null;
             cachedAvatarDataUri = null;
+            watchlistTitleSet.clear();
+            updateWatchlistCountBadge();
             await loadSettingsTab();
           };
         }
@@ -1155,6 +1169,10 @@ import {
           activeDeviceFlow = null;
           authStatus.loggedIn = false;
           authStatus.profile = null;
+          cachedAvatarUrl = null;
+          cachedAvatarDataUri = null;
+          watchlistTitleSet.clear();
+          updateWatchlistCountBadge();
           updateSyncStatusUi();
           if (traktModeActive) await loadActiveTraktView();
           if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {

@@ -61,14 +61,6 @@ async function fetchLanguageDictionary(lang) {
     if (res.ok) {
       const data = await res.json();
       loadedLanguagesCache[lang] = data;
-
-      // Asynchronously cache into SQLite app_languages
-      if (tauriAvailable) {
-        invoke("save_language_content", {
-          lang,
-          content: JSON.stringify(data),
-        }).catch(() => {});
-      }
       return data;
     }
   } catch (err) {
@@ -162,7 +154,8 @@ export function addLanguageChangeListener(fn) {
 /**
  * Switch active language, load dictionaries, persist setting, and apply translations.
  */
-export async function setLanguage(lang) {
+export async function setLanguage(lang, options = {}) {
+  const { persist = true, notify = true } = options;
   currentLang = lang;
   const select = document.getElementById("languageSelect");
   if (select && select.value !== lang) {
@@ -182,8 +175,8 @@ export async function setLanguage(lang) {
     currentDict = { ...baseDict, ...langDict };
   }
 
-  // 3. Save setting in SQLite
-  if (hasTauri()) {
+  // 3. Save setting in SQLite (only when persisted change is requested)
+  if (persist && hasTauri()) {
     try {
       await invoke("set_setting", { key: "language", value: lang });
     } catch (e) {
@@ -195,11 +188,13 @@ export async function setLanguage(lang) {
   applyTranslations();
 
   // 5. Notify listeners
-  for (const listener of languageChangeListeners) {
-    try {
-      listener(lang);
-    } catch (e) {
-      console.error("[i18n] Error in language change listener:", e);
+  if (notify) {
+    for (const listener of languageChangeListeners) {
+      try {
+        listener(lang);
+      } catch (e) {
+        console.error("[i18n] Error in language change listener:", e);
+      }
     }
   }
 }

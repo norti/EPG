@@ -1,4 +1,4 @@
-import { state, invoke } from "./state.js";
+import { state, invoke, setFavoritesList } from "./state.js";
 import { t } from "./i18n.js";
 import { TraktDates } from "../trakt/trakt-dates.js";
 import { iconHtml, escapeHtml } from "./ui.js";
@@ -8,9 +8,12 @@ import { updateModalFavStar } from "./modal.js";
 export async function toggleFavorite(title) {
   const isFav = await invoke("toggle_favorite", { title });
   if (isFav) {
-    if (!state.favorites.includes(title)) state.favorites.push(title);
+    if (!state.favoritesSet.has(title)) {
+      state.favorites.push(title);
+      state.favoritesSet.add(title);
+    }
   } else {
-    state.favorites = state.favorites.filter((item) => item !== title);
+    setFavoritesList(state.favorites.filter((item) => item !== title));
   }
   updateModalFavStar();
   renderEPG();
@@ -32,11 +35,15 @@ export function renderFavoritesList() {
     return;
   }
 
-  let matchedList = [];
-  state.favorites.forEach((favTitle) => {
-    const progs = state.epgData.programmes.filter((p) => p.title === favTitle);
-    progs.forEach((p) => matchedList.push(p));
-  });
+  // Single O(P) scan using O(1) Set lookup instead of O(F * P)
+  const matchedList = [];
+  const matchedTitles = new Set();
+  for (const p of state.epgData.programmes) {
+    if (state.favoritesSet.has(p.title)) {
+      matchedTitles.add(p.title);
+      matchedList.push(p);
+    }
+  }
 
   matchedList.sort((a, b) => a.start - b.start);
 
@@ -49,6 +56,12 @@ export function renderFavoritesList() {
     groupedByDay[dayKey].push(prog);
   });
 
+  const unmatchedFavorites = state.favorites.filter(
+    (favTitle) => !matchedTitles.has(favTitle),
+  );
+
+  const frag = document.createDocumentFragment();
+
   if (Object.keys(groupedByDay).length === 0) {
     state.favorites.forEach((favTitle) => {
       const row = document.createElement("div");
@@ -58,10 +71,15 @@ export function renderFavoritesList() {
                         <button class="btn btn-red btn-icon-only fav-remove-btn">${iconHtml("trash", 14)}</button>
                     `;
       row.querySelector("button").onclick = () => toggleFavorite(favTitle);
-      content.appendChild(row);
+      frag.appendChild(row);
     });
+    content.appendChild(frag);
     return;
   }
+
+  const channelNameMap = new Map(
+    (state.epgData.channels || []).map((c) => [c.id, c.name]),
+  );
 
   for (const [dayHeader, progs] of Object.entries(groupedByDay)) {
     const groupDiv = document.createElement("div");
@@ -74,8 +92,7 @@ export function renderFavoritesList() {
     groupDiv.appendChild(header);
 
     progs.forEach((prog) => {
-      const ch = state.epgData.channels.find((c) => c.id === prog.channel);
-      const chName = ch ? ch.name : prog.channel;
+      const chName = channelNameMap.get(prog.channel) || prog.channel;
       const startStr = prog.start.toTimeString().substring(0, 5);
 
       const row = document.createElement("div");
@@ -90,8 +107,35 @@ export function renderFavoritesList() {
       groupDiv.appendChild(row);
     });
 
-    content.appendChild(groupDiv);
+    frag.appendChild(groupDiv);
   }
+
+  if (unmatchedFavorites.length > 0) {
+    const unscheduledHeading = t("favorites_unscheduled");
+    const groupDiv = document.createElement("div");
+    groupDiv.className = "fav-day-group";
+    groupDiv.dataset.dayHeading = unscheduledHeading;
+
+    const header = document.createElement("div");
+    header.className = "fav-day-header";
+    header.textContent = unscheduledHeading;
+    groupDiv.appendChild(header);
+
+    unmatchedFavorites.forEach((favTitle) => {
+      const row = document.createElement("div");
+      row.className = "fav-item-row";
+      row.innerHTML = `
+                        <span class="fav-item-title">${escapeHtml(favTitle)}</span>
+                        <button class="btn btn-red btn-icon-only fav-remove-btn">${iconHtml("trash", 14)}</button>
+                    `;
+      row.querySelector("button").onclick = () => toggleFavorite(favTitle);
+      groupDiv.appendChild(row);
+    });
+
+    frag.appendChild(groupDiv);
+  }
+
+  content.appendChild(frag);
 
   if (activeDayEl && typeof TraktDates.attachStickyDayHeader === "function") {
     TraktDates.attachStickyDayHeader(content, activeDayEl, {

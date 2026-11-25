@@ -343,25 +343,35 @@ pub fn query_continue_watching(
 ) -> Result<Vec<ContinueWatchingItem>, String> {
     let mut cw_stmt = conn
         .prepare(
-            "SELECT p.next_episode_trakt_id,
+            "WITH tmdb_tv AS (
+                SELECT tmdb_id,
+                       MAX(NULLIF(hu_title, '')) AS hu_title,
+                       MAX(NULLIF(poster_path, '')) AS poster_path,
+                       COALESCE(MAX(NULLIF(hu_overview, '')), MAX(NULLIF(overview, ''))) AS overview
+                FROM tmdb_cache
+                WHERE media_type = 'tv' AND tmdb_id IS NOT NULL
+                GROUP BY tmdb_id
+             )
+             SELECT p.next_episode_trakt_id,
                     p.show_trakt_id,
                     COALESCE(w.tmdb_id, tc.tmdb_id) AS tmdb_id,
                     COALESCE(tc.title, w.title, '') AS show_title,
-                    COALESCE(w.title_hu, (SELECT tm.hu_title FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(w.tmdb_id, tc.tmdb_id) AND tm.media_type = 'tv' AND tm.hu_title IS NOT NULL LIMIT 1)) AS show_title_hu,
+                    COALESCE(w.title_hu, tm.hu_title) AS show_title_hu,
                     p.next_season,
                     p.next_episode,
                     p.next_episode_title,
                     COALESCE(p.next_episode_first_aired, (SELECT c.first_aired FROM trakt_calendar_cache c WHERE c.episode_trakt_id = p.next_episode_trakt_id LIMIT 1)) AS first_aired,
                     tc.network,
-                    COALESCE(w.poster_path, (SELECT tm.poster_path FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(w.tmdb_id, tc.tmdb_id) AND tm.media_type = 'tv' AND tm.poster_path IS NOT NULL LIMIT 1)) AS poster_path,
-                    COALESCE(tc.overview, (SELECT tm.overview FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(w.tmdb_id, tc.tmdb_id) AND tm.media_type = 'tv' AND tm.overview IS NOT NULL LIMIT 1)) AS overview,
+                    COALESCE(w.poster_path, tm.poster_path) AS poster_path,
+                    COALESCE(tc.overview, tm.overview) AS overview,
                     COALESCE(p.aired, 0),
                     COALESCE(p.completed, 0),
                     p.last_watched_at,
                     CASE WHEN w.trakt_id IS NOT NULL THEN 1 ELSE 0 END AS on_watchlist
              FROM trakt_show_progress p
              LEFT JOIN trakt_cache tc ON tc.media_type = 'show' AND tc.trakt_id = p.show_trakt_id
-             LEFT JOIN trakt_watchlist_cache w ON w.trakt_id = p.show_trakt_id
+             LEFT JOIN trakt_watchlist_cache w ON w.media_type = 'show' AND w.trakt_id = p.show_trakt_id
+             LEFT JOIN tmdb_tv tm ON tm.tmdb_id = COALESCE(w.tmdb_id, tc.tmdb_id)
              LEFT JOIN trakt_episodes e ON e.show_trakt_id = p.show_trakt_id AND e.season = p.next_season AND e.episode = p.next_episode
              WHERE p.hidden_from_progress = 0
                AND COALESCE(p.completed, 0) > 0
@@ -429,7 +439,13 @@ pub async fn trakt_get_dashboard_data(
         }
     }
 
-    enrich_missing_history_posters(state.inner()).await;
+    // Enrich missing history posters in the background so dashboard opens immediately
+    let bg_app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use tauri::Manager;
+        let st = bg_app.state::<AppState>();
+        enrich_missing_history_posters(st.inner()).await;
+    });
 
     let conn = state.db.lock().await;
     let calendar_episodes = query_calendar_episodes(&conn, "my", false)?;
@@ -441,7 +457,9 @@ pub async fn trakt_get_dashboard_data(
                     COALESCE(h.show_title, ''), h.episode_title, h.season, h.episode, h.watched_at,
                     COALESCE(h.poster_path, w.poster_path, (SELECT tm.poster_path FROM tmdb_cache tm WHERE tm.tmdb_id = h.show_tmdb_id AND tm.poster_path IS NOT NULL LIMIT 1))
              FROM trakt_history_cache h
-             LEFT JOIN trakt_watchlist_cache w ON w.trakt_id = COALESCE(h.show_trakt_id, h.trakt_id)
+             LEFT JOIN trakt_watchlist_cache w
+               ON w.media_type = CASE WHEN h.media_type = 'movie' THEN 'movie' ELSE 'show' END
+              AND w.trakt_id = COALESCE(h.show_trakt_id, h.trakt_id)
              ORDER BY h.watched_at DESC
              LIMIT 30",
         )
@@ -745,7 +763,7 @@ pub async fn trakt_watchlist_add(
             "INSERT INTO trakt_watchlist_cache (
                 trakt_id, media_type, title, title_hu, aliases_json, year, tmdb_id, poster_path, listed_at, updated_at
             ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?8)
-            ON CONFLICT(trakt_id) DO UPDATE SET
+            ON CONFLICT(media_type, trakt_id) DO UPDATE SET
                 title = excluded.title,
                 title_hu = COALESCE(excluded.title_hu, trakt_watchlist_cache.title_hu),
                 year = COALESCE(excluded.year, trakt_watchlist_cache.year),
@@ -808,8 +826,8 @@ pub async fn trakt_watchlist_remove(
     {
         let conn = state.db.lock().await;
         conn.execute(
-            "DELETE FROM trakt_watchlist_cache WHERE trakt_id = ?1",
-            params![trakt_id],
+            "DELETE FROM trakt_watchlist_cache WHERE media_type = ?1 AND trakt_id = ?2",
+            params![norm_type, trakt_id],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -1003,19 +1021,17 @@ pub async fn trakt_get_show_seasons_progress(
         .unwrap_or(false)
     };
 
-    // 2. Fetch watched progress (10-min TTL if data exists, force-refresh if first time)
-    let progress_opt = sync_show_progress(state.inner(), Some(&app), show_trakt_id, !has_local_episodes)
-        .await
-        .ok();
-
-    // 3. Fetch Trakt seasons + episodes (24h TTL) for episode Trakt IDs and fallback titles
+    // 2 & 3. Fetch watched progress and Trakt seasons+episodes concurrently
     let seasons_path = format!("/shows/{}/seasons?extended=episodes", show_trakt_id);
-    let trakt_seasons: Vec<TraktSeasonApi> =
-        match trakt_get_cached(state.inner(), Some(&app), &seasons_path, false, 86400, false).await
-        {
-            Ok(resp) => serde_json::from_str(&resp.body).unwrap_or_default(),
-            Err(_) => Vec::new(),
-        };
+    let (progress_res, seasons_res) = tokio::join!(
+        sync_show_progress(state.inner(), Some(&app), show_trakt_id, !has_local_episodes),
+        trakt_get_cached(state.inner(), Some(&app), &seasons_path, false, 86400, false),
+    );
+    let progress_opt = progress_res.ok();
+    let trakt_seasons: Vec<TraktSeasonApi> = match seasons_res {
+        Ok(resp) => serde_json::from_str(&resp.body).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
 
     // Resolve tmdb_id from DB if not passed
     let resolved_tmdb_id = match tmdb_id {
@@ -1023,7 +1039,7 @@ pub async fn trakt_get_show_seasons_progress(
         _ => {
             let conn = state.db.lock().await;
             conn.query_row(
-                "SELECT tmdb_id FROM trakt_watchlist_cache WHERE trakt_id = ?1
+                "SELECT tmdb_id FROM trakt_watchlist_cache WHERE media_type = 'show' AND trakt_id = ?1
                  UNION ALL
                  SELECT tmdb_id FROM trakt_cache WHERE media_type = 'show' AND trakt_id = ?1
                  LIMIT 1",
@@ -1459,16 +1475,6 @@ pub async fn trakt_clear_cache(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn trakt_rebuild_index(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-) -> Result<u64, String> {
-    let new_ver = rebuild_title_index(state.inner()).await;
-    let _ = app.emit("trakt-watchlist-changed", new_ver);
-    Ok(new_ver)
-}
-
 /// Looks up a fresh (< 14 days) `trakt_cache` row by `(media_type, tmdb_id)`.
 /// Positive rows (`not_found = 0`) always take precedence over negative markers (`not_found = 1`),
 /// and newer `updated_at` timestamps win within the same polarity.
@@ -1477,13 +1483,14 @@ pub(crate) fn lookup_trakt_cache_by_tmdb(
     media_type: &str,
     tmdb_id: i64,
 ) -> Option<(i64, bool)> {
+    let cutoff = crate::trakt::epoch_to_iso_utc(now_epoch_secs() - 14 * 86_400);
     conn.query_row(
         "SELECT trakt_id, not_found = 1 FROM trakt_cache
          WHERE media_type = ?1 AND tmdb_id = ?2
-           AND updated_at > datetime('now', '-14 days')
+           AND updated_at > ?3
          ORDER BY not_found ASC, updated_at DESC
          LIMIT 1",
-        params![media_type, tmdb_id],
+        params![media_type, tmdb_id, cutoff],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )
     .ok()
@@ -1671,8 +1678,8 @@ async fn load_modal_data_from_cache(
     let conn = state.db.lock().await;
     let on_watchlist: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM trakt_watchlist_cache WHERE trakt_id = ?1)",
-            params![trakt_id],
+            "SELECT EXISTS(SELECT 1 FROM trakt_watchlist_cache WHERE media_type = ?1 AND trakt_id = ?2)",
+            params![media_type, trakt_id],
             |r| r.get(0),
         )
         .unwrap_or(false);
@@ -1681,7 +1688,7 @@ async fn load_modal_data_from_cache(
         "SELECT tc.trakt_id, tc.tmdb_id, tc.media_type, COALESCE(tc.title, w.title, ''),
                 COALESCE(tc.year, w.year), tc.rating, tc.votes, tc.status, tc.network, tc.overview
          FROM trakt_cache tc
-         LEFT JOIN trakt_watchlist_cache w ON w.trakt_id = tc.trakt_id
+         LEFT JOIN trakt_watchlist_cache w ON w.media_type = tc.media_type AND w.trakt_id = tc.trakt_id
          WHERE tc.media_type = ?1 AND tc.trakt_id = ?2 AND tc.not_found = 0",
         params![media_type, trakt_id],
         |r| {
@@ -1704,8 +1711,8 @@ async fn load_modal_data_from_cache(
     .ok()
     .or_else(|| {
         conn.query_row(
-            "SELECT trakt_id, tmdb_id, media_type, title, year FROM trakt_watchlist_cache WHERE trakt_id = ?1",
-            params![trakt_id],
+            "SELECT trakt_id, tmdb_id, media_type, title, year FROM trakt_watchlist_cache WHERE media_type = ?1 AND trakt_id = ?2",
+            params![media_type, trakt_id],
             |r| {
                 Ok(TraktModalData {
                     trakt_id: r.get(0)?,
@@ -1777,8 +1784,8 @@ async fn cache_and_build_modal_data(
 
     let on_watchlist: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM trakt_watchlist_cache WHERE trakt_id = ?1)",
-            params![media.ids.trakt],
+            "SELECT EXISTS(SELECT 1 FROM trakt_watchlist_cache WHERE media_type = ?1 AND trakt_id = ?2)",
+            params![mt, media.ids.trakt],
             |r| r.get(0),
         )
         .unwrap_or(false);

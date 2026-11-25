@@ -746,71 +746,81 @@ import {
   }
 
   function renderWatchlistView(viewport, items, stateObj) {
-    const filter = stateObj.filter || 'all';
-    const sort = stateObj.sort || 'added';
-    const query = (stateObj.query || '').trim();
-    const queryLower = query.toLowerCase();
-    const preparedQuery =
-      query && SearchUtils ? SearchUtils.prepareQuery(query) : null;
+    const initialFilter = stateObj.filter || 'all';
+    const initialSort = stateObj.sort || 'added';
 
     viewport.innerHTML = `
       <div class="trakt-subview">
         <div class="trakt-subview-toolbar">
           <h2 class="trakt-subview-title">${iconHtml('trakt-watchlist-on', 20)} ${esc(t('trakt_watchlist_title'))}</h2>
           <div class="trakt-filter-pills">
-            <button class="btn trakt-pill ${filter === 'all' ? 'active' : ''}" data-wl-filter="all">${esc(t('filter_all'))}</button>
-            <button class="btn trakt-pill ${filter === 'shows' ? 'active' : ''}" data-wl-filter="shows">${esc(t('trakt_filter_shows'))}</button>
-            <button class="btn trakt-pill ${filter === 'movies' ? 'active' : ''}" data-wl-filter="movies">${esc(t('trakt_filter_movies'))}</button>
+            <button class="btn trakt-pill ${initialFilter === 'all' ? 'active' : ''}" data-wl-filter="all">${esc(t('filter_all'))}</button>
+            <button class="btn trakt-pill ${initialFilter === 'shows' ? 'active' : ''}" data-wl-filter="shows">${esc(t('trakt_filter_shows'))}</button>
+            <button class="btn trakt-pill ${initialFilter === 'movies' ? 'active' : ''}" data-wl-filter="movies">${esc(t('trakt_filter_movies'))}</button>
           </div>
           <input type="text" id="traktWlSearchInput" class="trakt-search-input" placeholder="${esc(t('search_placeholder'))}" value="${esc(stateObj.query || '')}" />
           <select id="traktWlSortSelect" class="trakt-sort-select">
-            <option value="added" ${sort === 'added' ? 'selected' : ''}>${esc(t('trakt_sort_added'))}</option>
-            <option value="title" ${sort === 'title' ? 'selected' : ''}>${esc(t('trakt_sort_title'))}</option>
-            <option value="year" ${sort === 'year' ? 'selected' : ''}>${esc(t('trakt_sort_year'))}</option>
+            <option value="added" ${initialSort === 'added' ? 'selected' : ''}>${esc(t('trakt_sort_added'))}</option>
+            <option value="title" ${initialSort === 'title' ? 'selected' : ''}>${esc(t('trakt_sort_title'))}</option>
+            <option value="year" ${initialSort === 'year' ? 'selected' : ''}>${esc(t('trakt_sort_year'))}</option>
           </select>
         </div>
         <div class="trakt-watchlist-grid custom-scroll" id="traktWatchlistGrid"></div>
       </div>
     `;
 
-    ensureImageObserver(viewport);
-
-    const filtered = (items || []).filter((it) => {
-      if (filter === 'shows' && it.mediaType !== 'show') return false;
-      if (filter === 'movies' && it.mediaType !== 'movie') return false;
-      if (query) {
-        if (preparedQuery) {
-          const titleMatch =
-            SearchUtils.matchPrepared(it.title || '', preparedQuery) ||
-            SearchUtils.matchPrepared(it.titleHu || '', preparedQuery) ||
-            (it.aliases || []).some((a) =>
-              SearchUtils.matchPrepared(a, preparedQuery),
-            );
-          if (!titleMatch) return false;
-        } else {
-          const hay = `${it.title || ''} ${it.titleHu || ''} ${(it.aliases || []).join(' ')}`.toLowerCase();
-          if (!hay.includes(queryLower)) return false;
-        }
-      }
-      return true;
-    });
-
-    filtered.sort((a, b) => {
-      if (sort === 'title') {
-        const ta = (a.titleHu || a.title || '').toLowerCase();
-        const tb = (b.titleHu || b.title || '').toLowerCase();
-        return ta.localeCompare(tb);
-      }
-      if (sort === 'year') {
-        return (b.year || 0) - (a.year || 0);
-      }
-      return String(b.listedAt || '').localeCompare(String(a.listedAt || ''));
-    });
-
     const grid = document.getElementById('traktWatchlistGrid');
-    if (filtered.length === 0) {
-      grid.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_watchlist_empty'))}</div>`;
-    } else {
+
+    const renderGrid = () => {
+      if (!grid || !grid.isConnected) return;
+      const filter = stateObj.filter || 'all';
+      const sort = stateObj.sort || 'added';
+      const query = (stateObj.query || '').trim();
+      const queryLower = query.toLowerCase();
+      const preparedQuery =
+        query && SearchUtils ? SearchUtils.prepareQuery(query) : null;
+
+      ensureImageObserver(viewport);
+
+      const filtered = (items || []).filter((it) => {
+        if (filter === 'shows' && it.mediaType !== 'show') return false;
+        if (filter === 'movies' && it.mediaType !== 'movie') return false;
+        if (query) {
+          if (preparedQuery) {
+            const titleMatch =
+              SearchUtils.matchPrepared(it.title || '', preparedQuery) ||
+              SearchUtils.matchPrepared(it.titleHu || '', preparedQuery) ||
+              (it.aliases || []).some((a) =>
+                SearchUtils.matchPrepared(a, preparedQuery),
+              );
+            if (!titleMatch) return false;
+          } else {
+            const hay = `${it.title || ''} ${it.titleHu || ''} ${(it.aliases || []).join(' ')}`.toLowerCase();
+            if (!hay.includes(queryLower)) return false;
+          }
+        }
+        return true;
+      });
+
+      filtered.sort((a, b) => {
+        if (sort === 'title') {
+          const ta = (a.titleHu || a.title || '').toLowerCase();
+          const tb = (b.titleHu || b.title || '').toLowerCase();
+          return ta.localeCompare(tb);
+        }
+        if (sort === 'year') {
+          return (b.year || 0) - (a.year || 0);
+        }
+        return String(b.listedAt || '').localeCompare(String(a.listedAt || ''));
+      });
+
+      grid.innerHTML = '';
+      if (filtered.length === 0) {
+        grid.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_watchlist_empty'))}</div>`;
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
       filtered.forEach((item) => {
         const card = document.createElement('div');
         card.className = 'trakt-wl-card';
@@ -853,9 +863,11 @@ import {
               traktId: item.traktId,
               mediaType: item.mediaType,
             });
-            const idx = items.findIndex((x) => x.traktId === item.traktId);
+            const idx = items.findIndex(
+              (x) => x.traktId === item.traktId && x.mediaType === item.mediaType
+            );
             if (idx !== -1) items.splice(idx, 1);
-            renderWatchlistView(viewport, items, stateObj);
+            renderGrid();
           } catch (err) {
             removeBtn.disabled = false;
             showTraktError(err);
@@ -884,27 +896,29 @@ import {
           });
         };
 
-        grid.appendChild(card);
+        frag.appendChild(card);
       });
-    }
+      grid.appendChild(frag);
+    };
 
-    viewport.querySelectorAll('[data-wl-filter]').forEach((btn) => {
+    const filterBtns = viewport.querySelectorAll('[data-wl-filter]');
+    filterBtns.forEach((btn) => {
       btn.onclick = () => {
         stateObj.filter = btn.dataset.wlFilter;
-        renderWatchlistView(viewport, items, stateObj);
+        filterBtns.forEach((b) =>
+          b.classList.toggle('active', b.dataset.wlFilter === stateObj.filter)
+        );
+        renderGrid();
       };
     });
 
     const searchInput = document.getElementById('traktWlSearchInput');
     if (searchInput) {
+      let wlSearchDebounce = null;
       searchInput.oninput = (e) => {
         stateObj.query = e.target.value;
-        renderWatchlistView(viewport, items, stateObj);
-        const newInput = document.getElementById('traktWlSearchInput');
-        if (newInput) {
-          newInput.focus();
-          newInput.setSelectionRange(newInput.value.length, newInput.value.length);
-        }
+        clearTimeout(wlSearchDebounce);
+        wlSearchDebounce = setTimeout(renderGrid, 120);
       };
     }
 
@@ -912,9 +926,11 @@ import {
     if (sortSelect) {
       sortSelect.onchange = (e) => {
         stateObj.sort = e.target.value;
-        renderWatchlistView(viewport, items, stateObj);
+        renderGrid();
       };
     }
+
+    renderGrid();
   }
 
   function renderCalendarView(viewport, episodes, mode, options = {}) {

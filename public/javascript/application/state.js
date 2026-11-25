@@ -41,10 +41,17 @@ export const state = {
 
   sources: [],
   favorites: [],
+  favoritesSet: new Set(),
   settings: {},
   downloadingSources: new Set(),
   isUpdatingAllSources: false,
+  settingsEpgDirty: false,
 };
+
+export function setFavoritesList(list) {
+  state.favorites = Array.isArray(list) ? list : [];
+  state.favoritesSet = new Set(state.favorites);
+}
 
 export const LOCALE_COMPARE_OPTIONS = Object.freeze({
   sensitivity: "base",

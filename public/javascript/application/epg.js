@@ -5,7 +5,6 @@ import {
   HORIZONTAL_SCALE_MAP,
 } from "./state.js";
 import { t, getCurrentLang } from "./i18n.js";
-import { Icons } from "../utils/icons.js";
 import { SearchUtils } from "../utils/search.js";
 import {
   iconHtml,
@@ -102,8 +101,79 @@ export function applyActiveSortToEpgChannels() {
   state.epgData.channels = [...state.epgData.rawChannels];
 }
 
+function formatLocalDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function buildEpgIndices(programmes) {
+  const progsByChannel = new Map();
+  const progsByChannelAndDate = new Map();
+  const dateSet = new Set();
+
+  for (const p of programmes) {
+    let chList = progsByChannel.get(p.channel);
+    if (!chList) {
+      chList = [];
+      progsByChannel.set(p.channel, chList);
+    }
+    chList.push(p);
+
+    if (!p.start || isNaN(p.start.getTime())) continue;
+    const startKey = formatLocalDateStr(p.start);
+    dateSet.add(startKey);
+
+    let chDates = progsByChannelAndDate.get(p.channel);
+    if (!chDates) {
+      chDates = new Map();
+      progsByChannelAndDate.set(p.channel, chDates);
+    }
+
+    // Index under every local calendar day overlapped by [p.start, p.stop)
+    const endValid = p.stop && !isNaN(p.stop.getTime()) && p.stop.getTime() > p.start.getTime();
+    const lastDayDate = endValid ? new Date(p.stop.getTime() - 1) : p.start;
+    const lastKey = formatLocalDateStr(lastDayDate);
+
+    if (lastKey === startKey) {
+      let dayList = chDates.get(startKey);
+      if (!dayList) {
+        dayList = [];
+        chDates.set(startKey, dayList);
+      }
+      dayList.push(p);
+    } else {
+      const cursor = new Date(
+        p.start.getFullYear(),
+        p.start.getMonth(),
+        p.start.getDate(),
+      );
+      for (let step = 0; step < 14; step++) {
+        const key = formatLocalDateStr(cursor);
+        let dayList = chDates.get(key);
+        if (!dayList) {
+          dayList = [];
+          chDates.set(key, dayList);
+        }
+        dayList.push(p);
+        if (key >= lastKey) break;
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+  }
+
+  return {
+    progsByChannel,
+    progsByChannelAndDate,
+    dates: Array.from(dateSet).sort(),
+  };
+}
+
+let epgFetchGen = 0;
+
 export async function fetchEPG(options = {}) {
-  if (!state.currentSourceId) {
+  const gen = ++epgFetchGen;
+  const requestedSourceId = state.currentSourceId;
+
+  if (!requestedSourceId) {
     renderEmptySourcesState();
     return;
   }
@@ -111,32 +181,45 @@ export async function fetchEPG(options = {}) {
   updateAllFavBtnState();
   document.getElementById("status").textContent = t("status_loading");
   try {
-    state.epgData = await invoke("get_epg_data", { sourceId: state.currentSourceId });
+    let epgData = await invoke("get_epg_data", { sourceId: requestedSourceId });
+    if (gen !== epgFetchGen || state.currentSourceId !== requestedSourceId) {
+      return;
+    }
 
-    if (state.currentSourceId === "__ALL_FAVORITES__") {
-      if (!state.epgData.channels || state.epgData.channels.length === 0) {
+    if (requestedSourceId === "__ALL_FAVORITES__") {
+      if (!epgData.channels || epgData.channels.length === 0) {
+        state.epgData = epgData;
         document.getElementById("status").textContent = t("status_ready");
         await updateHeaderSortDropdown();
         renderEmptyFavoritesState();
         return;
       }
-    } else if (!state.epgData.channels || state.epgData.channels.length === 0) {
-      await downloadSource(state.currentSourceId);
-      state.epgData = await invoke("get_epg_data", {
-        sourceId: state.currentSourceId,
-      });
+    } else if (!epgData.channels || epgData.channels.length === 0) {
+      const ok = await downloadSource(requestedSourceId, { skipFetch: true });
+      if (gen !== epgFetchGen || state.currentSourceId !== requestedSourceId) {
+        return;
+      }
+      if (ok) {
+        epgData = await invoke("get_epg_data", {
+          sourceId: requestedSourceId,
+        });
+        if (gen !== epgFetchGen || state.currentSourceId !== requestedSourceId) {
+          return;
+        }
+      }
     }
 
+    state.epgData = epgData;
     state.epgData.rawChannels = [...(state.epgData.channels || [])];
     await updateHeaderSortDropdown();
     applyActiveSortToEpgChannels();
 
-    const currentSrcObj = state.sources.find((s) => s.id === state.currentSourceId);
+    const currentSrcObj = state.sources.find((s) => s.id === requestedSourceId);
     const defaultOffset = currentSrcObj ? currentSrcObj.timeOffset || 0 : 0;
 
     state.epgData.programmes.forEach((p) => {
       const offset =
-        state.currentSourceId === "__ALL_FAVORITES__" &&
+        requestedSourceId === "__ALL_FAVORITES__" &&
         p.timeOffset !== undefined &&
         p.timeOffset !== null
           ? p.timeOffset
@@ -145,7 +228,15 @@ export async function fetchEPG(options = {}) {
       p.stop = parseEPGDate(p.stop, offset);
     });
 
+    const indices = buildEpgIndices(state.epgData.programmes);
+    state.epgData.progsByChannel = indices.progsByChannel;
+    state.epgData.progsByChannelAndDate = indices.progsByChannelAndDate;
+    state.epgData.dates = indices.dates;
+
     await prepareMatchesForEpg(state.epgData.programmes);
+    if (gen !== epgFetchGen || state.currentSourceId !== requestedSourceId) {
+      return;
+    }
 
     document.getElementById("status").textContent = t("status_ready");
     setupDateSelector(options.targetDateStr || null);
@@ -168,13 +259,17 @@ export async function fetchEPG(options = {}) {
       (async () => {
         const batchSize = 3;
         for (let i = 0; i < uncachedChannels.length; i += batchSize) {
+          if (gen !== epgFetchGen) break;
           const batch = uncachedChannels.slice(i, i + batchSize);
           await Promise.all(
             batch.map(async (channel) => {
+              if (gen !== epgFetchGen) return;
               const logoUrl = channel.customIcon || channel.icon;
               try {
                 const dataUri = await invoke("cache_logo", { url: logoUrl });
-                channel.cachedIcon = dataUri;
+                if (gen === epgFetchGen) {
+                  channel.cachedIcon = dataUri;
+                }
               } catch (_) {}
             }),
           );
@@ -187,6 +282,7 @@ export async function fetchEPG(options = {}) {
       renderChannelOrderList();
     }
   } catch (err) {
+    if (gen !== epgFetchGen) return;
     console.error(err);
     document.getElementById("status").textContent = t("status_error");
   }
@@ -218,18 +314,19 @@ export function navigateDate(delta) {
 export function setupDateSelector(preferredDateStr = null) {
   const dateSelect = document.getElementById("dateSelect");
   if (!dateSelect) return;
-  const dates = new Set();
 
-  state.epgData.programmes.forEach((p) => {
-    if (p.start && !isNaN(p.start.getTime())) {
-      const y = p.start.getFullYear();
-      const m = String(p.start.getMonth() + 1).padStart(2, "0");
-      const d = String(p.start.getDate()).padStart(2, "0");
-      dates.add(`${y}-${m}-${d}`);
-    }
-  });
-
-  const sortedDates = Array.from(dates).sort();
+  let sortedDates;
+  if (Array.isArray(state.epgData.dates)) {
+    sortedDates = state.epgData.dates;
+  } else {
+    const dates = new Set();
+    state.epgData.programmes.forEach((p) => {
+      if (p.start && !isNaN(p.start.getTime())) {
+        dates.add(formatLocalDateStr(p.start));
+      }
+    });
+    sortedDates = Array.from(dates).sort();
+  }
   dateSelect.innerHTML = "";
 
   sortedDates.forEach((d) => {
@@ -287,7 +384,7 @@ function setupMainHeaderPointerDrag(headerItem, columnWrapper, channelId) {
         columnWrapper.classList.add("dragging");
         try {
           headerItem.setPointerCapture(e.pointerId);
-        } catch (err) {}
+        } catch (_err) {}
       }
 
       if (isDraggingCol) {
@@ -310,7 +407,7 @@ function setupMainHeaderPointerDrag(headerItem, columnWrapper, channelId) {
 
       try {
         headerItem.releasePointerCapture(e.pointerId);
-      } catch (err) {}
+      } catch (_err) {}
 
       columnWrapper.classList.remove("dragging");
       document
@@ -335,6 +432,7 @@ function setupMainHeaderPointerDrag(headerItem, columnWrapper, channelId) {
         if (fromIdx !== -1 && toIdx !== -1) {
           const [moved] = state.epgData.channels.splice(fromIdx, 1);
           state.epgData.channels.splice(toIdx, 0, moved);
+          state.epgData.rawChannels = [...state.epgData.channels];
           const newOrder = state.epgData.channels.map((c) => c.id);
           await invoke("save_channel_order", {
             sourceId: state.currentSourceId,
@@ -400,7 +498,7 @@ function renderProgramDetails(el) {
   const data = el._progData;
   if (!data) return;
 
-  const { prog, isFav, isTrakt, startStr, stopStr } = data;
+  const { prog, isFav, isTrakt, startStr } = data;
   el.innerHTML = `
           <div class="prog-header">
               <span class="start-badge">${startStr}</span>
@@ -408,7 +506,7 @@ function renderProgramDetails(el) {
               <span class="fav-star ${isFav ? "active" : ""}">${iconHtml(isFav ? "star-filled" : "star", 15)}</span>
           </div>
           ${prog.desc ? `<div class="prog-desc">${escapeHtml(prog.desc)}</div>` : ""}
-          ${isTrakt ? `<span class="trakt-epg-badge" data-icon="trakt-epg-badge" data-icon-size="12" title="${escapeHtml(t("trakt_on_watchlist_tooltip"))}"></span>` : ""}
+          ${isTrakt ? `<span class="trakt-epg-badge" title="${escapeHtml(t("trakt_on_watchlist_tooltip"))}">${iconHtml("trakt-epg-badge", 12)}</span>` : ""}
         `;
 
   const star = el.querySelector(".fav-star");
@@ -417,11 +515,6 @@ function renderProgramDetails(el) {
       e.stopPropagation();
       toggleFavorite(prog.title);
     };
-  }
-
-  if (isTrakt && Icons) {
-    const badge = el.querySelector(".trakt-epg-badge");
-    if (badge) Icons.replace(el);
   }
 
   el.dataset.rendered = "true";
@@ -441,13 +534,15 @@ function renderSingleChannelMultiDay(
   const channelsContainer = document.getElementById("channelsContainer");
   channelsContainer.innerHTML = "";
 
+  const chAllProgs = state.epgData.progsByChannel
+    ? state.epgData.progsByChannel.get(channel.id) || []
+    : state.epgData.programmes.filter((p) => p.channel === channel.id);
+  const chDateMap = state.epgData.progsByChannelAndDate?.get(channel.id);
+
   const dates = new Set();
-  state.epgData.programmes.forEach((p) => {
-    if (p.channel === channel.id && p.start && !isNaN(p.start.getTime())) {
-      const y = p.start.getFullYear();
-      const m = String(p.start.getMonth() + 1).padStart(2, "0");
-      const d = String(p.start.getDate()).padStart(2, "0");
-      dates.add(`${y}-${m}-${d}`);
+  chAllProgs.forEach((p) => {
+    if (p.start && !isNaN(p.start.getTime())) {
+      dates.add(formatLocalDateStr(p.start));
     }
   });
 
@@ -483,15 +578,18 @@ function renderSingleChannelMultiDay(
     return hit;
   };
 
+  const frag = document.createDocumentFragment();
+  const toObserve = [];
+
   sortedDates.forEach((dateStr) => {
     const dayStart = new Date(`${dateStr}T00:00:00`);
     const dayEndDate = new Date(dayStart);
     dayEndDate.setDate(dayEndDate.getDate() + 1);
     const dayEnd = dayEndDate;
 
-    const dayProgs = state.epgData.programmes.filter(
-      (p) => p.channel === channel.id && p.stop > dayStart && p.start < dayEnd,
-    );
+    const dayProgs = chDateMap
+      ? chDateMap.get(dateStr) || []
+      : chAllProgs.filter((p) => p.stop > dayStart && p.start < dayEnd);
 
     if (filterText) {
       if (!chNameMatch && !dayProgs.some((p) => isProgMatch(p.title))) return;
@@ -540,7 +638,7 @@ function renderSingleChannelMultiDay(
 
       if (durationMin <= 0) return;
 
-      const isFav = state.favorites.includes(prog.title);
+      const isFav = state.favoritesSet.has(prog.title);
       const isTrakt = isOnWatchlist(prog.title);
       const isHighlight = filterText ? isProgMatch(prog.title) : false;
       const isActual = prog.start <= now && prog.stop > now;
@@ -578,14 +676,17 @@ function renderSingleChannelMultiDay(
         openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc, channel);
 
       grid.appendChild(progEl);
-      if (programObserver) {
-        programObserver.observe(progEl);
-      }
+      toObserve.push(progEl);
     });
 
     wrapper.appendChild(grid);
-    channelsContainer.appendChild(wrapper);
+    frag.appendChild(wrapper);
   });
+
+  channelsContainer.appendChild(frag);
+  if (programObserver) {
+    toObserve.forEach((el) => programObserver.observe(el));
+  }
 
   renderNowLine();
 
@@ -639,6 +740,7 @@ export function renderEPG() {
   document.documentElement.style.setProperty("--step-min", state.currentStepMin);
 
   const totalMinutes = 1440;
+  const timeFrag = document.createDocumentFragment();
   for (let min = 0; min < totalMinutes; min += state.currentStepMin) {
     const h = Math.floor(min / 60) % 24;
     const m = min % 60;
@@ -646,8 +748,9 @@ export function renderEPG() {
     timeDiv.className = isHorizontal ? "timeline-slot" : "time-slot";
     if (m === 0) timeDiv.classList.add("full-hour");
     timeDiv.textContent = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-    timeColumn.appendChild(timeDiv);
+    timeFrag.appendChild(timeDiv);
   }
+  timeColumn.appendChild(timeFrag);
 
   const dateNavGroup = document.querySelector(".date-nav-group");
   if (dateNavGroup) {
@@ -737,12 +840,18 @@ export function renderEPG() {
     return hit;
   };
 
+  const channelsFrag = document.createDocumentFragment();
+  const toObserve = [];
+  const progsByChDate = state.epgData.progsByChannelAndDate;
+
   state.epgData.channels.forEach((channel) => {
     if (channel.isHidden) return;
 
-    const channelProgs = state.epgData.programmes.filter(
-      (p) => p.channel === channel.id && p.stop > dayStart && p.start < dayEnd,
-    );
+    const channelProgs = progsByChDate
+      ? progsByChDate.get(channel.id)?.get(state.selectedDateStr) || []
+      : state.epgData.programmes.filter(
+          (p) => p.channel === channel.id && p.stop > dayStart && p.start < dayEnd,
+        );
 
     if (channelProgs.length === 0) return;
 
@@ -935,7 +1044,7 @@ export function renderEPG() {
 
       if (durationMin <= 0) return;
 
-      const isFav = state.favorites.includes(prog.title);
+      const isFav = state.favoritesSet.has(prog.title);
       const isTrakt = isOnWatchlist(prog.title);
       const isHighlight = filterText ? isProgMatch(prog.title) : false;
       const isActual = prog.start <= now && prog.stop > now;
@@ -973,14 +1082,17 @@ export function renderEPG() {
         openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc, channel);
 
       grid.appendChild(progEl);
-      if (programObserver) {
-        programObserver.observe(progEl);
-      }
+      toObserve.push(progEl);
     });
 
     wrapper.appendChild(grid);
-    channelsContainer.appendChild(wrapper);
+    channelsFrag.appendChild(wrapper);
   });
+
+  channelsContainer.appendChild(channelsFrag);
+  if (programObserver) {
+    toObserve.forEach((el) => programObserver.observe(el));
+  }
 
   renderNowLine();
 
@@ -1150,7 +1262,7 @@ export async function jumpToEpgAiring(airing) {
 }
 
 export function isFavoriteTitle(title) {
-  return state.favorites.includes(title);
+  return state.favoritesSet.has(title);
 }
 
 export function renderNowLine() {
@@ -1250,12 +1362,22 @@ export function scrollToNow() {
   }
 
   if (state.currentLayout === "horizontal") {
-    // Find the earliest starting time among all currently running programs
+    // Find the earliest starting time among all currently running programs on visible channels
     let earliestStartMin = null;
     if (state.selectedDateStr === todayStr && state.epgData.programmes) {
+      const dayStart = new Date(`${todayStr}T00:00:00`);
+      const hiddenChannelIds = new Set(
+        (state.epgData.channels || [])
+          .filter((c) => c.isHidden)
+          .map((c) => c.id),
+      );
       state.epgData.programmes.forEach((p) => {
+        if (hiddenChannelIds.has(p.channel)) return;
         if (p.start <= now && p.stop > now) {
-          const sMin = p.start.getHours() * 60 + p.start.getMinutes();
+          const sMin =
+            p.start <= dayStart
+              ? 0
+              : p.start.getHours() * 60 + p.start.getMinutes();
           if (earliestStartMin === null || sMin < earliestStartMin) {
             earliestStartMin = sMin;
           }
@@ -1289,15 +1411,6 @@ function getEffectiveMinuteScale() {
     );
   }
   return state.currentMinuteHeight;
-}
-
-let epgScrollRaf = null;
-function scheduleEPGScrollUpdate() {
-  if (epgScrollRaf) return;
-  epgScrollRaf = requestAnimationFrame(() => {
-    epgScrollRaf = null;
-    renderNowLine();
-  });
 }
 
 function setupViewportPan() {
@@ -1454,13 +1567,6 @@ export function initEpg() {
     };
   }
 
-  const epgViewportEl = document.getElementById("epgViewport");
-  if (epgViewportEl) {
-    epgViewportEl.addEventListener("scroll", scheduleEPGScrollUpdate, {
-      passive: true,
-    });
-  }
-
   setupViewportPan();
 
   const gridHomeBtn = document.getElementById("gridHomeBtn");
@@ -1489,9 +1595,14 @@ export function initEpg() {
     const now = new Date();
     const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     if (!state.activeSingleChannelId) {
-      if (state.selectedDateStr !== todayStr) {
+      const dateSelect = document.getElementById("dateSelect");
+      const hasToday =
+        dateSelect &&
+        Array.from(dateSelect.options).some((o) => o.value === todayStr);
+      if (hasToday && state.selectedDateStr !== todayStr) {
         state.selectedDateStr = todayStr;
-        document.getElementById("dateSelect").value = state.selectedDateStr;
+        dateSelect.value = state.selectedDateStr;
+        updateDateNavBtns();
         renderEPG();
       }
     }

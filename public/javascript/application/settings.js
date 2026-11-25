@@ -1,4 +1,4 @@
-import { state, invoke } from "./state.js";
+import { state, invoke, setFavoritesList } from "./state.js";
 import { t, setLanguage, restoreLanguageFiles } from "./i18n.js";
 import {
   showConfirm,
@@ -15,6 +15,8 @@ import {
   loadChannelSortPresetsDropdown,
   loadChannelOrderSourcesDropdown,
   renderChannelOrderList,
+  clearChannelLogoPreviewCache,
+  invalidateChannelOrderCache,
 } from "./channels.js";
 import { loadSettingsTab as loadTraktSettingsTab } from "../trakt/trakt-ui.js";
 
@@ -34,6 +36,7 @@ export function switchSettingsTab(tabName) {
     renderFavoritesList();
   } else if (tabName === "channels") {
     document.getElementById("tabPaneChannels").classList.add("active");
+    invalidateChannelOrderCache();
     loadChannelOrderSourcesDropdown();
     loadChannelSortPresetsDropdown();
     renderChannelOrderList();
@@ -112,8 +115,9 @@ function initSettingsExportHandlers() {
         "success",
       );
       await showAlert(t("alert_success_title"), t("alert_import_success"));
+      invalidateChannelOrderCache();
       await refreshSourcesFromDb();
-      state.favorites = await invoke("get_favorites");
+      setFavoritesList(await invoke("get_favorites"));
       await fetchEPG();
       renderFavoritesList();
       await renderChannelOrderList();
@@ -351,8 +355,8 @@ document.getElementById("importChannelDataInput").onchange = async (e) => {
           sourceUrl: r["source_url"] || r["sourceurl"] || "",
           channelId,
           channelName: r["channel_name"] || r["channelname"] || "",
-          isFavorite: favVal === "1" || favVal.toLowerCase() === "true",
-          isHidden: hidVal === "1" || hidVal.toLowerCase() === "true",
+          isFavorite: favVal === "1" || favVal.toLowerCase() === "true" ? 1 : 0,
+          isHidden: hidVal === "1" || hidVal.toLowerCase() === "true" ? 1 : 0,
           position:
             posVal !== "" && !isNaN(parseInt(posVal, 10))
               ? parseInt(posVal, 10)
@@ -379,6 +383,7 @@ document.getElementById("importChannelDataInput").onchange = async (e) => {
       t("alert_success_title"),
       t("alert_channel_import_success"),
     );
+    invalidateChannelOrderCache();
     await refreshSourcesFromDb();
     await fetchEPG();
     await renderChannelOrderList();
@@ -431,8 +436,10 @@ document.getElementById("clearLogoCacheBtn").onclick = async () => {
   if (!confirmed) return;
 
   try {
-    setExportImportStatus("cacheDataStatus", "Törlés folyamatban...", "loading");
+    setExportImportStatus("cacheDataStatus", t("status_deleting"), "loading");
     await invoke("clear_logo_cache");
+    clearChannelLogoPreviewCache();
+    invalidateChannelOrderCache();
     setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
     await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
     await updateCacheSectionStats();
@@ -451,7 +458,7 @@ document.getElementById("clearPosterCacheBtn").onclick = async () => {
   if (!confirmed) return;
 
   try {
-    setExportImportStatus("cacheDataStatus", "Törlés folyamatban...", "loading");
+    setExportImportStatus("cacheDataStatus", t("status_deleting"), "loading");
     await invoke("clear_poster_cache");
     setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
     await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
@@ -470,8 +477,10 @@ document.getElementById("clearAllCacheBtn").onclick = async () => {
   if (!confirmed) return;
 
   try {
-    setExportImportStatus("cacheDataStatus", "Törlés folyamatban...", "loading");
+    setExportImportStatus("cacheDataStatus", t("status_deleting"), "loading");
     await invoke("clear_all_image_cache");
+    clearChannelLogoPreviewCache();
+    invalidateChannelOrderCache();
     setExportImportStatus("cacheDataStatus", t("alert_cache_cleared"), "success");
     await showAlert(t("alert_success_title"), t("alert_cache_cleared"));
     await updateCacheSectionStats();
@@ -504,6 +513,15 @@ export async function updateDatabaseStats() {
         : formatByteSize(stats.freelistBytes);
   } catch (err) {
     console.error("Hiba az adatbázis statisztikák lekérésekor:", err);
+  }
+}
+
+export function closeSettingsModal() {
+  const overlay = document.getElementById("settingsOverlay");
+  if (overlay) overlay.classList.remove("active");
+  if (state.settingsEpgDirty) {
+    state.settingsEpgDirty = false;
+    fetchEPG();
   }
 }
 
@@ -562,8 +580,7 @@ export function initSettings() {
   };
 
   document.getElementById("settingsClose").onclick = () => {
-    document.getElementById("settingsOverlay").classList.remove("active");
-    fetchEPG();
+    closeSettingsModal();
   };
 
   document.getElementById("languageSelect").onchange = (e) => {

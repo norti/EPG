@@ -1049,8 +1049,8 @@ pub async fn sync_watchlist(
     app: Option<&tauri::AppHandle>,
 ) -> Result<(), String> {
     let mut page = 1u32;
-    let mut seen_ids: HashSet<i64> = HashSet::new();
-    let mut to_enrich_tmdb: Vec<(i64, String, i64)> = Vec::new();
+    let mut seen_ids: HashSet<(String, i64)> = HashSet::new();
+    let mut to_enrich_tmdb: Vec<(String, i64, String, i64)> = Vec::new();
     let mut to_fetch_aliases: Vec<(i64, String)> = Vec::new();
     let now = now_iso_utc();
 
@@ -1097,7 +1097,7 @@ pub async fn sync_watchlist(
                 };
 
                 let trakt_id = media.ids.trakt;
-                seen_ids.insert(trakt_id);
+                seen_ids.insert((media_type.to_string(), trakt_id));
 
                 // Check existing tmdb_cache for hu_title & poster_path (0 HTTP calls)
                 let tmdb_media = if media_type == "show" { "tv" } else { "movie" };
@@ -1121,8 +1121,7 @@ pub async fn sync_watchlist(
                     "INSERT INTO trakt_watchlist_cache (
                         trakt_id, media_type, title, title_hu, aliases_json, year, tmdb_id, poster_path, listed_at, updated_at
                     ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9)
-                    ON CONFLICT(trakt_id) DO UPDATE SET
-                        media_type = excluded.media_type,
+                    ON CONFLICT(media_type, trakt_id) DO UPDATE SET
                         title = excluded.title,
                         title_hu = COALESCE(excluded.title_hu, trakt_watchlist_cache.title_hu),
                         year = excluded.year,
@@ -1182,13 +1181,13 @@ pub async fn sync_watchlist(
 
                 if let Some(tid) = media.ids.tmdb {
                     if cached_poster.is_none() || cached_hu.is_none() {
-                        to_enrich_tmdb.push((trakt_id, tmdb_media.to_string(), tid));
+                        to_enrich_tmdb.push((media_type.to_string(), trakt_id, tmdb_media.to_string(), tid));
                     }
                 }
                 if media_type == "show" {
                     let has_aliases: bool = tx
                         .query_row(
-                            "SELECT aliases_json IS NOT NULL FROM trakt_watchlist_cache WHERE trakt_id = ?1",
+                            "SELECT aliases_json IS NOT NULL FROM trakt_watchlist_cache WHERE media_type = 'show' AND trakt_id = ?1",
                             params![trakt_id],
                             |r| r.get(0),
                         )
@@ -1212,19 +1211,21 @@ pub async fn sync_watchlist(
     // Remove items deleted from Trakt Watchlist
     {
         let mut conn = state.db.lock().await;
-        let existing_ids: Vec<i64> = {
+        let existing_keys: Vec<(String, i64)> = {
             let mut stmt = conn
-                .prepare("SELECT trakt_id FROM trakt_watchlist_cache")
+                .prepare("SELECT media_type, trakt_id FROM trakt_watchlist_cache")
                 .map_err(|e| e.to_string())?;
-            let mapped = stmt.query_map([], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?;
+            let mapped = stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+                .map_err(|e| e.to_string())?;
             mapped.flatten().collect()
         };
         let tx = conn.transaction().map_err(|e| e.to_string())?;
-        for eid in existing_ids {
-            if !seen_ids.contains(&eid) {
+        for (mt, eid) in existing_keys {
+            if !seen_ids.contains(&(mt.clone(), eid)) {
                 tx.execute(
-                    "DELETE FROM trakt_watchlist_cache WHERE trakt_id = ?1",
-                    params![eid],
+                    "DELETE FROM trakt_watchlist_cache WHERE media_type = ?1 AND trakt_id = ?2",
+                    params![mt, eid],
                 )
                 .ok();
             }
@@ -1232,20 +1233,29 @@ pub async fn sync_watchlist(
         tx.commit().map_err(|e| e.to_string())?;
     }
 
-    // TMDB enrichment for all missing watchlist items (only if TMDB API key is configured)
+    // TMDB enrichment for all missing watchlist items (4-way parallel, bounded by TmdbRuntime semaphore)
     if get_tmdb_api_key_from_state(state).await.is_some() {
-        for (trakt_id, tmdb_media, tmdb_id) in to_enrich_tmdb {
+        for chunk in to_enrich_tmdb.chunks(4) {
             if is_sync_cancelled(state) {
                 break;
             }
-            if let Ok(details) = get_tmdb_by_id(state, tmdb_id, &tmdb_media, "hu-HU", None, false).await {
-                let conn = state.db.lock().await;
+            let fetch_opt = |idx: usize| async move {
+                let (media_type, trakt_id, tmdb_media, tmdb_id) = chunk.get(idx)?;
+                let details = get_tmdb_by_id(state, *tmdb_id, tmdb_media, "hu-HU", None, false)
+                    .await
+                    .ok()?;
+                Some((media_type.as_str(), *trakt_id, details.hu_title, details.poster_path))
+            };
+            let (r0, r1, r2, r3) = tokio::join!(fetch_opt(0), fetch_opt(1), fetch_opt(2), fetch_opt(3));
+            let conn = state.db.lock().await;
+            for item in [r0, r1, r2, r3].into_iter().flatten() {
+                let (media_type, trakt_id, hu_title, poster_path) = item;
                 let _ = conn.execute(
                     "UPDATE trakt_watchlist_cache
                      SET title_hu = COALESCE(?1, title_hu),
                          poster_path = COALESCE(?2, poster_path)
-                     WHERE trakt_id = ?3",
-                    params![details.hu_title, details.poster_path, trakt_id],
+                     WHERE media_type = ?3 AND trakt_id = ?4",
+                    params![hu_title, poster_path, media_type, trakt_id],
                 );
             }
         }
@@ -1272,7 +1282,7 @@ pub async fn sync_watchlist(
                 if let Ok(json_str) = serde_json::to_string(&filtered) {
                     let conn = state.db.lock().await;
                     let _ = conn.execute(
-                        "UPDATE trakt_watchlist_cache SET aliases_json = ?1 WHERE trakt_id = ?2",
+                        "UPDATE trakt_watchlist_cache SET aliases_json = ?1 WHERE media_type = 'show' AND trakt_id = ?2",
                         params![json_str, trakt_id],
                     );
                 }
@@ -1320,7 +1330,7 @@ pub async fn sync_history(state: &AppState) -> Result<(), String> {
                         };
                         let poster: Option<String> = show.ids.tmdb.and_then(|tid| {
                             tx.query_row(
-                                "SELECT poster_path FROM trakt_watchlist_cache WHERE trakt_id = ?1
+                                "SELECT poster_path FROM trakt_watchlist_cache WHERE media_type = 'show' AND trakt_id = ?1
                                  UNION ALL
                                  SELECT poster_path FROM tmdb_cache WHERE tmdb_id = ?2 AND media_type = 'tv' AND poster_path IS NOT NULL
                                  LIMIT 1",
@@ -1350,7 +1360,7 @@ pub async fn sync_history(state: &AppState) -> Result<(), String> {
                         };
                         let poster: Option<String> = movie.ids.tmdb.and_then(|tid| {
                             tx.query_row(
-                                "SELECT poster_path FROM trakt_watchlist_cache WHERE trakt_id = ?1
+                                "SELECT poster_path FROM trakt_watchlist_cache WHERE media_type = 'movie' AND trakt_id = ?1
                                  UNION ALL
                                  SELECT poster_path FROM tmdb_cache WHERE tmdb_id = ?2 AND media_type = 'movie' AND poster_path IS NOT NULL
                                  LIMIT 1",
@@ -1410,19 +1420,25 @@ pub async fn enrich_missing_history_posters(state: &AppState) {
         mapped.flatten().collect()
     };
 
-    for (tmdb_mt, tmdb_id) in missing {
+    for chunk in missing.chunks(4) {
         if is_sync_cancelled(state) {
             break;
         }
-        if let Ok(details) = get_tmdb_by_id(state, tmdb_id, &tmdb_mt, "hu-HU", None, false).await {
-            if let Some(ref poster) = details.poster_path {
-                let conn = state.db.lock().await;
-                let _ = conn.execute(
-                    "UPDATE trakt_history_cache SET poster_path = ?1
-                     WHERE show_tmdb_id = ?2 AND (poster_path IS NULL OR poster_path = '')",
-                    params![poster, tmdb_id],
-                );
-            }
+        let fetch_opt = |idx: usize| async move {
+            let (tmdb_mt, tmdb_id) = chunk.get(idx)?;
+            let details = get_tmdb_by_id(state, *tmdb_id, tmdb_mt, "hu-HU", None, false)
+                .await
+                .ok()?;
+            details.poster_path.map(|poster| (*tmdb_id, poster))
+        };
+        let (r0, r1, r2, r3) = tokio::join!(fetch_opt(0), fetch_opt(1), fetch_opt(2), fetch_opt(3));
+        let conn = state.db.lock().await;
+        for (tmdb_id, poster) in [r0, r1, r2, r3].into_iter().flatten() {
+            let _ = conn.execute(
+                "UPDATE trakt_history_cache SET poster_path = ?1
+                 WHERE show_tmdb_id = ?2 AND (poster_path IS NULL OR poster_path = '')",
+                params![poster, tmdb_id],
+            );
         }
     }
 }
@@ -1984,11 +2000,16 @@ async fn enrich_missing_continue_watching_tmdb(state: &AppState) {
         mapped.flatten().collect()
     };
 
-    for tmdb_id in missing_tmdb_ids {
+    for chunk in missing_tmdb_ids.chunks(4) {
         if is_sync_cancelled(state) {
             break;
         }
-        let _ = get_tmdb_by_id(state, tmdb_id, "tv", "hu-HU", None, false).await;
+        let fetch_opt = |idx: usize| async move {
+            if let Some(&tmdb_id) = chunk.get(idx) {
+                let _ = get_tmdb_by_id(state, tmdb_id, "tv", "hu-HU", None, false).await;
+            }
+        };
+        tokio::join!(fetch_opt(0), fetch_opt(1), fetch_opt(2), fetch_opt(3));
     }
 }
 

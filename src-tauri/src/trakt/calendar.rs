@@ -180,11 +180,16 @@ pub async fn enrich_missing_my_calendar_posters(state: &AppState) {
         mapped.flatten().collect()
     };
 
-    for tmdb_id in missing_tmdb_ids {
+    for chunk in missing_tmdb_ids.chunks(4) {
         if crate::trakt::sync::is_sync_cancelled(state) {
             break;
         }
-        let _ = crate::get_tmdb_by_id(state, tmdb_id, "tv", "hu-HU", None, false).await;
+        let fetch_opt = |idx: usize| async move {
+            if let Some(&tmdb_id) = chunk.get(idx) {
+                let _ = crate::get_tmdb_by_id(state, tmdb_id, "tv", "hu-HU", None, false).await;
+            }
+        };
+        tokio::join!(fetch_opt(0), fetch_opt(1), fetch_opt(2), fetch_opt(3));
     }
 }
 
@@ -362,19 +367,28 @@ pub async fn fetch_and_cache_global_calendar(
 }
 
 pub fn query_global_calendar_merged(conn: &Connection) -> Result<Vec<CalendarEpisodeItem>, String> {
-    let sql = "SELECT
+    let sql = "WITH tmdb_tv AS (
+            SELECT tmdb_id,
+                   MAX(NULLIF(hu_title, '')) AS hu_title,
+                   MAX(NULLIF(poster_path, '')) AS poster_path,
+                   COALESCE(MAX(NULLIF(hu_overview, '')), MAX(NULLIF(overview, ''))) AS overview
+            FROM tmdb_cache
+            WHERE media_type = 'tv' AND tmdb_id IS NOT NULL
+            GROUP BY tmdb_id
+         )
+         SELECT
             c.episode_trakt_id,
             c.show_trakt_id,
             COALESCE(c.show_tmdb_id, w.tmdb_id) AS tmdb_id,
             COALESCE(c.show_title, w.title, '') AS show_title,
-            COALESCE(w.title_hu, (SELECT tm.hu_title FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id) AND tm.media_type = 'tv' AND tm.hu_title IS NOT NULL LIMIT 1)) AS show_title_hu,
+            COALESCE(w.title_hu, tm.hu_title) AS show_title_hu,
             c.season,
             c.number,
             c.episode_title,
             c.first_aired,
             COALESCE(c.network, tc.network) AS network,
-            COALESCE(w.poster_path, (SELECT tm.poster_path FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id) AND tm.media_type = 'tv' AND tm.poster_path IS NOT NULL LIMIT 1)) AS poster_path,
-            COALESCE(tc.overview, (SELECT tm.overview FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id) AND tm.media_type = 'tv' AND tm.overview IS NOT NULL LIMIT 1)) AS overview,
+            COALESCE(w.poster_path, tm.poster_path) AS poster_path,
+            COALESCE(tc.overview, tm.overview) AS overview,
             CASE WHEN e.watched_at IS NOT NULL THEN 1 ELSE 0 END AS watched,
             CASE WHEN w.trakt_id IS NOT NULL OR (
                 c.show_tmdb_id IS NOT NULL AND EXISTS (
@@ -383,9 +397,10 @@ pub fn query_global_calendar_merged(conn: &Connection) -> Result<Vec<CalendarEpi
                 )
             ) THEN 1 ELSE 0 END AS on_watchlist
          FROM trakt_calendar_cache c
-         LEFT JOIN trakt_watchlist_cache w ON w.trakt_id = c.show_trakt_id
+         LEFT JOIN trakt_watchlist_cache w ON w.media_type = 'show' AND w.trakt_id = c.show_trakt_id
          LEFT JOIN trakt_episodes e ON e.show_trakt_id = c.show_trakt_id AND e.season = c.season AND e.episode = c.number
          LEFT JOIN trakt_cache tc ON tc.media_type = 'show' AND tc.trakt_id = c.show_trakt_id
+         LEFT JOIN tmdb_tv tm ON tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id)
          WHERE c.scope = 'all'
             OR (c.scope = 'my' AND NOT EXISTS (
                 SELECT 1 FROM trakt_calendar_cache c2
@@ -436,25 +451,35 @@ pub fn query_calendar_episodes(
     };
 
     let sql = format!(
-        "SELECT
+        "WITH tmdb_tv AS (
+            SELECT tmdb_id,
+                   MAX(NULLIF(hu_title, '')) AS hu_title,
+                   MAX(NULLIF(poster_path, '')) AS poster_path,
+                   COALESCE(MAX(NULLIF(hu_overview, '')), MAX(NULLIF(overview, ''))) AS overview
+            FROM tmdb_cache
+            WHERE media_type = 'tv' AND tmdb_id IS NOT NULL
+            GROUP BY tmdb_id
+         )
+         SELECT
             c.episode_trakt_id,
             c.show_trakt_id,
             COALESCE(c.show_tmdb_id, w.tmdb_id) AS tmdb_id,
             COALESCE(c.show_title, w.title, '') AS show_title,
-            COALESCE(w.title_hu, (SELECT tm.hu_title FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id) AND tm.media_type = 'tv' AND tm.hu_title IS NOT NULL LIMIT 1)) AS show_title_hu,
+            COALESCE(w.title_hu, tm.hu_title) AS show_title_hu,
             c.season,
             c.number,
             c.episode_title,
             c.first_aired,
             COALESCE(c.network, tc.network) AS network,
-            COALESCE(w.poster_path, (SELECT tm.poster_path FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id) AND tm.media_type = 'tv' AND tm.poster_path IS NOT NULL LIMIT 1)) AS poster_path,
-            COALESCE(tc.overview, (SELECT tm.overview FROM tmdb_cache tm WHERE tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id) AND tm.media_type = 'tv' AND tm.overview IS NOT NULL LIMIT 1)) AS overview,
+            COALESCE(w.poster_path, tm.poster_path) AS poster_path,
+            COALESCE(tc.overview, tm.overview) AS overview,
             CASE WHEN e.watched_at IS NOT NULL THEN 1 ELSE 0 END AS watched,
             CASE WHEN w.trakt_id IS NOT NULL THEN 1 ELSE 0 END AS on_watchlist
          FROM trakt_calendar_cache c
-         LEFT JOIN trakt_watchlist_cache w ON w.trakt_id = c.show_trakt_id
+         LEFT JOIN trakt_watchlist_cache w ON w.media_type = 'show' AND w.trakt_id = c.show_trakt_id
          LEFT JOIN trakt_episodes e ON e.show_trakt_id = c.show_trakt_id AND e.season = c.season AND e.episode = c.number
          LEFT JOIN trakt_cache tc ON tc.media_type = 'show' AND tc.trakt_id = c.show_trakt_id
+         LEFT JOIN tmdb_tv tm ON tm.tmdb_id = COALESCE(c.show_tmdb_id, w.tmdb_id)
          WHERE c.scope = ?1 {}
          ORDER BY c.first_aired ASC",
         where_wl

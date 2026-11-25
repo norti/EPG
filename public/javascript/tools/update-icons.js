@@ -69,7 +69,6 @@ const DEFAULT_ICONS = [
 ];
 
 function findIconSvg(iconName) {
-  let isFilled = false;
   let targetName = iconName;
 
   if (iconName.endsWith('-filled')) {

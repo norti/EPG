@@ -2,7 +2,7 @@ import { state, invoke } from "./state.js";
 import { t } from "./i18n.js";
 import { iconHtml } from "./ui.js";
 import { toggleFavorite } from "./favorites.js";
-import { fetchEPG } from "./epg.js";
+import { closeSettingsModal } from "./settings.js";
 import {
   hidePosterZoom,
   resetModalTmdbUi,
@@ -68,7 +68,11 @@ export async function openModal(title, time, desc, channel) {
     });
   } catch (e) {
     console.warn("TMDB betöltési hiba:", e);
-    if (state.currentModalTitle === title) {
+    if (
+      state.currentModalTitle === title &&
+      fetchIndex === state.currentModalFetchIndex &&
+      document.getElementById("modalOverlay").classList.contains("active")
+    ) {
       document.getElementById("modalTmdbLoading").classList.add("u-hidden");
       attachToModal({
         title,
@@ -107,13 +111,17 @@ export function initModal() {
   document.querySelectorAll(".modal-overlay").forEach((overlay) => {
     overlay.onclick = (e) => {
       if (e.target === overlay) {
-        closeFixOverlay();
-        overlay.classList.remove("active");
-        if (
-          overlay.id === "settingsOverlay" &&
-          state.currentSourceId === "__ALL_FAVORITES__"
-        ) {
-          fetchEPG();
+        if (overlay.id === "modalOverlay") {
+          hidePosterZoom();
+          closeFixOverlay();
+          detachFromModal();
+          overlay.classList.remove("active");
+        } else if (overlay.id === "settingsOverlay") {
+          closeFixOverlay();
+          closeSettingsModal();
+        } else {
+          closeFixOverlay();
+          overlay.classList.remove("active");
         }
       }
     };

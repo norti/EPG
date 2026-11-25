@@ -15,6 +15,8 @@ pub const MIGRATIONS: &[MigFn] = &[
     migrate_v6,
     migrate_v7,
     migrate_v8,
+    migrate_v9,
+    migrate_v10,
 ];
 
 fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
@@ -625,6 +627,44 @@ fn migrate_v8(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// v9 changes `trakt_watchlist_cache` primary key from `(trakt_id)` to `(media_type, trakt_id)`
+/// because Trakt movies and shows use separate ID spaces.
+fn migrate_v9(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE trakt_watchlist_cache_new (
+            trakt_id INTEGER NOT NULL,
+            media_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            title_hu TEXT,
+            aliases_json TEXT,
+            year INTEGER,
+            tmdb_id INTEGER,
+            poster_path TEXT,
+            listed_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (media_type, trakt_id)
+        );
+        INSERT OR REPLACE INTO trakt_watchlist_cache_new (
+            trakt_id, media_type, title, title_hu, aliases_json, year, tmdb_id, poster_path, listed_at, updated_at
+        )
+        SELECT trakt_id, media_type, title, title_hu, aliases_json, year, tmdb_id, poster_path, listed_at, updated_at
+        FROM trakt_watchlist_cache;
+        DROP TABLE trakt_watchlist_cache;
+        ALTER TABLE trakt_watchlist_cache_new RENAME TO trakt_watchlist_cache;
+        CREATE INDEX IF NOT EXISTS idx_trakt_wl_tmdb ON trakt_watchlist_cache (media_type, tmdb_id);",
+    )?;
+    Ok(())
+}
+
+/// v10 adds missing secondary indexes for calendar episode lookups and TMDB (tmdb_id, media_type) joins.
+fn migrate_v10(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_trakt_cal_ep ON trakt_calendar_cache (episode_trakt_id);
+         CREATE INDEX IF NOT EXISTS idx_tmdb_cache_id_type ON tmdb_cache (tmdb_id, media_type);",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1153,5 +1193,29 @@ mod tests {
         assert_eq!(after_merge["greeting"], "Custom Hello", "User customization must not be overwritten");
         assert_eq!(after_merge["old"], "Old", "Existing value must stay intact on merge");
         assert_eq!(after_merge["brand_new"], "Fresh", "Newly added embedded key must be merged in");
+    }
+
+    #[test]
+    fn test_v9_watchlist_composite_pk_allows_same_trakt_id_for_movie_and_show() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn, None).unwrap();
+
+        conn.execute(
+            "INSERT INTO trakt_watchlist_cache (trakt_id, media_type, title, listed_at, updated_at)
+             VALUES (12345, 'movie', 'Movie Same ID', '2026-11-25T10:00:00Z', '2026-11-25T10:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO trakt_watchlist_cache (trakt_id, media_type, title, listed_at, updated_at)
+             VALUES (12345, 'show', 'Show Same ID', '2026-11-25T10:00:00Z', '2026-11-25T10:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM trakt_watchlist_cache WHERE trakt_id = 12345", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "Movie and show with identical trakt_id must both coexist");
     }
 }

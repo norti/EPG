@@ -797,6 +797,7 @@ pub async fn logout(state: &AppState, app: Option<&tauri::AppHandle>) -> Result<
             .ok();
         tx.execute("DELETE FROM trakt_episodes", []).ok();
         tx.execute("DELETE FROM trakt_show_progress", []).ok();
+        tx.execute("DELETE FROM trakt_show_fp", []).ok();
         tx.execute("DELETE FROM trakt_pending_actions", []).ok();
         tx.execute("DELETE FROM trakt_http_cache", []).ok();
         tx.commit().map_err(|e| e.to_string())?;

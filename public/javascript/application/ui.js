@@ -244,13 +244,51 @@ export function openChannelEditModal(channel) {
     nameInput.value = channel.customName || "";
     logoInput.value = channel.customIcon || "";
 
+    let previewSeq = 0;
     const updatePreview = () => {
+      const seq = ++previewSeq;
       const url = logoInput.value.trim();
-      const fallbackLogo = channel.cachedIcon || channel.icon || "";
-      const displayUrl = url || fallbackLogo;
+      const currentEffectiveRaw = (channel.customIcon || channel.icon || "").trim();
+      const useCached =
+        channel.cachedIcon &&
+        ((!url && !channel.customIcon) || (url && url === currentEffectiveRaw));
+      const displayUrl = useCached
+        ? channel.cachedIcon
+        : url || channel.cachedIcon || channel.icon || "";
       previewEl.innerHTML = "";
       if (displayUrl) {
-        appendSafeImage(previewEl, displayUrl, { onErrorMode: "errSpan" });
+        const img = appendSafeImage(previewEl, displayUrl, {
+          onErrorMode: "errSpan",
+        });
+        if (
+          img &&
+          !displayUrl.startsWith("http://epgimg.localhost/") &&
+          (displayUrl.startsWith("http://") || displayUrl.startsWith("https://"))
+        ) {
+          img.onerror = () => {
+            img.onerror = null;
+            invoke("cache_logo", { url: displayUrl })
+              .then((dataUri) => {
+                if (seq !== previewSeq || !previewEl.isConnected) return;
+                if (dataUri) {
+                  previewEl.innerHTML = "";
+                  appendSafeImage(previewEl, dataUri, { onErrorMode: "errSpan" });
+                } else {
+                  const span = document.createElement("span");
+                  span.className = "img-error-fallback";
+                  span.textContent = "ERR";
+                  previewEl.replaceChildren(span);
+                }
+              })
+              .catch(() => {
+                if (seq !== previewSeq || !previewEl.isConnected) return;
+                const span = document.createElement("span");
+                span.className = "img-error-fallback";
+                span.textContent = "ERR";
+                previewEl.replaceChildren(span);
+              });
+          };
+        }
       } else {
         const tvSvg = Icons.get("device-tv", { size: 24 }) || "TV";
         previewEl.innerHTML = `<span class="logo-preview-placeholder">${tvSvg}</span>`;
@@ -485,6 +523,7 @@ export function isSafeImageSrc(url) {
   if (
     lower.startsWith("http://") ||
     lower.startsWith("https://") ||
+    lower.startsWith("epgimg://") ||
     lower.startsWith("data:image/") ||
     lower.startsWith("blob:")
   ) {

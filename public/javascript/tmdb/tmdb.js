@@ -49,8 +49,8 @@ export function copyText(text, badgeEl) {
 let currentModalLangSwitchIndex = 0;
 let currentModalPosterPath = "";
 let currentModalLargePosterSrc = "";
-let currentModalTmdbData = null;
 let fixSearchDebounce = null;
+let fixSearchSeq = 0;
 let posterZoomDebounce = null;
 
 function getLargePosterUrl(posterPath) {
@@ -108,6 +108,7 @@ function showPosterZoom(e) {
   const modalPoster = document.getElementById("modalPoster");
   const largeUrl = getLargePosterUrl(currentModalPosterPath);
 
+  popup.classList.remove("u-hidden");
   positionPosterZoom(e);
 
   // Azonnali helyes előnézet: ha a nagy méret már a memóriában van, azt használjuk,
@@ -159,7 +160,6 @@ function showPosterZoom(e) {
     loader.classList.add("u-hidden");
   }
 
-  popup.classList.remove("u-hidden");
   requestAnimationFrame(() => {
     popup.classList.add("visible");
   });
@@ -356,7 +356,6 @@ export function renderTmdbDetailsInModal(tmdbData, options = {}) {
   // Poster (served through images.db cache for offline & zero repeated CDN hits)
   if (tmdbData.posterPath) {
     currentModalPosterPath = tmdbData.posterPath;
-    currentModalTmdbData = tmdbData;
     const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
     posterCol.classList.remove("u-hidden");
     updateModalLeftColVisibility();
@@ -366,7 +365,6 @@ export function renderTmdbDetailsInModal(tmdbData, options = {}) {
     preloadAndCacheLargePoster(tmdbData.posterPath);
   } else {
     currentModalPosterPath = "";
-    currentModalTmdbData = tmdbData;
   }
 
   // Backdrop (served through images.db cache)
@@ -600,6 +598,7 @@ export function openFixOverlay() {
 }
 
 export function closeFixOverlay() {
+  fixSearchSeq++;
   const overlay = document.getElementById("modalFixOverlay");
   if (overlay) overlay.classList.add("u-hidden");
   const modalContent = document.querySelector("#modalOverlay .modal-content");
@@ -611,12 +610,14 @@ export function closeFixOverlay() {
 }
 
 async function triggerFixSearch(query) {
+  const seq = ++fixSearchSeq;
   const statusEl = document.getElementById("modalFixStatus");
   const resultsEl = document.getElementById("modalFixResultsList");
   const spinner = document.getElementById("modalFixSpinner");
 
   const q = (query || "").trim();
   if (!q) {
+    spinner.classList.add("u-hidden");
     resultsEl.innerHTML = "";
     statusEl.textContent = t("tmdb_fix_no_results");
     statusEl.classList.remove("u-hidden");
@@ -632,6 +633,7 @@ async function triggerFixSearch(query) {
 
   try {
     const results = await invoke("search_tmdb", { query: q, lang });
+    if (seq !== fixSearchSeq) return;
     spinner.classList.add("u-hidden");
 
     if (!results || results.length === 0) {
@@ -643,6 +645,7 @@ async function triggerFixSearch(query) {
     statusEl.classList.add("u-hidden");
     renderFixResults(results);
   } catch (e) {
+    if (seq !== fixSearchSeq) return;
     spinner.classList.add("u-hidden");
     const errStr = String(e);
     if (errStr.includes("TMDB API")) {
@@ -752,7 +755,7 @@ function renderFixResults(items) {
       } catch (err) {
         console.error("Hiba a TMDB egyezés mentésekor:", err);
         card.classList.remove("selecting");
-        alert(String(err));
+        await showAlert(t("alert_error_title"), String(err));
       }
     };
 

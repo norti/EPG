@@ -13,9 +13,11 @@ import { fetchEPG, renderEPG } from "./epg.js";
 import {
   loadChannelOrderSourcesDropdown,
   renderChannelOrderList,
+  invalidateChannelOrderCache,
 } from "./channels.js";
 
 export async function refreshSourcesFromDb() {
+  invalidateChannelOrderCache();
   state.sources = await invoke("get_sources");
   loadSourcesDropdown();
   loadChannelOrderSourcesDropdown();
@@ -51,6 +53,9 @@ async function saveSourceOrderFromDom() {
     if (badge) badge.textContent = i + 1;
   });
   await invoke("save_source_order", { order: newOrder });
+  if (state.currentSourceId === "__ALL_FAVORITES__") {
+    state.settingsEpgDirty = true;
+  }
 }
 
 export function loadSourcesDropdown() {
@@ -107,8 +112,8 @@ export function loadSourcesDropdown() {
                         </div>
                         <div class="source-header-actions">
                             <div class="source-reorder-btns">
-                                <button class="btn-order-arrow btn-up" title="Feljebb">${iconHtml("caret-up-filled", 13)}</button>
-                                <button class="btn-order-arrow btn-down" title="Lejjebb">${iconHtml("caret-down-filled", 13)}</button>
+                                <button class="btn-order-arrow btn-up" title="${escapeHtml(t("btn_move_up"))}">${iconHtml("caret-up-filled", 13)}</button>
+                                <button class="btn-order-arrow btn-down" title="${escapeHtml(t("btn_move_down"))}">${iconHtml("caret-down-filled", 13)}</button>
                             </div>
                             <div class="source-actions">
                                 <button class="btn btn-green btn-source-update"${isDownloading || isUpdatingAll ? " disabled" : ""}>${escapeHtml(isDownloading ? t("status_updating") : t("btn_update"))}</button>
@@ -262,9 +267,9 @@ export function loadSourcesDropdown() {
   }
 }
 
-export async function downloadSource(id) {
+export async function downloadSource(id, options = {}) {
   const src = state.sources.find((s) => s.id === id);
-  if (!src || state.downloadingSources.has(id)) return;
+  if (!src || state.downloadingSources.has(id)) return false;
 
   state.downloadingSources.add(id);
   loadSourcesDropdown();
@@ -279,11 +284,13 @@ export async function downloadSource(id) {
 
     document.getElementById("status").textContent = t("status_download_success");
     if (
-      id === state.currentSourceId ||
-      state.currentSourceId === "__ALL_FAVORITES__"
+      !options.skipFetch &&
+      (id === state.currentSourceId ||
+        state.currentSourceId === "__ALL_FAVORITES__")
     ) {
       await fetchEPG();
     }
+    return true;
   } catch (err) {
     state.downloadingSources.delete(id);
     await refreshSourcesFromDb();
@@ -293,6 +300,7 @@ export async function downloadSource(id) {
       t("status_download_error") + ": " + err,
     );
     document.getElementById("status").textContent = t("status_download_error");
+    return false;
   }
 }
 

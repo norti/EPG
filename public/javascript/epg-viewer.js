@@ -1,4 +1,4 @@
-import { state, invoke } from "./application/state.js";
+import { state, invoke, setFavoritesList } from "./application/state.js";
 import {
   t,
   setLanguage,
@@ -100,15 +100,6 @@ async function init() {
   initModal();
   initSettings();
 
-  addLanguageChangeListener(() => {
-    updateLayoutButtonUi();
-    updateGridCornerButton();
-    setupDateSelector();
-    renderEPG();
-    loadSourcesDropdown();
-    renderFavoritesList();
-  });
-
   try {
     state.settings = await invoke("get_settings");
   } catch (e) {
@@ -117,7 +108,19 @@ async function init() {
   }
 
   const initialLang = state.settings.language || "hungarian";
-  await setLanguage(initialLang);
+  await setLanguage(initialLang, {
+    persist: !state.settings.language,
+    notify: false,
+  });
+
+  addLanguageChangeListener(() => {
+    updateLayoutButtonUi();
+    updateGridCornerButton();
+    setupDateSelector();
+    renderEPG();
+    loadSourcesDropdown();
+    renderFavoritesList();
+  });
 
   await initTraktUI();
 
@@ -153,10 +156,10 @@ async function init() {
     state.sources = [];
   }
   try {
-    state.favorites = await invoke("get_favorites");
+    setFavoritesList(await invoke("get_favorites"));
   } catch (err) {
     console.error("Failed to load favorites during init:", err);
-    state.favorites = [];
+    setFavoritesList([]);
   }
 
   if (state.sources.length > 0) {

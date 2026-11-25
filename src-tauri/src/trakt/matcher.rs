@@ -106,14 +106,20 @@ impl TitleIndex {
                 let norm = normalise_for_match(&cleaned);
                 if !norm.is_empty() && seen_norms.insert(norm.clone()) {
                     let entry = index.entry(norm).or_default();
-                    if !entry.iter().any(|r| r.trakt_id == wl_ref.trakt_id) {
+                    if !entry
+                        .iter()
+                        .any(|r| r.trakt_id == wl_ref.trakt_id && r.media_type == wl_ref.media_type)
+                    {
                         entry.push(wl_ref.clone());
                     }
                 }
                 let raw_norm = normalise_for_match(&v);
                 if !raw_norm.is_empty() && seen_norms.insert(raw_norm.clone()) {
                     let entry = index.entry(raw_norm).or_default();
-                    if !entry.iter().any(|r| r.trakt_id == wl_ref.trakt_id) {
+                    if !entry
+                        .iter()
+                        .any(|r| r.trakt_id == wl_ref.trakt_id && r.media_type == wl_ref.media_type)
+                    {
                         entry.push(wl_ref.clone());
                     }
                 }
@@ -184,12 +190,13 @@ pub fn check_title_against_index(
         return false;
     };
 
-    // Check tmdb_cache for manual Fix overrides or 'none' negative markers
+    // Check tmdb_cache for manual Fix overrides or non-expired 'none' negative markers
     let tmdb_row: Option<(Option<i64>, Option<String>)> = conn
         .query_row(
             "SELECT tmdb_id, media_type FROM tmdb_cache
              WHERE query_title = ?1
-             ORDER BY CASE WHEN lang = 'hu-HU' THEN 0 ELSE 1 END
+               AND NOT (media_type = 'none' AND is_manual = 0 AND updated_at < datetime('now', 'localtime', '-7 days'))
+             ORDER BY is_manual DESC, CASE WHEN lang = 'hu-HU' THEN 0 ELSE 1 END, updated_at DESC
              LIMIT 1",
             params![clean],
             |r| Ok((r.get(0)?, r.get(1)?)),
@@ -313,23 +320,40 @@ mod tests {
         assert!(!check_title_against_index(&conn, &idx, "Dűne (1984)"));
         assert!(check_title_against_index(&conn, &idx, "Dűne (2021)"));
 
-        // User cleared match via Fix ('none') -> must NOT match
+        // Expired automatic negative ('none', is_manual=0) is ignored -> falls back to title match
         conn.execute(
-            "INSERT INTO tmdb_cache (query_title, lang, media_type, updated_at) VALUES ('Dűne', 'hu-HU', 'none', '2026-01-01')",
+            "INSERT INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at) VALUES ('Dűne', 'hu-HU', 'none', 0, '2020-01-01 00:00:00')",
+            [],
+        ).unwrap();
+        assert!(check_title_against_index(&conn, &idx, "Dűne"));
+
+        // User cleared match via Fix ('none', is_manual=1) -> must NOT match regardless of age
+        conn.execute(
+            "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at) VALUES ('Dűne', 'hu-HU', 'none', 1, '2020-01-01 00:00:00')",
             [],
         ).unwrap();
         assert!(!check_title_against_index(&conn, &idx, "Dűne"));
 
         // User fixed match to a different tmdb_id -> must NOT match
         conn.execute(
-            "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, tmdb_id, media_type, updated_at) VALUES ('Dűne', 'hu-HU', 841, 'movie', '2026-01-01')",
+            "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, tmdb_id, media_type, is_manual, updated_at) VALUES ('Dűne', 'hu-HU', 841, 'movie', 1, '2026-01-01')",
             [],
         ).unwrap();
         assert!(!check_title_against_index(&conn, &idx, "Dűne"));
 
         // User fixed match to the matching tmdb_id -> strong match
         conn.execute(
-            "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, tmdb_id, media_type, updated_at) VALUES ('Dűne', 'hu-HU', 438631, 'movie', '2026-01-01')",
+            "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, tmdb_id, media_type, is_manual, updated_at) VALUES ('Dűne', 'hu-HU', 438631, 'movie', 1, '2026-01-01')",
+            [],
+        ).unwrap();
+        assert!(check_title_against_index(&conn, &idx, "Dűne"));
+
+        // Manual en-US fix takes precedence over automatic hu-HU wrong match
+        conn.execute("DELETE FROM tmdb_cache WHERE query_title = 'Dűne'", []).unwrap();
+        conn.execute(
+            "INSERT INTO tmdb_cache (query_title, lang, tmdb_id, media_type, is_manual, updated_at) VALUES
+             ('Dűne', 'hu-HU', 841, 'movie', 0, '2026-11-25 10:00:00'),
+             ('Dűne', 'en-US', 438631, 'movie', 1, '2026-11-25 09:00:00')",
             [],
         ).unwrap();
         assert!(check_title_against_index(&conn, &idx, "Dűne"));
