@@ -764,7 +764,7 @@
 
     const seq = ++modalAttachSeq;
     if (typeof window.setModalContext === 'function') {
-      window.setModalContext(item.title, null);
+      window.setModalContext(item.title, null, item.overview || '');
     }
 
     document.getElementById('modalTitle').textContent = item.title;

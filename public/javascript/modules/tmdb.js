@@ -518,12 +518,28 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
 function openFixOverlay() {
   if (!currentModalTitle) return;
   const overlay = document.getElementById("modalFixOverlay");
+  const programContext = document.getElementById("modalFixProgramContext");
+  const programTitleEl = document.getElementById("modalFixProgramTitle");
+  const programDescEl = document.getElementById("modalFixProgramDesc");
   const searchInput = document.getElementById("modalFixSearchInput");
   const clearBtn = document.getElementById("modalFixClearBtn");
   const statusEl = document.getElementById("modalFixStatus");
   const resultsEl = document.getElementById("modalFixResultsList");
   const modalContent = document.querySelector("#modalOverlay .modal-content");
   if (modalContent) modalContent.classList.add("has-fix-open");
+
+  if (programContext && programTitleEl && programDescEl) {
+    programTitleEl.textContent = currentModalTitle;
+    const rawDesc = (currentModalDesc || "").trim();
+    if (rawDesc) {
+      programDescEl.textContent = rawDesc;
+      programDescEl.classList.remove("is-empty");
+    } else {
+      programDescEl.textContent = t("modal_no_desc");
+      programDescEl.classList.add("is-empty");
+    }
+    programContext.style.display = "block";
+  }
 
   overlay.style.display = "flex";
   searchInput.value = currentModalTitle;

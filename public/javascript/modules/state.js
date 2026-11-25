@@ -8,6 +8,7 @@ let currentMinuteHeight = 2;
 let currentLayout = "vertical"; // "vertical" | "horizontal"
 let activeSingleChannelId = null;
 let currentModalTitle = "";
+let currentModalDesc = "";
 let searchTimeout = null;
 
 let sources = [];

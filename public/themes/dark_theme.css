@@ -1501,6 +1501,32 @@ input[type="text"] {
 .fix-overlay-close:hover {
   color: var(--accent-red);
 }
+.fix-program-context {
+  background: var(--bg-fix-card);
+  border: 1px solid var(--border-fix-header);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+.fix-program-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+.fix-program-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  max-height: 76px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.fix-program-desc.is-empty {
+  color: var(--text-disabled);
+  font-style: italic;
+}
 .fix-overlay-search-bar {
   display: flex;
   gap: 8px;
@@ -1595,6 +1621,7 @@ input[type="text"] {
 }
 .fix-results-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

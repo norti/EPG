@@ -17,6 +17,8 @@ function makeMockElement(id) {
     onclick: null,
     oninput: null,
     onkeydown: null,
+    focus: () => {},
+    select: () => {},
     children,
     classList: {
       add: (...cls) => cls.forEach((c) => classes.add(c)),
@@ -44,6 +46,7 @@ function loadTmdbModule(initialLang = "hungarian") {
   const sandbox = {
     currentLang: initialLang,
     currentModalTitle: "MacGyver",
+    currentModalDesc: "",
     currentSourceId: "src1",
     sources: [{ id: "src1", countryCode: "AT" }],
     window: {},
@@ -60,6 +63,7 @@ function loadTmdbModule(initialLang = "hungarian") {
         badge_orig: "Eredeti:",
         media_type_tv: "Sorozat",
         media_type_movie: "Film",
+        modal_no_desc: "Nincs leírás",
       })[key] || key,
     iconHtml: (name) => `<svg data-icon="${name}"></svg>`,
     escapeHtml: (s) => String(s),
@@ -228,10 +232,32 @@ function testEnglishAppLanguage() {
   assert.strictEqual(getEl("modalEnTitleBadge").classList.contains("active"), true);
 }
 
+function testFixOverlayShowsOriginalProgramContext() {
+  const { sandbox, getEl } = loadTmdbModule("hungarian");
+  sandbox.currentModalTitle = "MacGyver";
+  sandbox.currentModalDesc = "Angus MacGyver zseniális trükkökkel old meg veszélyes küldetéseket.";
+
+  sandbox.openFixOverlay();
+  assert.strictEqual(getEl("modalFixProgramContext").style.display, "block");
+  assert.strictEqual(getEl("modalFixProgramTitle").textContent, "MacGyver");
+  assert.strictEqual(
+    getEl("modalFixProgramDesc").textContent,
+    "Angus MacGyver zseniális trükkökkel old meg veszélyes küldetéseket.",
+  );
+  assert.strictEqual(getEl("modalFixProgramDesc").classList.contains("is-empty"), false);
+
+  // Empty description falls back to localized modal_no_desc with muted style
+  sandbox.currentModalDesc = "   ";
+  sandbox.openFixOverlay();
+  assert.strictEqual(getEl("modalFixProgramDesc").textContent, "Nincs leírás");
+  assert.strictEqual(getEl("modalFixProgramDesc").classList.contains("is-empty"), true);
+}
+
 (async () => {
   testMacGyverHungarianApp();
   await testSameTitleDifferentOriginalLangSwitch();
   testMissingHuTitleAndMissingOriginalTitle();
   testEnglishAppLanguage();
+  testFixOverlayShowsOriginalProgramContext();
   console.log("All TMDB title variant tests passed!");
 })();

@@ -1,11 +1,13 @@
-window.setModalContext = function (title, channel) {
+window.setModalContext = function (title, channel, desc) {
   currentModalTitle = title || "";
+  currentModalDesc = desc || "";
   currentModalChannel = channel || null;
   currentModalFetchIndex++;
 };
 
 async function openModal(title, time, desc, channel) {
   currentModalTitle = title;
+  currentModalDesc = desc || "";
   currentModalChannel = channel;
   currentModalFetchIndex++;
   const fetchIndex = currentModalFetchIndex;

@@ -5,11 +5,7 @@ on:
       - 'v*'
 
 jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
-
   publish-tauri:
-    needs: ci
     permissions:
       contents: write
     runs-on: windows-2025
