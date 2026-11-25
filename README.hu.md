@@ -4,22 +4,32 @@
 
 Fejlesztés alatt... Az első verzió megjelent.
 
+Ez egy EPG XML fájlokat megjelenítő alkalmazás. Képes .xml vagy .gz EPG fájlokból (URL forrás) TV-műsorújságokat megjeleníteni.
+A csatornákhoz automatikusan hozzárendeltethetsz csatorna logókat.
+A műsorokhoz és filmekhez TMDB információkat kérhetsz le (API kulcsra szükség van).
+Összekapcsolhatod a Trakt-fiókoddal, megjelenítheted a Watchlistedet és a naptárat, műsorokat/filmeket adhatsz a Watchlisthez, és megkeresheted őket az EPG-ben.
+
+Ez **NEM** lejátszó/stream alkalmazás, csak egy funkciókban gazdag műsorújság-megjelenítő.
+
 ## Letöltés (Windows x64)
 
 - **[Legfrissebb telepítő letöltése (Windows x64)](https://epg.norti.workers.dev/download/latest)** _(Cloudflare R2)_
 - **[Változásnapló](CHANGELOG.md)** · **[Kiadások](https://github.com/norti/epg-viewer/releases)**
 
-![](screenshots/epg-viewer_2K4EUzkr3W.jpg)
-![](screenshots/epg-viewer_wd86r74dtW.png)
-![](screenshots/epg-viewer_lv7GYArIR7.png)
-![](screenshots/epg-viewer_AM7OeTs7pV.png)
-![](screenshots/epg-viewer_aRbb7MgOHG.jpg)
-![](screenshots/epg-viewer_2zqIIhA2Rg.png)
-![](screenshots/epg-viewer_RkfkeZebIt.png)
-![](screenshots/epg-viewer_GfA6rV37NA.jpg)
-![](screenshots/epg-viewer_SYS03etyhi.png)
-![](screenshots/epg-viewer_cJ2FD8os5p.png)
-![](screenshots/epg-viewer_aGvuNqjEVF.png)
+![](screenshots/epg-viewer_01.png)
+![](screenshots/epg-viewer_02.png)
+![](screenshots/epg-viewer_03.png)
+![](screenshots/epg-viewer_04.png)
+![](screenshots/epg-viewer_05.png)
+![](screenshots/epg-viewer_06.png)
+![](screenshots/epg-viewer_07.png)
+![](screenshots/epg-viewer_08.png)
+![](screenshots/epg-viewer_09.png)
+![](screenshots/epg-viewer_10.png)
+![](screenshots/epg-viewer_11.jpg)
+![](screenshots/epg-viewer_12.png)
+![](screenshots/epg-viewer_13.png)
+![](screenshots/epg-viewer_14.png)
 
 ---
 

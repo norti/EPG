@@ -4,22 +4,32 @@
 
 Under development... Initial version released.
 
+This is an EPG XML file viewer application. It can display TV guides from .xml or .gz EPG file sources (URL).
+You can assign TV channel logos to the channels automatically.
+You can get TMDB information for shows and movies (needs API key).
+You can connect your trakt account and display your watchlist and calendar, add shows/movies to watchlist and search them in the EPG.
+
+This is NOT a player/stream application, only a rich guide viewer.
+
 ## Download (Windows x64)
 
 - **[Download latest installer (Windows x64)](https://epg.norti.workers.dev/download/latest)** _(Cloudflare R2)_
 - **[Changelog](CHANGELOG.md)** · **[Releases](https://github.com/norti/epg-viewer/releases)**
 
-![](screenshots/epg-viewer_2K4EUzkr3W.jpg)
-![](screenshots/epg-viewer_wd86r74dtW.png)
-![](screenshots/epg-viewer_lv7GYArIR7.png)
-![](screenshots/epg-viewer_AM7OeTs7pV.png)
-![](screenshots/epg-viewer_aRbb7MgOHG.jpg)
-![](screenshots/epg-viewer_2zqIIhA2Rg.png)
-![](screenshots/epg-viewer_RkfkeZebIt.png)
-![](screenshots/epg-viewer_GfA6rV37NA.jpg)
-![](screenshots/epg-viewer_SYS03etyhi.png)
-![](screenshots/epg-viewer_cJ2FD8os5p.png)
-![](screenshots/epg-viewer_aGvuNqjEVF.png)
+![](screenshots/epg-viewer_01.png)
+![](screenshots/epg-viewer_02.png)
+![](screenshots/epg-viewer_03.png)
+![](screenshots/epg-viewer_04.png)
+![](screenshots/epg-viewer_05.png)
+![](screenshots/epg-viewer_06.png)
+![](screenshots/epg-viewer_07.png)
+![](screenshots/epg-viewer_08.png)
+![](screenshots/epg-viewer_09.png)
+![](screenshots/epg-viewer_10.png)
+![](screenshots/epg-viewer_11.jpg)
+![](screenshots/epg-viewer_12.png)
+![](screenshots/epg-viewer_13.png)
+![](screenshots/epg-viewer_14.png)
 
 ---
 
