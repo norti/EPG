@@ -8,6 +8,9 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost"
+    },
     "windows": [
       {
         "title": "EPG/XML TV műsor megjelenítő",

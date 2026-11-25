@@ -31,7 +31,7 @@ impl SecretStore for DpapiStore {
         };
 
         let mut entropy_buf = APP_ENTROPY.to_vec();
-        let mut entropy_blob = CRYPT_INTEGER_BLOB {
+        let entropy_blob = CRYPT_INTEGER_BLOB {
             cbData: entropy_buf.len() as u32,
             pbData: entropy_buf.as_mut_ptr(),
         };
@@ -45,7 +45,7 @@ impl SecretStore for DpapiStore {
             CryptProtectData(
                 &in_blob,
                 ptr::null(),
-                &mut entropy_blob,
+                &entropy_blob,
                 ptr::null_mut(),
                 ptr::null_mut(),
                 CRYPTPROTECT_UI_FORBIDDEN,
@@ -86,7 +86,7 @@ impl SecretStore for DpapiStore {
         };
 
         let mut entropy_buf = APP_ENTROPY.to_vec();
-        let mut entropy_blob = CRYPT_INTEGER_BLOB {
+        let entropy_blob = CRYPT_INTEGER_BLOB {
             cbData: entropy_buf.len() as u32,
             pbData: entropy_buf.as_mut_ptr(),
         };
@@ -100,7 +100,7 @@ impl SecretStore for DpapiStore {
             CryptUnprotectData(
                 &in_blob,
                 ptr::null_mut(),
-                &mut entropy_blob,
+                &entropy_blob,
                 ptr::null_mut(),
                 ptr::null_mut(),
                 CRYPTPROTECT_UI_FORBIDDEN,

@@ -5,7 +5,7 @@
 use crate::trakt::tests::{make_test_state, spawn_mock_server};
 use crate::{
     refresh_stale_tmdb, clean_title, clear_automatic_tmdb_cache, get_tmdb_by_id, get_tmdb_by_id_inner,
-    get_tmdb_details_inner, store_manual_none, AppState, TmdbRuntime,
+    get_tmdb_details_inner, search_tmdb_inner, store_manual_none, AppState, TmdbRuntime,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -499,4 +499,33 @@ async fn test_stale_refresh_touches_only_old_automatic_id_rows_and_respects_the_
     let touched: Vec<String> = log.lock().unwrap().iter().cloned().collect();
     assert!(touched.iter().all(|p| ["/tv/1", "/tv/2", "/tv/3"].iter().any(|x| p.starts_with(x))), "{:?}", touched);
     assert_eq!(scalar(&state, "SELECT COUNT(*) FROM tmdb_cache WHERE title = 'Old'").await, 3, "manual, mapping and fresh rows untouched");
+}
+
+#[tokio::test]
+async fn test_search_tmdb_retries_429_and_propagates_fallback_errors() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let c = calls.clone();
+    let base = spawn_mock_server(move |_method, path, _body| {
+        let n = c.fetch_add(1, Ordering::SeqCst);
+        if path.contains("language=hu-HU") {
+            if n == 0 {
+                // First request hits 429 -> must be retried via tmdb_get_text
+                return (429, vec![("Retry-After".to_string(), "0".to_string())], "{}".to_string());
+            }
+            // Retry succeeds with empty list -> triggers en-US fallback
+            return (200, vec![], search_body(&[]));
+        }
+        if path.contains("language=en-US") {
+            // Fallback hits 503 repeatedly -> must propagate Err instead of returning empty Ok
+            return (503, vec![], "{}".to_string());
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+    let state = tmdb_state(base).await;
+
+    let res = search_tmdb_inner(&state, "Fargo".to_string(), Some("hu-HU".to_string())).await;
+    assert!(res.is_err(), "fallback 5xx error must propagate");
+    // 2 calls for hu-HU (429 + retry 200 empty) + 2 calls for en-US (503 + 1 retry 503) = 4
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
 }

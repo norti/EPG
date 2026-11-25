@@ -593,7 +593,15 @@ async fn test_run_sync_populates_continue_watching_and_respects_hidden() {
     crate::trakt::sync::run_sync(&state, None, true).await.unwrap();
 
     let conn = state.db.lock().await;
-    let (next_id, next_s, next_e, next_title, next_fa, hidden): (Option<i64>, Option<i64>, Option<i64>, Option<String>, Option<String>, i64) = conn
+    type ProgressRow = (
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        i64,
+    );
+    let (next_id, next_s, next_e, next_title, next_fa, hidden): ProgressRow = conn
         .query_row(
             "SELECT next_episode_trakt_id, next_season, next_episode, next_episode_title, next_episode_first_aired, hidden_from_progress
              FROM trakt_show_progress WHERE show_trakt_id = 101",

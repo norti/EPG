@@ -412,7 +412,7 @@ fn migrate_v4(conn: &Connection) -> rusqlite::Result<()> {
 /// v5 is purely additive (older binaries keep working on a v5 database):
 ///  * `trakt_http_cache.page_count`  - keeps pagination info for cached/304 answers
 ///  * `tmdb_cache.is_manual`         - separates the user's manual matches / "not this title" markers
-///                                     from automatic cache rows (only automatic negatives may expire)
+///    from automatic cache rows (only automatic negatives may expire)
 ///  * `tmdb_cache.hu_overview/en_overview` - both language overviews in one row (used by the TMDB merge phase)
 ///  * `trakt_show_fp`                - per-show watched fingerprints (used by the progress-refresh phase)
 fn migrate_v5(conn: &Connection) -> rusqlite::Result<()> {

@@ -42,7 +42,12 @@ async fn remaining(state: &AppState) -> i64 {
         .unwrap()
 }
 
-fn recording_server(reject_batches: bool, reject_item: Option<i64>) -> (Posts, impl Fn(String, String, String) -> (u16, Vec<(String, String)>, String) + Send + Sync + 'static) {
+type MockResponse = (u16, Vec<(String, String)>, String);
+
+fn recording_server(
+    reject_batches: bool,
+    reject_item: Option<i64>,
+) -> (Posts, impl Fn(String, String, String) -> MockResponse + Send + Sync + 'static) {
     let posts: Posts = Arc::new(StdMutex::new(Vec::new()));
     let p = posts.clone();
     let handler = move |method: String, path: String, body: String| {
@@ -79,11 +84,12 @@ async fn test_ten_pending_history_adds_are_one_post() {
 
     let flushed = flush_pending_actions(&state, None).await.unwrap();
     assert_eq!(flushed, 10);
-    let posts = posts.lock().unwrap();
-    assert_eq!(posts.len(), 1, "10 queued adds must be a single request");
-    let body: serde_json::Value = serde_json::from_str(&posts[0].1).unwrap();
-    assert_eq!(body["episodes"].as_array().unwrap().len(), 10);
-    drop(posts);
+    {
+        let posts = posts.lock().unwrap();
+        assert_eq!(posts.len(), 1, "10 queued adds must be a single request");
+        let body: serde_json::Value = serde_json::from_str(&posts[0].1).unwrap();
+        assert_eq!(body["episodes"].as_array().unwrap().len(), 10);
+    }
     assert_eq!(remaining(&state).await, 0);
 }
 

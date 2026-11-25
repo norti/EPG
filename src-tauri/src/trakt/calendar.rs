@@ -331,10 +331,8 @@ pub fn query_global_calendar_merged(conn: &Connection) -> Result<Vec<CalendarEpi
         .map_err(|e| e.to_string())?;
 
     let mut items = Vec::new();
-    for row in rows {
-        if let Ok(item) = row {
-            items.push(item);
-        }
+    for item in rows.flatten() {
+        items.push(item);
     }
     Ok(items)
 }
@@ -400,10 +398,8 @@ pub fn query_calendar_episodes(
         .map_err(|e| e.to_string())?;
 
     let mut items = Vec::new();
-    for row in rows {
-        if let Ok(item) = row {
-            items.push(item);
-        }
+    for item in rows.flatten() {
+        items.push(item);
     }
     Ok(items)
 }

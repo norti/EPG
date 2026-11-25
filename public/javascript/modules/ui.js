@@ -1,0 +1,557 @@
+function iconHtml(name, size = 16) {
+  return window.Icons ? window.Icons.get(name, { size }) : "";
+}
+
+// ============================================================================
+// Fuzzy Search & Diacritics Normalization Utilities (delegated to SearchUtils)
+// ============================================================================
+
+function normalizeSearchText(str) {
+  return window.SearchUtils ? window.SearchUtils.normalizeText(str) : String(str || "").toLowerCase().trim();
+}
+
+function levenshteinDistance(a, b) {
+  return window.SearchUtils ? window.SearchUtils.damerauLevenshtein(a, b) : 0;
+}
+
+function fuzzySearchMatch(target, query, options) {
+  if (window.SearchUtils) {
+    return window.SearchUtils.fuzzyMatch(target, query, options);
+  }
+  if (!query) return true;
+  if (!target) return false;
+  return normalizeSearchText(target).includes(normalizeSearchText(query));
+}
+
+function showDialog({ title, message, isConfirm = false }) {
+  return new Promise((resolve) => {
+    const titleEl = document.getElementById("customConfirmTitle");
+    const msgEl = document.getElementById("customConfirmMessage");
+    const overlay = document.getElementById("customConfirmOverlay");
+    const okBtn = document.getElementById("customConfirmOkBtn");
+    const cancelBtn = document.getElementById("customConfirmCancelBtn");
+    const closeBtn = document.getElementById("customConfirmClose");
+
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = message;
+
+    if (isConfirm) {
+      if (cancelBtn) {
+        cancelBtn.style.display = "inline-block";
+        cancelBtn.textContent = t("btn_cancel");
+      }
+    } else {
+      if (cancelBtn) cancelBtn.style.display = "none";
+    }
+    if (okBtn) okBtn.textContent = t("btn_ok");
+
+    const cleanup = (result) => {
+      if (overlay) overlay.classList.remove("active");
+      if (okBtn) okBtn.onclick = null;
+      if (cancelBtn) cancelBtn.onclick = null;
+      if (closeBtn) closeBtn.onclick = null;
+      resolve(result);
+    };
+
+    if (okBtn) okBtn.onclick = () => cleanup(true);
+    if (cancelBtn) cancelBtn.onclick = () => cleanup(false);
+    if (closeBtn) closeBtn.onclick = () => cleanup(false);
+
+    if (overlay) overlay.classList.add("active");
+  });
+}
+
+function showConfirm(title, message) {
+  return showDialog({ title, message, isConfirm: true });
+}
+
+function showAlert(title, message) {
+  return showDialog({ title, message, isConfirm: false }).then(() => {});
+}
+
+function showPrompt(title, message, defaultValue = "") {
+  return new Promise((resolve) => {
+    document.getElementById("customPromptTitle").textContent = title;
+    document.getElementById("customPromptMessage").textContent = message;
+    const overlay = document.getElementById("customPromptOverlay");
+    const input = document.getElementById("customPromptInput");
+    const okBtn = document.getElementById("customPromptOkBtn");
+    const cancelBtn = document.getElementById("customPromptCancelBtn");
+    const closeBtn = document.getElementById("customPromptClose");
+
+    input.value = defaultValue;
+    okBtn.textContent = t("btn_ok");
+    cancelBtn.textContent = t("btn_cancel");
+
+    const cleanup = (val) => {
+      overlay.classList.remove("active");
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      closeBtn.onclick = null;
+      input.onkeydown = null;
+      resolve(val);
+    };
+
+    okBtn.onclick = () => cleanup(input.value.trim());
+    cancelBtn.onclick = () => cleanup(null);
+    closeBtn.onclick = () => cleanup(null);
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") cleanup(input.value.trim());
+      if (e.key === "Escape") cleanup(null);
+    };
+
+    overlay.classList.add("active");
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 60);
+  });
+}
+
+async function openLogoSearchModal(channelName, countryCode = "HU") {
+  const modal = document.getElementById("logoSearchModal");
+  const closeBtn = document.getElementById("logoSearchClose");
+  const input = document.getElementById("logoSearchInput");
+  const countrySelect = document.getElementById("logoSearchCountrySelect");
+  const execBtn = document.getElementById("logoSearchExecBtn");
+  const statusEl = document.getElementById("logoSearchStatus");
+  const gridEl = document.getElementById("logoSearchResultsGrid");
+
+  modal.style.display = "flex";
+  modal.classList.add("active");
+
+  let initialQuery = channelName || "";
+  try {
+    const [cleaned] = await invoke("clean_and_slugify_channel", { name: initialQuery });
+    if (cleaned) initialQuery = cleaned;
+  } catch (_) {
+    // fallback: use raw name
+  }
+
+  input.value = initialQuery;
+  if (window.Countries) {
+    window.Countries.populateSelect(countrySelect, {
+      format: "search",
+      selected: countryCode || "HU",
+    });
+  }
+
+  return new Promise((resolve) => {
+    const doSearch = async () => {
+      const q = input.value.trim();
+      const c = countrySelect.value;
+      if (!q) return;
+
+      statusEl.style.display = "block";
+      statusEl.textContent = t("logo_search_searching");
+      gridEl.innerHTML = "";
+      execBtn.disabled = true;
+
+      try {
+        const results = await invoke("search_channel_logos", {
+          query: q,
+          countryCode: c,
+        });
+
+        statusEl.style.display = "none";
+        execBtn.disabled = false;
+
+        if (!results || results.length === 0) {
+          statusEl.style.display = "block";
+          statusEl.textContent = t("logo_search_no_results");
+          return;
+        }
+
+        results.forEach((item) => {
+          const card = document.createElement("div");
+          card.className = "logo-card";
+
+          let badgeClass = "badge-tv-logo";
+          if (item.sourceName === "iptv-org") badgeClass = "badge-iptv-org";
+          else if (item.sourceName.includes("Wikimedia"))
+            badgeClass = "badge-wikimedia";
+
+          card.innerHTML = `
+            <div class="logo-card-img-wrap"></div>
+            <div class="logo-card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
+            <div class="logo-card-meta">
+              <span class="logo-source-badge ${badgeClass}">${escapeHtml(item.sourceName)}</span>
+              <span class="logo-format-badge">${escapeHtml(item.format)}</span>
+            </div>
+          `;
+
+          const imgWrap = card.querySelector(".logo-card-img-wrap");
+          appendSafeImage(imgWrap, item.thumbUrl || item.url, {
+            onErrorMode: "errSpan",
+          });
+
+          card.onclick = () => {
+            closeModal(item.url);
+          };
+
+          gridEl.appendChild(card);
+        });
+      } catch (err) {
+        statusEl.style.display = "block";
+        statusEl.textContent = t("logo_search_error") + " " + err;
+        execBtn.disabled = false;
+      }
+    };
+
+    const onBackdropClick = (e) => {
+      if (e.target === modal) {
+        e.stopPropagation();
+        closeModal(null);
+      }
+    };
+    modal.addEventListener("click", onBackdropClick);
+
+    const closeModal = (url) => {
+      modal.removeEventListener("click", onBackdropClick);
+      modal.style.display = "none";
+      modal.classList.remove("active");
+      closeBtn.onclick = null;
+      execBtn.onclick = null;
+      input.onkeydown = null;
+      resolve(url);
+    };
+
+    closeBtn.onclick = () => closeModal(null);
+    execBtn.onclick = doSearch;
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") doSearch();
+    };
+
+    doSearch();
+  });
+}
+
+function openChannelEditModal(channel) {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("channelEditModalOverlay");
+    const titleEl = document.getElementById("channelEditModalTitle");
+    const origTitleEl = document.getElementById("channelEditOrigTitle");
+    const nameInput = document.getElementById("channelEditNameInput");
+    const logoInput = document.getElementById("channelEditLogoInput");
+    const previewEl = document.getElementById("channelEditLogoPreview");
+    const closeBtn = document.getElementById("channelEditCloseBtn");
+    const cancelBtn = document.getElementById("channelEditCancelBtn");
+    const saveBtn = document.getElementById("channelEditSaveBtn");
+    const resetBtn = document.getElementById("channelEditResetBtn");
+    const searchBtn = document.getElementById("channelEditLogoSearchBtn");
+
+    const origName = channel.originalName || channel.name;
+    origTitleEl.textContent = `${t("original_channel_name")}: ${origName} (ID: ${channel.id})`;
+
+    nameInput.value = channel.customName || "";
+    logoInput.value = channel.customIcon || "";
+
+    const updatePreview = () => {
+      const url = logoInput.value.trim();
+      const fallbackLogo = channel.cachedIcon || channel.icon || "";
+      const displayUrl = url || fallbackLogo;
+      previewEl.innerHTML = "";
+      if (displayUrl) {
+        appendSafeImage(previewEl, displayUrl, { onErrorMode: "errSpan" });
+      } else {
+        const tvSvg = window.Icons
+          ? window.Icons.get("device-tv", { size: 24 })
+          : "TV";
+        previewEl.innerHTML = `<span class="logo-preview-placeholder">${tvSvg}</span>`;
+      }
+    };
+
+    updatePreview();
+    logoInput.oninput = updatePreview;
+
+    if (searchBtn) {
+      searchBtn.onclick = async (e) => {
+        if (e) e.stopPropagation();
+        const queryName =
+          nameInput.value.trim() ||
+          channel.customName ||
+          channel.originalName ||
+          channel.name;
+        const actualSourceId = channel.sourceId || currentSourceId;
+        const srcObj = sources.find((s) => s.id === actualSourceId);
+        const country =
+          channel.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
+        const selectedUrl = await openLogoSearchModal(queryName, country);
+        if (selectedUrl) {
+          logoInput.value = selectedUrl;
+          updatePreview();
+        }
+      };
+    }
+
+    const cleanup = (result) => {
+      overlay.classList.remove("active");
+      closeBtn.onclick = null;
+      cancelBtn.onclick = null;
+      saveBtn.onclick = null;
+      resetBtn.onclick = null;
+      if (searchBtn) searchBtn.onclick = null;
+      logoInput.oninput = null;
+      resolve(result);
+    };
+
+    closeBtn.onclick = () => cleanup(null);
+    cancelBtn.onclick = () => cleanup(null);
+
+    saveBtn.onclick = () => {
+      cleanup({
+        action: "save",
+        name: nameInput.value.trim(),
+        logo: logoInput.value.trim(),
+      });
+    };
+
+    resetBtn.onclick = () => {
+      cleanup({
+        action: "reset",
+        name: "",
+      });
+    };
+
+    overlay.classList.add("active");
+    setTimeout(() => {
+      nameInput.focus();
+      nameInput.select();
+    }, 60);
+  });
+}
+
+// Register EPG re-render on language change
+addLanguageChangeListener(() => {
+  setupDateSelector();
+  renderEPG();
+  loadSourcesDropdown();
+  renderFavoritesList();
+});
+
+function updateGridCornerButton() {
+  const btn = document.getElementById("gridHomeBtn");
+  if (!btn) return;
+
+  const iconEl = btn.querySelector(".grid-home-icon");
+  const labelEl = btn.querySelector(".grid-home-label");
+
+  if (activeSingleChannelId) {
+    btn.classList.add("back-mode");
+    btn.title = t("grid_back_btn_title");
+    if (iconEl) {
+      iconEl.setAttribute("data-icon", "arrow-left");
+      iconEl.innerHTML = iconHtml("arrow-left", 18);
+    }
+    if (labelEl) {
+      if (currentLayout === "horizontal") {
+        labelEl.textContent = t("grid_back_btn_label");
+        labelEl.style.display = "inline";
+      } else {
+        labelEl.textContent = "";
+        labelEl.style.display = "none";
+      }
+    }
+  } else {
+    btn.classList.remove("back-mode");
+    btn.title = t("grid_home_btn_title");
+    if (iconEl) {
+      iconEl.setAttribute("data-icon", "home");
+      iconEl.innerHTML = iconHtml("home", 18);
+    }
+    if (labelEl) {
+      if (currentLayout === "horizontal") {
+        labelEl.textContent = t("grid_home_btn_label");
+        labelEl.style.display = "inline";
+      } else {
+        labelEl.textContent = "";
+        labelEl.style.display = "none";
+      }
+    }
+  }
+}
+
+function formatDayHeader(dateStr) {
+  const date = new Date(dateStr + "T00:00:00");
+  const months = t("months");
+  const days = t("days");
+  const y = date.getFullYear();
+  const m = months[date.getMonth()];
+  const d = date.getDate();
+  const dayName = days[date.getDay()];
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  const isToday = Math.round((target - today) / (1000 * 60 * 60 * 24)) === 0;
+
+  const fullDateStr =
+    currentLang === "english" ? `${m} ${d}, ${y}` : `${y}. ${m} ${d}.`;
+
+  let dayLabel = dayName;
+  if (isToday) {
+    dayLabel = `${dayName} (${t("day_today")})`;
+  }
+
+  return { fullDateStr, dayLabel, isToday };
+}
+
+function updateAllFavBtnState() {
+  const btn = document.getElementById("allFavChannelsBtn");
+  if (btn) {
+    const iconEl = document.getElementById("allFavChannelsIcon");
+    if (currentSourceId === "__ALL_FAVORITES__") {
+      btn.classList.add("active");
+      if (iconEl) {
+        iconEl.setAttribute("data-icon", "star-filled");
+        iconEl.innerHTML = iconHtml("star-filled", 15);
+      }
+    } else {
+      btn.classList.remove("active");
+      if (iconEl) {
+        iconEl.setAttribute("data-icon", "star");
+        iconEl.innerHTML = iconHtml("star", 15);
+      }
+    }
+  }
+}
+
+function updateLayoutButtonUi() {
+  const btn = document.getElementById("layoutToggleBtn");
+  const icon = document.getElementById("layoutToggleIcon");
+  const label = document.getElementById("layoutToggleLabel");
+  if (!btn) return;
+
+  if (currentLayout === "horizontal") {
+    btn.classList.add("horizontal-active");
+    if (icon) {
+      icon.setAttribute("data-icon", "layout-columns");
+      icon.innerHTML = iconHtml("layout-columns", 16);
+    }
+    if (label) {
+      label.textContent = t("btn_layout_vertical");
+    }
+    btn.title = t("title_layout_toggle_vert");
+  } else {
+    btn.classList.remove("horizontal-active");
+    if (icon) {
+      icon.setAttribute("data-icon", "layout-rows");
+      icon.innerHTML = iconHtml("layout-rows", 16);
+    }
+    if (label) {
+      label.textContent = t("btn_layout_horizontal");
+    }
+    btn.title = t("title_layout_toggle");
+  }
+  updateGridCornerButton();
+}
+
+function renderEmptySourcesState() {
+  const activeBadge = document.getElementById("activeChannelBadge");
+  if (activeBadge) activeBadge.style.display = "none";
+  const container = document.getElementById("channelsContainer");
+  container.innerHTML = `
+                <div class="empty-grid-notice">
+                    <h2>${t("empty_sources_title")}</h2>
+                    <p>${t("empty_sources_desc", { btn: t("settings_btn") })}</p>
+                    <button id="emptySourcesOpenSettingsBtn" class="btn btn-green" style="padding: 10px 20px; font-size: 14px;">${t("empty_sources_btn")}</button>
+                </div>
+            `;
+  const openBtn = document.getElementById("emptySourcesOpenSettingsBtn");
+  if (openBtn) {
+    openBtn.onclick = () => document.getElementById("settingsBtn")?.click();
+  }
+  document.getElementById("timeColumn").innerHTML = "";
+  document.getElementById("dateSelect").innerHTML = "";
+}
+
+function renderEmptyFavoritesState() {
+  const activeBadge = document.getElementById("activeChannelBadge");
+  if (activeBadge) activeBadge.style.display = "none";
+  document.getElementById("channelsContainer").innerHTML = `
+                <div class="empty-grid-notice">
+                    <h2>${t("no_favorite_channels_title")}</h2>
+                    <p>${t("no_favorite_channels_desc")}</p>
+                </div>
+            `;
+  document.getElementById("timeColumn").innerHTML = "";
+  document.getElementById("dateSelect").innerHTML = "";
+}
+
+function escapeHtml(text) {
+  if (text === null || text === undefined) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function isSafeImageSrc(url) {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith("http://") ||
+    lower.startsWith("https://") ||
+    lower.startsWith("data:image/") ||
+    lower.startsWith("blob:")
+  ) {
+    return true;
+  }
+  // Allow relative paths without a URI scheme
+  return !/^[a-z][a-z0-9+.-]*:/i.test(trimmed);
+}
+
+function appendSafeImage(container, src, options = {}) {
+  if (!container || !isSafeImageSrc(src)) return null;
+  const img = document.createElement("img");
+  if (options.className) img.className = options.className;
+  img.alt = "";
+  img.src = src.trim();
+  img.onerror = () => {
+    img.onerror = null;
+    if (options.onErrorMode === "errSpan") {
+      const span = document.createElement("span");
+      span.style.fontSize = "10px";
+      span.style.color = "#555";
+      span.textContent = "ERR";
+      container.replaceChildren(span);
+    } else if (options.onErrorMode === "errText") {
+      container.textContent = "ERR";
+    } else {
+      img.style.display = "none";
+    }
+  };
+  if (options.prepend) {
+    container.prepend(img);
+  } else {
+    container.appendChild(img);
+  }
+  return img;
+}
+
+function formatByteSize(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+}
+
+function setExportImportStatus(elementId, text, type = "loading") {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.className = `export-import-status status-${type}`;
+  el.textContent = text;
+  el.style.display = "inline-block";
+  if (type !== "loading") {
+    setTimeout(() => {
+      if (el.textContent === text) {
+        el.style.display = "none";
+      }
+    }, 6000);
+  }
+}

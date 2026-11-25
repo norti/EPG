@@ -101,10 +101,7 @@ pub fn is_trakt_enabled(conn: &Connection) -> bool {
             |r| r.get(0),
         )
         .ok();
-    match val.as_deref() {
-        Some("false") | Some("0") => false,
-        _ => true,
-    }
+    !matches!(val.as_deref(), Some("false") | Some("0"))
 }
 
 pub fn now_epoch_secs() -> i64 {

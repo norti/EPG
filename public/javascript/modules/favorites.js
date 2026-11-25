@@ -1,0 +1,98 @@
+async function toggleFavorite(title) {
+  const isFav = await invoke("toggle_favorite", { title });
+  if (isFav) {
+    if (!favorites.includes(title)) favorites.push(title);
+  } else {
+    favorites = favorites.filter((t) => t !== title);
+  }
+  updateModalFavStar();
+  renderEPG();
+  renderFavoritesList();
+  return isFav;
+}
+
+function renderFavoritesList() {
+  const content = document.getElementById("favListContent");
+  const activeDayEl = document.getElementById("favActiveDay");
+  content.innerHTML = "";
+  if (activeDayEl) {
+    activeDayEl.style.display = "none";
+    activeDayEl.textContent = "";
+  }
+
+  if (favorites.length === 0) {
+    content.innerHTML = `<p style="color:#8e94a8; font-size:13px;">${t("no_favorites")}</p>`;
+    return;
+  }
+
+  let matchedList = [];
+  favorites.forEach((favTitle) => {
+    const progs = epgData.programmes.filter((p) => p.title === favTitle);
+    progs.forEach((p) => matchedList.push(p));
+  });
+
+  matchedList.sort((a, b) => a.start - b.start);
+
+  const groupedByDay = {};
+  matchedList.forEach((prog) => {
+    const dayKey = formatDateLabel(
+      `${prog.start.getFullYear()}-${String(prog.start.getMonth() + 1).padStart(2, "0")}-${String(prog.start.getDate()).padStart(2, "0")}`,
+    );
+    if (!groupedByDay[dayKey]) groupedByDay[dayKey] = [];
+    groupedByDay[dayKey].push(prog);
+  });
+
+  if (Object.keys(groupedByDay).length === 0) {
+    favorites.forEach((favTitle) => {
+      const row = document.createElement("div");
+      row.className = "fav-item-row";
+      row.innerHTML = `
+                        <span class="fav-item-title">${escapeHtml(favTitle)}</span>
+                        <button class="btn btn-red btn-icon-only" style="padding: 3px 6px; margin-left: 6px;">${iconHtml("trash", 14)}</button>
+                    `;
+      row.querySelector("button").onclick = () => toggleFavorite(favTitle);
+      content.appendChild(row);
+    });
+    return;
+  }
+
+  for (const [dayHeader, progs] of Object.entries(groupedByDay)) {
+    const groupDiv = document.createElement("div");
+    groupDiv.className = "fav-day-group";
+    groupDiv.dataset.dayHeading = dayHeader;
+
+    const header = document.createElement("div");
+    header.className = "fav-day-header";
+    header.textContent = dayHeader;
+    groupDiv.appendChild(header);
+
+    progs.forEach((prog) => {
+      const ch = epgData.channels.find((c) => c.id === prog.channel);
+      const chName = ch ? ch.name : prog.channel;
+      const startStr = prog.start.toTimeString().substring(0, 5);
+
+      const row = document.createElement("div");
+      row.className = "fav-item-row";
+      row.innerHTML = `
+                        <span class="start-badge">${escapeHtml(startStr)}</span>
+                        <span class="fav-item-title">${escapeHtml(prog.title)}</span>
+                        <span class="channel-badge">${escapeHtml(chName)}</span>
+                        <button class="btn btn-red btn-icon-only" style="padding: 3px 6px; margin-left: 6px;">${iconHtml("trash", 14)}</button>
+                    `;
+      row.querySelector("button").onclick = () => toggleFavorite(prog.title);
+      groupDiv.appendChild(row);
+    });
+
+    content.appendChild(groupDiv);
+  }
+
+  if (
+    activeDayEl &&
+    window.TraktDates &&
+    typeof window.TraktDates.attachStickyDayHeader === "function"
+  ) {
+    window.TraktDates.attachStickyDayHeader(content, activeDayEl, {
+      groupSelector: ".fav-day-group",
+    });
+  }
+}

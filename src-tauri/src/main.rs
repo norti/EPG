@@ -50,6 +50,12 @@ impl TmdbRuntime {
     }
 }
 
+impl Default for TmdbRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Channel {
@@ -111,6 +117,8 @@ struct Source {
     country_code: Option<String>,
     time_offset: Option<i32>,
     #[serde(default)]
+    sort_position: Option<i64>,
+    #[serde(default)]
     channel_count: Option<i64>,
     #[serde(default)]
     favorite_count: Option<i64>,
@@ -138,6 +146,8 @@ fn open_and_init_db() -> Result<Connection, String> {
     let db_path = get_db_path();
     let conn = Connection::open(&db_path)
         .map_err(|e| format!("DB megnyitási hiba: {}", e))?;
+
+    let _ = conn.execute("PRAGMA foreign_keys = ON;", []);
 
     // images.db csatolása külön adatbázisként
     let images_db_path = get_images_db_path();
@@ -207,12 +217,11 @@ fn open_and_init_db() -> Result<Connection, String> {
                     };
                     let byte_size = data.len() as i64;
                     let img_type = if url.contains("image.tmdb.org") { "poster" } else { "logo" };
-                    let cr_time = if created_at.is_empty() { "datetime('now')" } else { &created_at };
 
                     let _ = conn.execute(
                         "INSERT OR IGNORE INTO images_db.images (sha256, mime_type, byte_size, data, created_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![hash_hex, mime, byte_size, data, cr_time],
+                         VALUES (?1, ?2, ?3, ?4, COALESCE(NULLIF(?5, ''), datetime('now')))",
+                        params![hash_hex, mime, byte_size, data, created_at],
                     );
 
                     let img_id: Option<i64> = conn.query_row(
@@ -224,8 +233,8 @@ fn open_and_init_db() -> Result<Connection, String> {
                     if let Some(id) = img_id {
                         let _ = conn.execute(
                             "INSERT OR REPLACE INTO images_db.image_urls (url, image_id, image_type, created_at)
-                             VALUES (?1, ?2, ?3, ?4)",
-                            params![url, id, img_type, cr_time],
+                             VALUES (?1, ?2, ?3, COALESCE(NULLIF(?4, ''), datetime('now')))",
+                            params![url, id, img_type, created_at],
                         );
                     }
                 }
@@ -298,7 +307,7 @@ async fn get_all_favorites_epg_data(state: &AppState) -> Result<EpgResponse, Str
          ORDER BY 
             CASE WHEN co_fav.position IS NOT NULL THEN 0 ELSE 1 END,
             co_fav.position ASC,
-            s.rowid ASC,
+            COALESCE(s.sort_position, s.rowid) ASC,
             CASE WHEN co.position IS NOT NULL THEN 0 ELSE 1 END, 
             co.position ASC, 
             display_name ASC"
@@ -329,9 +338,7 @@ async fn get_all_favorites_epg_data(state: &AppState) -> Result<EpgResponse, Str
     }).map_err(|e| e.to_string())?;
 
     let mut channels = Vec::new();
-    for ch in channel_iter {
-        if let Ok(c) = ch { channels.push(c); }
-    }
+    for c in channel_iter.flatten() { channels.push(c); }
 
     let mut stmt = conn.prepare(
         "SELECT p.channel_id, p.source_id, p.start, p.stop, p.title, p.desc, COALESCE(s.time_offset, 0)
@@ -358,9 +365,7 @@ async fn get_all_favorites_epg_data(state: &AppState) -> Result<EpgResponse, Str
     }).map_err(|e| e.to_string())?;
 
     let mut programmes = Vec::new();
-    for pr in prog_iter {
-        if let Ok(p) = pr { programmes.push(p); }
-    }
+    for p in prog_iter.flatten() { programmes.push(p); }
 
     Ok(EpgResponse { channels, programmes })
 }
@@ -425,9 +430,7 @@ async fn get_epg_data(state: tauri::State<'_, AppState>, source_id: String) -> R
     }).map_err(|e| e.to_string())?;
 
     let mut channels = Vec::new();
-    for ch in channel_iter {
-        if let Ok(c) = ch { channels.push(c); }
-    }
+    for c in channel_iter.flatten() { channels.push(c); }
 
     let mut stmt = conn.prepare("SELECT channel_id, start, stop, title, desc FROM programmes WHERE source_id = ?1").map_err(|e| e.to_string())?;
     let prog_iter = stmt.query_map(params![source_id], |row| {
@@ -443,9 +446,7 @@ async fn get_epg_data(state: tauri::State<'_, AppState>, source_id: String) -> R
     }).map_err(|e| e.to_string())?;
 
     let mut programmes = Vec::new();
-    for pr in prog_iter {
-        if let Ok(p) = pr { programmes.push(p); }
-    }
+    for p in prog_iter.flatten() { programmes.push(p); }
 
     Ok(EpgResponse { channels, programmes })
 }
@@ -454,7 +455,7 @@ async fn get_epg_data(state: tauri::State<'_, AppState>, source_id: String) -> R
 async fn get_sources(state: tauri::State<'_, AppState>) -> Result<Vec<Source>, String> {
     let conn = state.db.lock().await;
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset,
+        "SELECT s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset, s.sort_position,
                 (SELECT COUNT(*) FROM channels c WHERE c.source_id = s.id) AS ch_count,
                 (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_favorite = 1) AS fav_count,
                 (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_hidden = 1) AS hid_count
@@ -470,16 +471,14 @@ async fn get_sources(state: tauri::State<'_, AppState>) -> Result<Vec<Source>, S
             last_downloaded: row.get(3)?,
             country_code: row.get(4)?,
             time_offset: row.get(5)?,
-            channel_count: Some(row.get(6)?),
-            favorite_count: Some(row.get(7)?),
-            hidden_count: Some(row.get(8)?),
+            sort_position: row.get(6)?,
+            channel_count: Some(row.get(7)?),
+            favorite_count: Some(row.get(8)?),
+            hidden_count: Some(row.get(9)?),
         })
     }).map_err(|e| e.to_string())?;
 
-    let mut sources = Vec::new();
-    for s in rows {
-        if let Ok(src) = s { sources.push(src); }
-    }
+    let sources: Vec<Source> = rows.flatten().collect();
     Ok(sources)
 }
 
@@ -487,14 +486,15 @@ async fn get_sources(state: tauri::State<'_, AppState>) -> Result<Vec<Source>, S
 async fn save_source(state: tauri::State<'_, AppState>, source: Source) -> Result<(), String> {
     let conn = state.db.lock().await;
     conn.execute(
-        "INSERT INTO sources (id, name, url, last_downloaded, country_code, time_offset) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "INSERT INTO sources (id, name, url, last_downloaded, country_code, time_offset, sort_position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT(id) DO UPDATE SET 
             name = excluded.name, 
             url = excluded.url, 
             last_downloaded = COALESCE(excluded.last_downloaded, sources.last_downloaded),
             country_code = excluded.country_code,
-            time_offset = excluded.time_offset",
-        params![source.id, source.name, source.url, source.last_downloaded, source.country_code, source.time_offset],
+            time_offset = excluded.time_offset,
+            sort_position = COALESCE(excluded.sort_position, sources.sort_position)",
+        params![source.id, source.name, source.url, source.last_downloaded, source.country_code, source.time_offset, source.sort_position],
     ).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -550,9 +550,7 @@ async fn get_favorites(state: tauri::State<'_, AppState>) -> Result<Vec<String>,
     let mut stmt = conn.prepare("SELECT title FROM favorites ORDER BY rowid ASC").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
     let mut favs = Vec::new();
-    for f in rows {
-        if let Ok(title) = f { favs.push(title); }
-    }
+    for title in rows.flatten() { favs.push(title); }
     Ok(favs)
 }
 
@@ -594,9 +592,7 @@ async fn get_channel_order(state: tauri::State<'_, AppState>, source_id: String)
     ).map_err(|e| e.to_string())?;
     let rows = stmt.query_map(params![source_id], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
     let mut order = Vec::new();
-    for o in rows {
-        if let Ok(ch_id) = o { order.push(ch_id); }
-    }
+    for ch_id in rows.flatten() { order.push(ch_id); }
     Ok(order)
 }
 
@@ -643,9 +639,7 @@ async fn get_sort_presets(state: tauri::State<'_, AppState>, source_id: String) 
         })
     }).map_err(|e| e.to_string())?;
     let mut presets = Vec::new();
-    for p in rows {
-        if let Ok(item) = p { presets.push(item); }
-    }
+    for item in rows.flatten() { presets.push(item); }
     Ok(presets)
 }
 
@@ -915,10 +909,7 @@ struct DeduplicationResult {
     pub freed_bytes: i64,
 }
 
-#[tauri::command]
-async fn find_duplicate_logos(state: tauri::State<'_, AppState>) -> Result<DuplicateReport, String> {
-    let conn = state.db.lock().await;
-
+fn find_duplicate_logos_inner(conn: &Connection) -> Result<DuplicateReport, String> {
     let total_unique_images: usize = conn.query_row(
         "SELECT COUNT(*) FROM images_db.images WHERE id IN (SELECT DISTINCT image_id FROM images_db.image_urls WHERE image_type = 'logo')",
         [],
@@ -931,35 +922,61 @@ async fn find_duplicate_logos(state: tauri::State<'_, AppState>) -> Result<Dupli
         |r| r.get(0),
     ).unwrap_or(0);
 
+    let mut active_channel_icons: std::collections::HashSet<String> = std::collections::HashSet::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT icon FROM channels WHERE icon IS NOT NULL AND icon != ''")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        for u in rows.flatten() {
+            active_channel_icons.insert(u);
+        }
+    }
+
+    let mut active_custom_icons: std::collections::HashSet<String> = std::collections::HashSet::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT custom_icon FROM channel_user_settings WHERE custom_icon IS NOT NULL AND custom_icon != ''")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        for u in rows.flatten() {
+            active_custom_icons.insert(u);
+        }
+    }
+
+    let mut poster_image_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT image_id FROM images_db.image_urls WHERE image_type != 'logo'")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, i64>(0)).map_err(|e| e.to_string())?;
+        for id in rows.flatten() {
+            poster_image_ids.insert(id);
+        }
+    }
+
     let mut stmt = conn.prepare(
-        "SELECT iu.image_id, img.sha256, img.mime_type, img.byte_size, img.data, COUNT(iu.url) as cnt
+        "SELECT DISTINCT img.id, img.sha256, img.mime_type, img.byte_size, img.data
          FROM images_db.image_urls iu
          JOIN images_db.images img ON img.id = iu.image_id
          WHERE iu.image_type = 'logo'
-         GROUP BY iu.image_id
-         HAVING cnt > 1
-         ORDER BY cnt DESC, img.byte_size DESC"
+         ORDER BY img.byte_size DESC, img.id ASC"
     ).map_err(|e| e.to_string())?;
 
     let group_rows: Vec<(i64, String, String, i64, String)> = {
         let mapped = stmt.query_map([], |row| {
-            let image_id: i64 = row.get(0)?;
-            let sha256: String = row.get(1)?;
-            let mime_type: String = row.get(2)?;
-            let byte_size: i64 = row.get(3)?;
-            let data: String = row.get(4)?;
-            Ok((image_id, sha256, mime_type, byte_size, data))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         }).map_err(|e| e.to_string())?;
         mapped.flatten().collect()
     };
     drop(stmt);
 
     let mut duplicate_groups = Vec::new();
-    let mut redundant_count = 0;
-    let mut potential_saved_bytes = 0;
+    let mut redundant_count = 0usize;
+    let mut potential_saved_bytes = 0i64;
 
     let mut url_stmt = conn.prepare(
-        "SELECT url FROM images_db.image_urls WHERE image_id = ?1 AND image_type = 'logo' ORDER BY url ASC"
+        "SELECT url FROM images_db.image_urls WHERE image_id = ?1 AND image_type = 'logo' ORDER BY length(url) ASC, url ASC"
     ).map_err(|e| e.to_string())?;
 
     let mut ch_stmt = conn.prepare(
@@ -975,6 +992,35 @@ async fn find_duplicate_logos(state: tauri::State<'_, AppState>) -> Result<Dupli
             .flatten()
             .collect();
 
+        if urls.is_empty() {
+            continue;
+        }
+
+        let any_referenced = urls
+            .iter()
+            .any(|u| active_channel_icons.contains(u) || active_custom_icons.contains(u));
+
+        let (removable_urls, image_will_be_deleted): (Vec<&String>, bool) = if !any_referenced {
+            (urls.iter().collect(), !poster_image_ids.contains(&image_id))
+        } else if urls.len() > 1 {
+            // Prefer an active channels.icon URL as canonical so it is never deleted
+            let canonical = urls
+                .iter()
+                .find(|u| active_channel_icons.contains(*u))
+                .unwrap_or(&urls[0]);
+            let rem: Vec<&String> = urls
+                .iter()
+                .filter(|u| *u != canonical && !active_channel_icons.contains(*u))
+                .collect();
+            (rem, false)
+        } else {
+            (Vec::new(), false)
+        };
+
+        if removable_urls.is_empty() {
+            continue;
+        }
+
         let mut ch_names = Vec::new();
         for u in &urls {
             let names: Vec<String> = ch_stmt.query_map(params![u], |r| r.get(0))
@@ -986,21 +1032,19 @@ async fn find_duplicate_logos(state: tauri::State<'_, AppState>) -> Result<Dupli
         ch_names.sort();
         ch_names.dedup();
 
-        let count = urls.len();
-        if count > 1 {
-            redundant_count += count - 1;
-            potential_saved_bytes += (count - 1) as i64 * byte_size;
+        redundant_count += removable_urls.len();
+        let url_bytes: i64 = removable_urls.iter().map(|u| u.len() as i64).sum();
+        potential_saved_bytes += url_bytes + if image_will_be_deleted { byte_size } else { 0 };
 
-            duplicate_groups.push(DuplicateLogoGroup {
-                image_id,
-                sha256,
-                sample_data: data,
-                mime_type,
-                byte_size,
-                urls,
-                channels: ch_names,
-            });
-        }
+        duplicate_groups.push(DuplicateLogoGroup {
+            image_id,
+            sha256,
+            sample_data: data,
+            mime_type,
+            byte_size,
+            urls,
+            channels: ch_names,
+        });
     }
 
     Ok(DuplicateReport {
@@ -1012,32 +1056,42 @@ async fn find_duplicate_logos(state: tauri::State<'_, AppState>) -> Result<Dupli
     })
 }
 
-#[tauri::command]
-async fn deduplicate_logos(state: tauri::State<'_, AppState>) -> Result<DeduplicationResult, String> {
-    let conn = state.db.lock().await;
+fn deduplicate_logos_inner(conn: &Connection) -> Result<DeduplicationResult, String> {
+    let mut active_channel_icons: std::collections::HashSet<String> = std::collections::HashSet::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT icon FROM channels WHERE icon IS NOT NULL AND icon != ''")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        for u in rows.flatten() {
+            active_channel_icons.insert(u);
+        }
+    }
 
-    let mut stmt = conn.prepare(
-        "SELECT iu.image_id, img.byte_size, COUNT(iu.url) as cnt
-         FROM images_db.image_urls iu
-         JOIN images_db.images img ON img.id = iu.image_id
-         WHERE iu.image_type = 'logo'
-         GROUP BY iu.image_id
-         HAVING cnt > 1"
-    ).map_err(|e| e.to_string())?;
+    let mut active_custom_icons: std::collections::HashSet<String> = std::collections::HashSet::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT custom_icon FROM channel_user_settings WHERE custom_icon IS NOT NULL AND custom_icon != ''")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        for u in rows.flatten() {
+            active_custom_icons.insert(u);
+        }
+    }
 
-    let groups: Vec<(i64, i64, usize)> = {
-        let mapped = stmt.query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        }).map_err(|e| e.to_string())?;
+    let image_ids: Vec<i64> = {
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT image_id FROM images_db.image_urls WHERE image_type = 'logo'")
+            .map_err(|e| e.to_string())?;
+        let mapped = stmt.query_map([], |row| row.get(0)).map_err(|e| e.to_string())?;
         mapped.flatten().collect()
     };
-    drop(stmt);
 
-    let mut cleaned_groups = 0;
-    let mut removed_urls = 0;
-    let mut freed_bytes = 0;
+    let mut cleaned_groups = 0usize;
+    let mut removed_urls = 0usize;
+    let mut freed_url_bytes = 0i64;
 
-    if !groups.is_empty() {
+    if !image_ids.is_empty() {
         conn.execute_batch("BEGIN TRANSACTION;").map_err(|e| e.to_string())?;
 
         let res: Result<(), String> = (|| {
@@ -1050,29 +1104,70 @@ async fn deduplicate_logos(state: tauri::State<'_, AppState>) -> Result<Deduplic
             ).map_err(|e| e.to_string())?;
 
             let mut delete_url_stmt = conn.prepare(
-                "DELETE FROM images_db.image_urls WHERE url = ?1"
+                "DELETE FROM images_db.image_urls WHERE url = ?1 AND image_type = 'logo'"
             ).map_err(|e| e.to_string())?;
 
-            for (image_id, byte_size, _) in groups {
+            for image_id in image_ids {
                 let urls: Vec<String> = url_stmt.query_map(params![image_id], |r| r.get(0))
                     .map_err(|e| e.to_string())?
                     .flatten()
                     .collect();
 
+                if urls.is_empty() {
+                    continue;
+                }
+
+                let any_referenced = urls
+                    .iter()
+                    .any(|u| active_channel_icons.contains(u) || active_custom_icons.contains(u));
+
+                if !any_referenced {
+                    // Orphaned logo image_urls: none referenced by channels.icon or custom_icon
+                    for orphan_url in &urls {
+                        let deleted = delete_url_stmt.execute(params![orphan_url]).map_err(|e| e.to_string())?;
+                        if deleted > 0 {
+                            removed_urls += deleted;
+                            freed_url_bytes += orphan_url.len() as i64;
+                        }
+                    }
+                    cleaned_groups += 1;
+                    continue;
+                }
+
                 if urls.len() <= 1 {
                     continue;
                 }
 
-                let canonical_url = &urls[0];
-                let redundant_urls = &urls[1..];
+                // Prefer an active channels.icon URL as canonical so it is never broken
+                let canonical_url = urls
+                    .iter()
+                    .find(|u| active_channel_icons.contains(*u))
+                    .unwrap_or(&urls[0]);
 
-                for red_url in redundant_urls {
-                    update_settings_stmt.execute(params![canonical_url, red_url]).map_err(|e| e.to_string())?;
-                    delete_url_stmt.execute(params![red_url]).map_err(|e| e.to_string())?;
-                    removed_urls += 1;
-                    freed_bytes += byte_size;
+                let mut group_changed = false;
+                for red_url in &urls {
+                    if red_url == canonical_url {
+                        continue;
+                    }
+                    if active_custom_icons.contains(red_url) {
+                        update_settings_stmt
+                            .execute(params![canonical_url, red_url])
+                            .map_err(|e| e.to_string())?;
+                        group_changed = true;
+                    }
+                    // Never delete URLs actively referenced by channels.icon
+                    if !active_channel_icons.contains(red_url) {
+                        let deleted = delete_url_stmt.execute(params![red_url]).map_err(|e| e.to_string())?;
+                        if deleted > 0 {
+                            removed_urls += deleted;
+                            freed_url_bytes += red_url.len() as i64;
+                            group_changed = true;
+                        }
+                    }
                 }
-                cleaned_groups += 1;
+                if group_changed {
+                    cleaned_groups += 1;
+                }
             }
 
             drop(url_stmt);
@@ -1089,6 +1184,12 @@ async fn deduplicate_logos(state: tauri::State<'_, AppState>) -> Result<Deduplic
         }
     }
 
+    let freed_image_bytes: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(byte_size), 0) FROM images_db.images WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
+        [],
+        |r| r.get(0),
+    ).unwrap_or(0);
+
     let removed_images = conn.execute(
         "DELETE FROM images_db.images WHERE id NOT IN (SELECT DISTINCT image_id FROM images_db.image_urls)",
         [],
@@ -1100,8 +1201,20 @@ async fn deduplicate_logos(state: tauri::State<'_, AppState>) -> Result<Deduplic
         cleaned_groups,
         removed_urls,
         removed_images,
-        freed_bytes,
+        freed_bytes: freed_url_bytes + freed_image_bytes,
     })
+}
+
+#[tauri::command]
+async fn find_duplicate_logos(state: tauri::State<'_, AppState>) -> Result<DuplicateReport, String> {
+    let conn = state.db.lock().await;
+    find_duplicate_logos_inner(&conn)
+}
+
+#[tauri::command]
+async fn deduplicate_logos(state: tauri::State<'_, AppState>) -> Result<DeduplicationResult, String> {
+    let conn = state.db.lock().await;
+    deduplicate_logos_inner(&conn)
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1822,37 +1935,78 @@ fn slugify_channel_name(clean_name: &str) -> String {
     slug.trim_matches('-').to_string()
 }
 
-fn map_country_code(country_code: &str) -> (&'static str, &'static str) {
-    match country_code.trim().to_uppercase().as_str() {
-        "HU" => ("hungary", "hu"),
-        "DE" => ("germany", "de"),
-        "AT" => ("austria", "at"),
-        "RO" => ("romania", "ro"),
-        "SK" => ("slovakia", "sk"),
-        "CZ" => ("czech-republic", "cz"),
-        "US" => ("united-states", "us"),
-        "GB" | "UK" | "EN" => ("united-kingdom", "uk"),
-        "PT" => ("portugal", "pt"),
-        "IT" => ("italy", "it"),
-        "FR" => ("france", "fr"),
-        "ES" => ("spain", "es"),
-        "PL" => ("poland", "pl"),
-        "NL" => ("netherlands", "nl"),
-        "HR" => ("croatia", "hr"),
-        "RS" => ("serbia", "rs"),
-        _ => ("hungary", "hu"),
+fn map_country_code(country_code: &str) -> (Option<&'static str>, String) {
+    let trimmed = country_code.trim();
+    match trimmed.to_uppercase().as_str() {
+        "AL" => (Some("albania"), "al".to_string()),
+        "AR" => (Some("argentina"), "ar".to_string()),
+        "AU" => (Some("australia"), "au".to_string()),
+        "AT" => (Some("austria"), "at".to_string()),
+        "AZ" => (Some("azerbaijan"), "az".to_string()),
+        "BE" => (Some("belgium"), "be".to_string()),
+        "BR" => (Some("brazil"), "br".to_string()),
+        "BG" => (Some("bulgaria"), "bg".to_string()),
+        "CA" => (Some("canada"), "ca".to_string()),
+        "CL" => (Some("chile"), "cl".to_string()),
+        "CR" => (Some("costa-rica"), "cr".to_string()),
+        "HR" => (Some("croatia"), "hr".to_string()),
+        "CZ" => (Some("czech-republic"), "cz".to_string()),
+        "FR" => (Some("france"), "fr".to_string()),
+        "DE" => (Some("germany"), "de".to_string()),
+        "GR" => (Some("greece"), "gr".to_string()),
+        "HK" => (Some("hong-kong"), "hk".to_string()),
+        "HU" => (Some("hungary"), "hu".to_string()),
+        "IN" => (Some("india"), "in".to_string()),
+        "ID" => (Some("indonesia"), "id".to_string()),
+        "INT" => (Some("international"), "int".to_string()),
+        "IE" => (Some("ireland"), "ie".to_string()),
+        "IL" => (Some("israel"), "il".to_string()),
+        "IT" => (Some("italy"), "it".to_string()),
+        "LB" => (Some("lebanon"), "lb".to_string()),
+        "LT" => (Some("lithuania"), "lt".to_string()),
+        "LU" => (Some("luxembourg"), "lu".to_string()),
+        "MY" => (Some("malaysia"), "my".to_string()),
+        "MT" => (Some("malta"), "mt".to_string()),
+        "MX" => (Some("mexico"), "mx".to_string()),
+        "NL" => (Some("netherlands"), "nl".to_string()),
+        "NZ" => (Some("new-zealand"), "nz".to_string()),
+        "SE" => (Some("nordic"), "se".to_string()),
+        "NO" => (Some("nordic"), "no".to_string()),
+        "DK" => (Some("nordic"), "dk".to_string()),
+        "FI" => (Some("nordic"), "fi".to_string()),
+        "IS" => (Some("nordic"), "is".to_string()),
+        "PH" => (Some("philippines"), "ph".to_string()),
+        "PL" => (Some("poland"), "pl".to_string()),
+        "PT" => (Some("portugal"), "pt".to_string()),
+        "RO" => (Some("romania"), "ro".to_string()),
+        "RU" => (Some("russia"), "ru".to_string()),
+        "RS" => (Some("serbia"), "rs".to_string()),
+        "SG" => (Some("singapore"), "sg".to_string()),
+        "SK" => (Some("slovakia"), "sk".to_string()),
+        "SI" => (Some("slovenia"), "si".to_string()),
+        "ZA" => (Some("south-africa"), "za".to_string()),
+        "ES" => (Some("spain"), "es".to_string()),
+        "CH" => (Some("switzerland"), "ch".to_string()),
+        "TR" => (Some("turkey"), "tr".to_string()),
+        "UA" => (Some("ukraine"), "ua".to_string()),
+        "AE" => (Some("united-arab-emirates"), "ae".to_string()),
+        "GB" | "UK" | "EN" => (Some("united-kingdom"), "uk".to_string()),
+        "US" => (Some("united-states"), "us".to_string()),
+        other => (None, other.to_lowercase()),
     }
 }
 
 async fn fetch_tv_logo_full_tree(state: &AppState) -> Result<Vec<String>, String> {
     let cache_key = "tv_logo_full_tree_paths";
-    let conn = state.db.lock().await;
 
-    let cached: Option<String> = conn.query_row(
-        "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
-        params![cache_key],
-        |row| row.get(0),
-    ).ok();
+    let cached: Option<String> = {
+        let conn = state.db.lock().await;
+        conn.query_row(
+            "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
+            params![cache_key],
+            |row| row.get(0),
+        ).ok()
+    };
 
     if let Some(json_str) = cached {
         if let Ok(paths) = serde_json::from_str::<Vec<String>>(&json_str) {
@@ -1875,6 +2029,7 @@ async fn fetch_tv_logo_full_tree(state: &AppState) -> Result<Vec<String>, String
                             .collect();
 
                         if let Ok(ser) = serde_json::to_string(&paths) {
+                            let conn = state.db.lock().await;
                             let _ = conn.execute(
                                 "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
                                  ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
@@ -1886,18 +2041,21 @@ async fn fetch_tv_logo_full_tree(state: &AppState) -> Result<Vec<String>, String
                 }
             }
         }
-        _ => {
-            let fallback: Option<String> = conn.query_row(
-                "SELECT content FROM external_logo_cache WHERE source_key = ?1",
-                params![cache_key],
-                |row| row.get(0),
-            ).ok();
-            if let Some(json_str) = fallback {
-                if let Ok(paths) = serde_json::from_str::<Vec<String>>(&json_str) {
-                    if !paths.is_empty() {
-                        return Ok(paths);
-                    }
-                }
+        _ => {}
+    }
+
+    let fallback: Option<String> = {
+        let conn = state.db.lock().await;
+        conn.query_row(
+            "SELECT content FROM external_logo_cache WHERE source_key = ?1",
+            params![cache_key],
+            |row| row.get(0),
+        ).ok()
+    };
+    if let Some(json_str) = fallback {
+        if let Ok(paths) = serde_json::from_str::<Vec<String>>(&json_str) {
+            if !paths.is_empty() {
+                return Ok(paths);
             }
         }
     }
@@ -1907,27 +2065,31 @@ async fn fetch_tv_logo_full_tree(state: &AppState) -> Result<Vec<String>, String
 
 fn match_tv_logo_from_tree(
     paths: &[String],
-    country_dir: &str,
+    country_dir: Option<&str>,
     country_code: &str,
     slug: &str,
 ) -> Option<LogoSearchResult> {
     let target_exact = format!("{}-{}.png", slug, country_code);
     let target_simple = format!("{}.png", slug);
-    let country_prefix = format!("countries/{}/", country_dir);
 
     // 1. Target country folder
-    for p in paths {
-        if p.starts_with(&country_prefix) {
-            let fname = &p[country_prefix.len()..];
-            if fname.eq_ignore_ascii_case(&target_exact) || fname.eq_ignore_ascii_case(&target_simple) {
-                let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
-                return Some(LogoSearchResult {
-                    url: url.clone(),
-                    thumb_url: url,
-                    source_name: "tv-logo".to_string(),
-                    format: "PNG".to_string(),
-                    title: fname.trim_end_matches(".png").to_string(),
-                });
+    if let Some(dir) = country_dir {
+        let country_prefix = format!("countries/{}/", dir);
+        for p in paths {
+            if let Some(rel) = p.strip_prefix(&country_prefix) {
+                let fname = rel.rsplit('/').next().unwrap_or(rel);
+                if (!country_code.is_empty() && fname.eq_ignore_ascii_case(&target_exact))
+                    || fname.eq_ignore_ascii_case(&target_simple)
+                {
+                    let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+                    return Some(LogoSearchResult {
+                        url: url.clone(),
+                        thumb_url: url,
+                        source_name: "tv-logo".to_string(),
+                        format: "PNG".to_string(),
+                        title: fname.trim_end_matches(".png").to_string(),
+                    });
+                }
             }
         }
     }
@@ -1936,8 +2098,7 @@ fn match_tv_logo_from_tree(
     let int_prefix = "countries/international/";
     let target_int = format!("{}-int.png", slug);
     for p in paths {
-        if p.starts_with(int_prefix) {
-            let fname = &p[int_prefix.len()..];
+        if let Some(fname) = p.strip_prefix(int_prefix) {
             if fname.eq_ignore_ascii_case(&target_int) || fname.eq_ignore_ascii_case(&target_simple) {
                 let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
                 return Some(LogoSearchResult {
@@ -1973,21 +2134,21 @@ fn match_tv_logo_from_tree(
     }
 
     // 4. Fuzzy egyezés a célország könyvtárában (ha pontos egyezés nem volt, Jaro-Winkler >= 0.85)
-    let country_prefix = format!("countries/{}/", country_dir);
-    let mut best_target: Option<(f64, LogoSearchResult)> = None;
+    if let Some(dir) = country_dir {
+        let country_prefix = format!("countries/{}/", dir);
+        let mut best_target: Option<(f64, LogoSearchResult)> = None;
 
-    for p in paths {
-        if p.starts_with(&country_prefix) {
-            let fname = &p[country_prefix.len()..];
-            let name_no_ext = fname.trim_end_matches(".png");
-            let base_name = if let Some(stripped) = name_no_ext.rsplit_once('-') {
-                stripped.0
-            } else {
-                name_no_ext
-            };
-            let score = strsim::jaro_winkler(slug, base_name);
-            if score >= 0.85 {
-                if best_target.as_ref().map_or(true, |(best, _)| score > *best) {
+        for p in paths {
+            if let Some(rel) = p.strip_prefix(&country_prefix) {
+                let fname = rel.rsplit('/').next().unwrap_or(rel);
+                let name_no_ext = fname.trim_end_matches(".png");
+                let base_name = if let Some(stripped) = name_no_ext.rsplit_once('-') {
+                    stripped.0
+                } else {
+                    name_no_ext
+                };
+                let score = strsim::jaro_winkler(slug, base_name);
+                if score >= 0.85 && best_target.as_ref().is_none_or(|(best, _)| score > *best) {
                     let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
                     best_target = Some((score, LogoSearchResult {
                         url: url.clone(),
@@ -1999,10 +2160,10 @@ fn match_tv_logo_from_tree(
                 }
             }
         }
-    }
 
-    if let Some((_, res)) = best_target {
-        return Some(res);
+        if let Some((_, res)) = best_target {
+            return Some(res);
+        }
     }
 
     // 5. Fuzzy egyezés nemzetközi és egyéb mappákban (szigorúbb küszöb: Jaro-Winkler >= 0.88)
@@ -2016,22 +2177,20 @@ fn match_tv_logo_from_tree(
             name_no_ext
         };
         let score = strsim::jaro_winkler(slug, base_name);
-        if score >= 0.88 {
-            if best_global.as_ref().map_or(true, |(best, _)| score > *best) {
-                let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
-                let src_name = if p.starts_with("countries/international/") {
-                    "tv-logo (int)".to_string()
-                } else {
-                    "tv-logo (global)".to_string()
-                };
-                best_global = Some((score, LogoSearchResult {
-                    url: url.clone(),
-                    thumb_url: url,
-                    source_name: src_name,
-                    format: "PNG".to_string(),
-                    title: name_no_ext.to_string(),
-                }));
-            }
+        if score >= 0.88 && best_global.as_ref().is_none_or(|(best, _)| score > *best) {
+            let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+            let src_name = if p.starts_with("countries/international/") {
+                "tv-logo (int)".to_string()
+            } else {
+                "tv-logo (global)".to_string()
+            };
+            best_global = Some((score, LogoSearchResult {
+                url: url.clone(),
+                thumb_url: url,
+                source_name: src_name,
+                format: "PNG".to_string(),
+                title: name_no_ext.to_string(),
+            }));
         }
     }
 
@@ -2044,7 +2203,7 @@ fn match_tv_logo_from_tree(
 
 fn search_tv_logo_from_tree(
     paths: &[String],
-    country_dir: &str,
+    country_dir: Option<&str>,
     country_code: &str,
     slug: &str,
     clean_name: &str,
@@ -2058,27 +2217,29 @@ fn search_tv_logo_from_tree(
     }
 
     let clean_lower = clean_name.to_lowercase();
-    let country_prefix = format!("countries/{}/", country_dir);
     let int_prefix = "countries/international/";
 
     // 1. Target country
-    for p in paths {
-        if p.starts_with(&country_prefix) {
-            let fname = &p[country_prefix.len()..];
-            let name_lower = fname.to_lowercase();
-            let is_match = (slug.len() >= 3 && name_lower.contains(slug))
-                || (!clean_lower.is_empty() && name_lower.contains(&clean_lower))
-                || strsim::jaro_winkler(slug, &name_lower.trim_end_matches(".png")) >= 0.82;
-            if is_match {
-                let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
-                if seen.insert(url.clone()) {
-                    results.push(LogoSearchResult {
-                        url: url.clone(),
-                        thumb_url: url,
-                        source_name: "tv-logo".to_string(),
-                        format: "PNG".to_string(),
-                        title: fname.trim_end_matches(".png").to_string(),
-                    });
+    if let Some(dir) = country_dir {
+        let country_prefix = format!("countries/{}/", dir);
+        for p in paths {
+            if let Some(rel) = p.strip_prefix(&country_prefix) {
+                let fname = rel.rsplit('/').next().unwrap_or(rel);
+                let name_lower = fname.to_lowercase();
+                let is_match = (slug.len() >= 3 && name_lower.contains(slug))
+                    || (!clean_lower.is_empty() && name_lower.contains(&clean_lower))
+                    || strsim::jaro_winkler(slug, name_lower.trim_end_matches(".png")) >= 0.82;
+                if is_match {
+                    let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
+                    if seen.insert(url.clone()) {
+                        results.push(LogoSearchResult {
+                            url: url.clone(),
+                            thumb_url: url,
+                            source_name: "tv-logo".to_string(),
+                            format: "PNG".to_string(),
+                            title: fname.trim_end_matches(".png").to_string(),
+                        });
+                    }
                 }
             }
         }
@@ -2086,12 +2247,11 @@ fn search_tv_logo_from_tree(
 
     // 2. International
     for p in paths {
-        if p.starts_with(int_prefix) {
-            let fname = &p[int_prefix.len()..];
+        if let Some(fname) = p.strip_prefix(int_prefix) {
             let name_lower = fname.to_lowercase();
             let is_match = (slug.len() >= 3 && name_lower.contains(slug))
                 || (!clean_lower.is_empty() && name_lower.contains(&clean_lower))
-                || strsim::jaro_winkler(slug, &name_lower.trim_end_matches(".png")) >= 0.84;
+                || strsim::jaro_winkler(slug, name_lower.trim_end_matches(".png")) >= 0.84;
             if is_match {
                 let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
                 if seen.insert(url.clone()) {
@@ -2113,7 +2273,7 @@ fn search_tv_logo_from_tree(
         let name_lower = fname.to_lowercase();
         let is_match = (slug.len() >= 3 && name_lower.contains(slug))
             || (!clean_lower.is_empty() && name_lower.contains(&clean_lower))
-            || strsim::jaro_winkler(slug, &name_lower.trim_end_matches(".png")) >= 0.86;
+            || strsim::jaro_winkler(slug, name_lower.trim_end_matches(".png")) >= 0.86;
         if is_match {
             let url = format!("https://raw.githubusercontent.com/tv-logo/tv-logos/main/{}", p);
             if seen.insert(url.clone()) {
@@ -2134,13 +2294,15 @@ fn search_tv_logo_from_tree(
 
 async fn fetch_iptv_org_logos(state: &AppState) -> Result<Vec<IptvOrgLogoItem>, String> {
     let cache_key = "iptv_org_logos".to_string();
-    let conn = state.db.lock().await;
 
-    let cached: Option<String> = conn.query_row(
-        "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
-        params![cache_key],
-        |row| row.get(0),
-    ).ok();
+    let cached: Option<String> = {
+        let conn = state.db.lock().await;
+        conn.query_row(
+            "SELECT content FROM external_logo_cache WHERE source_key = ?1 AND updated_at > datetime('now', '-7 days')",
+            params![cache_key],
+            |row| row.get(0),
+        ).ok()
+    };
 
     if let Some(json_str) = cached {
         if let Ok(logos) = serde_json::from_str::<Vec<IptvOrgLogoItem>>(&json_str) {
@@ -2155,27 +2317,33 @@ async fn fetch_iptv_org_logos(state: &AppState) -> Result<Vec<IptvOrgLogoItem>, 
         Ok(r) if r.status().is_success() => {
             if let Ok(text) = r.text().await {
                 if let Ok(logos) = serde_json::from_str::<Vec<IptvOrgLogoItem>>(&text) {
-                    let _ = conn.execute(
-                        "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
-                         ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-                        params![cache_key, text],
-                    );
+                    {
+                        let conn = state.db.lock().await;
+                        let _ = conn.execute(
+                            "INSERT INTO external_logo_cache (source_key, content, updated_at) VALUES (?1, ?2, datetime('now'))
+                             ON CONFLICT(source_key) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+                            params![cache_key, text],
+                        );
+                    }
                     return Ok(logos);
                 }
             }
         }
-        _ => {
-            let fallback: Option<String> = conn.query_row(
-                "SELECT content FROM external_logo_cache WHERE source_key = ?1",
-                params![cache_key],
-                |row| row.get(0),
-            ).ok();
-            if let Some(json_str) = fallback {
-                if let Ok(logos) = serde_json::from_str::<Vec<IptvOrgLogoItem>>(&json_str) {
-                    if !logos.is_empty() {
-                        return Ok(logos);
-                    }
-                }
+        _ => {}
+    }
+
+    let fallback: Option<String> = {
+        let conn = state.db.lock().await;
+        conn.query_row(
+            "SELECT content FROM external_logo_cache WHERE source_key = ?1",
+            params![cache_key],
+            |row| row.get(0),
+        ).ok()
+    };
+    if let Some(json_str) = fallback {
+        if let Ok(logos) = serde_json::from_str::<Vec<IptvOrgLogoItem>>(&json_str) {
+            if !logos.is_empty() {
+                return Ok(logos);
             }
         }
     }
@@ -2219,11 +2387,10 @@ fn match_iptv_org_logos(
                 let base = ch_lower.trim_end_matches(&suffix);
                 let base_alphanumeric: String = base.chars().filter(|c| c.is_alphanumeric()).collect();
                 let score = strsim::jaro_winkler(&slug_alphanumeric, &base_alphanumeric);
-                if score >= 0.88 {
-                    if best.as_ref().map_or(true, |(b_score, _)| score > *b_score) {
+                if score >= 0.88
+                    && best.as_ref().is_none_or(|(b_score, _)| score > *b_score) {
                         best = Some((score, item));
                     }
-                }
             }
         }
         if let Some((_, item)) = best {
@@ -2274,11 +2441,10 @@ fn match_iptv_org_logos_any(
         let base = ch_lower.split('.').next().unwrap_or(&ch_lower);
         let base_alphanumeric: String = base.chars().filter(|c| c.is_alphanumeric()).collect();
         let score = strsim::jaro_winkler(&slug_alphanumeric, &base_alphanumeric);
-        if score >= 0.90 {
-            if best.as_ref().map_or(true, |(b_score, _)| score > *b_score) {
+        if score >= 0.90
+            && best.as_ref().is_none_or(|(b_score, _)| score > *b_score) {
                 best = Some((score, item));
             }
-        }
     }
     if let Some((_, item)) = best {
         let fmt = if item.url.ends_with(".svg") { "SVG" } else { "PNG" };
@@ -2486,7 +2652,7 @@ async fn find_channel_logo_github_inner(state: &AppState,
     {
         let r = TV_LOGO_TREE_CACHE.read().unwrap();
         if let Some(ref tree) = *r {
-            if let Some(res) = match_tv_logo_from_tree(tree, country_dir, c_code, &slug) {
+            if let Some(res) = match_tv_logo_from_tree(tree, country_dir, &c_code, &slug) {
                 candidate = Some((res.url, res.source_name));
             }
         }
@@ -2497,16 +2663,20 @@ async fn find_channel_logo_github_inner(state: &AppState,
         let _ = ensure_iptv_logos_loaded(state).await;
         let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
         if let Some(ref iptv_logos) = *r {
-            if let Some(res) = match_iptv_org_logos(iptv_logos, &slug, c_code) {
-                candidate = Some((res.url, "iptv-org".to_string()));
-            } else if c_code != "INT" {
+            if !c_code.is_empty() {
+                if let Some(res) = match_iptv_org_logos(iptv_logos, &slug, &c_code) {
+                    candidate = Some((res.url, "iptv-org".to_string()));
+                }
+            }
+            if candidate.is_none() && c_code != "int" {
                 if let Some(res) = match_iptv_org_logos(iptv_logos, &slug, "int") {
                     candidate = Some((res.url, "iptv-org (int)".to_string()));
-                } else if let Some(res) = match_iptv_org_logos_any(iptv_logos, &slug) {
+                }
+            }
+            if candidate.is_none() {
+                if let Some(res) = match_iptv_org_logos_any(iptv_logos, &slug) {
                     candidate = Some((res.url, "iptv-org (global)".to_string()));
                 }
-            } else if let Some(res) = match_iptv_org_logos_any(iptv_logos, &slug) {
-                candidate = Some((res.url, "iptv-org (global)".to_string()));
             }
         }
     }
@@ -2544,12 +2714,14 @@ async fn find_channel_logo_wikimedia_inner(state: &AppState,
     let mut candidate: Option<(String, String)> = None;
 
     // 3. Forrás C: Wikimedia Commons (Country)
-    let wiki_results = search_wikimedia_commons(state, &clean, country_dir).await;
-    for w in &wiki_results {
-        let title_lower = w.title.to_lowercase();
-        if title_lower.contains(&slug) || title_lower.contains(&clean.to_lowercase()) {
-            candidate = Some((w.url.clone(), "Wikimedia Commons".to_string()));
-            break;
+    if let Some(dir) = country_dir {
+        let wiki_results = search_wikimedia_commons(state, &clean, dir).await;
+        for w in &wiki_results {
+            let title_lower = w.title.to_lowercase();
+            if title_lower.contains(&slug) || title_lower.contains(&clean.to_lowercase()) {
+                candidate = Some((w.url.clone(), "Wikimedia Commons".to_string()));
+                break;
+            }
         }
     }
 
@@ -2708,7 +2880,7 @@ async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, 
     };
 
     // 1. Forrás A: tv-logo (from full tree: Country, International, Any country in tree)
-    let tv_matches = search_tv_logo_from_tree(&tv_tree, country_dir, c_code, &slug, &clean);
+    let tv_matches = search_tv_logo_from_tree(&tv_tree, country_dir, &c_code, &slug, &clean);
     for m in tv_matches {
         if seen_urls.insert(m.url.clone()) {
             all_results.push(m);
@@ -2730,15 +2902,17 @@ async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, 
         }
     };
 
-    let suffix = format!(".{}", c_code.to_lowercase());
     let clean_lower = clean.to_lowercase();
     // Country matches first
-    for item in &iptv_logos {
-        let ch_lower = item.channel.to_lowercase();
-        if ch_lower.ends_with(&suffix) {
-            let base = ch_lower.trim_end_matches(&suffix);
-            if (slug.len() >= 3 && base.contains(&slug)) || base.contains(&clean_lower) {
-                if seen_urls.insert(item.url.clone()) {
+    if !c_code.is_empty() {
+        let suffix = format!(".{}", c_code.to_lowercase());
+        for item in &iptv_logos {
+            let ch_lower = item.channel.to_lowercase();
+            if ch_lower.ends_with(&suffix) {
+                let base = ch_lower.trim_end_matches(&suffix);
+                if ((slug.len() >= 3 && base.contains(&slug)) || base.contains(&clean_lower))
+                    && seen_urls.insert(item.url.clone())
+                {
                     let fmt = if item.url.ends_with(".svg") { "SVG" } else { "PNG" };
                     all_results.push(LogoSearchResult {
                         url: item.url.clone(),
@@ -2755,25 +2929,27 @@ async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, 
     for item in &iptv_logos {
         let ch_lower = item.channel.to_lowercase();
         let base = ch_lower.split('.').next().unwrap_or(&ch_lower);
-        if (slug.len() >= 3 && base.contains(&slug)) || base.contains(&clean_lower) {
-            if seen_urls.insert(item.url.clone()) {
-                let fmt = if item.url.ends_with(".svg") { "SVG" } else { "PNG" };
-                all_results.push(LogoSearchResult {
-                    url: item.url.clone(),
-                    thumb_url: item.url.clone(),
-                    source_name: "iptv-org".to_string(),
-                    format: fmt.to_string(),
-                    title: item.channel.clone(),
-                });
-            }
+        if ((slug.len() >= 3 && base.contains(&slug)) || base.contains(&clean_lower))
+            && seen_urls.insert(item.url.clone())
+        {
+            let fmt = if item.url.ends_with(".svg") { "SVG" } else { "PNG" };
+            all_results.push(LogoSearchResult {
+                url: item.url.clone(),
+                thumb_url: item.url.clone(),
+                source_name: "iptv-org".to_string(),
+                format: fmt.to_string(),
+                title: item.channel.clone(),
+            });
         }
     }
 
     // 3. Forrás C: Wikimedia Commons (With Country)
-    let wiki_matches = search_wikimedia_commons(state.inner(), &clean, country_dir).await;
-    for m in wiki_matches {
-        if seen_urls.insert(m.url.clone()) {
-            all_results.push(m);
+    if let Some(dir) = country_dir {
+        let wiki_matches = search_wikimedia_commons(state.inner(), &clean, dir).await;
+        for m in wiki_matches {
+            if seen_urls.insert(m.url.clone()) {
+                all_results.push(m);
+            }
         }
     }
 
@@ -2967,9 +3143,7 @@ async fn export_channel_data(state: tauri::State<'_, AppState>) -> Result<Channe
     }).map_err(|e| e.to_string())?;
 
     let mut channels: Vec<ChannelExportRow> = Vec::new();
-    for r in rows {
-        if let Ok(row) = r { channels.push(row); }
-    }
+    for row in rows.flatten() { channels.push(row); }
 
     let exported_at: String = conn
         .query_row("SELECT datetime('now', 'localtime')", [], |r| r.get(0))
@@ -3032,12 +3206,12 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
 
     // Sources
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset,
+        "SELECT s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset, s.sort_position,
                 (SELECT COUNT(*) FROM channels c WHERE c.source_id = s.id) AS ch_count,
                 (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_favorite = 1) AS fav_count,
                 (SELECT COUNT(*) FROM channel_user_settings cus WHERE cus.source_id = s.id AND cus.is_hidden = 1) AS hid_count
          FROM sources s
-         ORDER BY s.rowid ASC"
+         ORDER BY COALESCE(s.sort_position, s.rowid) ASC"
     ).map_err(|e| e.to_string())?;
     let sources_iter = stmt.query_map([], |row| {
         Ok(Source {
@@ -3047,23 +3221,19 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
             last_downloaded: row.get(3)?,
             country_code: row.get(4)?,
             time_offset: row.get(5)?,
-            channel_count: Some(row.get(6)?),
-            favorite_count: Some(row.get(7)?),
-            hidden_count: Some(row.get(8)?),
+            sort_position: row.get(6)?,
+            channel_count: Some(row.get(7)?),
+            favorite_count: Some(row.get(8)?),
+            hidden_count: Some(row.get(9)?),
         })
     }).map_err(|e| e.to_string())?;
-    let mut sources = Vec::new();
-    for s in sources_iter {
-        if let Ok(src) = s { sources.push(src); }
-    }
+    let sources: Vec<Source> = sources_iter.flatten().collect();
 
     // Favorites
     let mut stmt = conn.prepare("SELECT title FROM favorites ORDER BY rowid ASC").map_err(|e| e.to_string())?;
     let fav_iter = stmt.query_map([], |row| row.get::<_, String>(0)).map_err(|e| e.to_string())?;
     let mut favorites = Vec::new();
-    for f in fav_iter {
-        if let Ok(title) = f { favorites.push(title); }
-    }
+    for title in fav_iter.flatten() { favorites.push(title); }
 
     // Channel user settings
     let mut stmt = conn.prepare("SELECT source_id, channel_id, is_favorite, is_hidden, custom_icon, custom_name FROM channel_user_settings").map_err(|e| e.to_string())?;
@@ -3080,9 +3250,7 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
         })
     }).map_err(|e| e.to_string())?;
     let mut channel_user_settings = Vec::new();
-    for cus in cus_iter {
-        if let Ok(c) = cus { channel_user_settings.push(c); }
-    }
+    for c in cus_iter.flatten() { channel_user_settings.push(c); }
 
     // Channel orders
     let mut stmt = conn.prepare("SELECT source_id, channel_id, position FROM channel_orders").map_err(|e| e.to_string())?;
@@ -3094,9 +3262,7 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
         })
     }).map_err(|e| e.to_string())?;
     let mut channel_orders = Vec::new();
-    for co in co_iter {
-        if let Ok(c) = co { channel_orders.push(c); }
-    }
+    for c in co_iter.flatten() { channel_orders.push(c); }
 
     // Channel sort presets
     let mut stmt = conn.prepare("SELECT id, name, source_id, channel_order, created_at FROM channel_sort_presets").map_err(|e| e.to_string())?;
@@ -3112,9 +3278,7 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
         })
     }).map_err(|e| e.to_string())?;
     let mut channel_sort_presets = Vec::new();
-    for csp in csp_iter {
-        if let Ok(p) = csp { channel_sort_presets.push(p); }
-    }
+    for p in csp_iter.flatten() { channel_sort_presets.push(p); }
 
     // Settings
     let mut stmt = conn.prepare("SELECT key, value FROM settings WHERE key NOT LIKE 'trakt_secure_%'").map_err(|e| e.to_string())?;
@@ -3122,9 +3286,7 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     }).map_err(|e| e.to_string())?;
     let mut settings = HashMap::new();
-    for item in s_iter {
-        if let Ok((k, v)) = item { settings.insert(k, v); }
-    }
+    for (k, v) in s_iter.flatten() { settings.insert(k, v); }
 
     let exported_at: String = conn.query_row("SELECT datetime('now', 'localtime')", [], |r| r.get(0)).unwrap_or_default();
 
@@ -3146,16 +3308,18 @@ async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) 
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
     // Sources
-    for s in backup.sources {
+    for (idx, s) in backup.sources.into_iter().enumerate() {
+        let sort_pos = s.sort_position.unwrap_or(idx as i64);
         tx.execute(
-            "INSERT INTO sources (id, name, url, last_downloaded, country_code, time_offset) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO sources (id, name, url, last_downloaded, country_code, time_offset, sort_position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(id) DO UPDATE SET 
                 name = excluded.name, 
                 url = excluded.url, 
                 last_downloaded = COALESCE(excluded.last_downloaded, sources.last_downloaded),
                 country_code = excluded.country_code,
-                time_offset = excluded.time_offset",
-            params![s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset],
+                time_offset = excluded.time_offset,
+                sort_position = excluded.sort_position",
+            params![s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset, sort_pos],
         ).map_err(|e| e.to_string())?;
     }
 
@@ -3232,9 +3396,7 @@ async fn get_settings(state: tauri::State<'_, AppState>) -> Result<HashMap<Strin
     }).map_err(|e| e.to_string())?;
 
     let mut map = HashMap::new();
-    for r in rows {
-        if let Ok((k, v)) = r { map.insert(k, v); }
-    }
+    for (k, v) in rows.flatten() { map.insert(k, v); }
     Ok(map)
 }
 
@@ -3288,25 +3450,11 @@ async fn save_language_content(state: tauri::State<'_, AppState>, lang: String, 
     Ok(())
 }
 
-#[tauri::command]
-async fn restore_languages_to_disk(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let conn = state.db.lock().await;
-
-    conn.execute(
-        "INSERT INTO app_languages (lang, content, updated_at) VALUES ('english', ?1, datetime('now', 'localtime'))
-         ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-        params![EMBEDDED_ENGLISH_LNG],
-    ).map_err(|e| e.to_string())?;
-
-    conn.execute(
-        "INSERT INTO app_languages (lang, content, updated_at) VALUES ('hungarian', ?1, datetime('now', 'localtime'))
-         ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-        params![EMBEDDED_HUNGARIAN_LNG],
-    ).map_err(|e| e.to_string())?;
-
-    let mut candidate_dirs = Vec::new();
-    candidate_dirs.push(PathBuf::from("public/languages"));
-    candidate_dirs.push(PathBuf::from("../public/languages"));
+fn write_language_files_to_disk(files: &[(&str, &str)]) {
+    let mut candidate_dirs = vec![
+        PathBuf::from("public/languages"),
+        PathBuf::from("../public/languages"),
+    ];
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(parent) = exe_path.parent() {
             candidate_dirs.push(parent.join("public/languages"));
@@ -3315,12 +3463,37 @@ async fn restore_languages_to_disk(state: tauri::State<'_, AppState>) -> Result<
     }
 
     for dir in candidate_dirs {
-        if dir.exists() || dir.parent().map(|p| p.exists()).unwrap_or(false) {
+        if dir.exists() || dir.parent().is_some_and(|p| p.exists()) {
             let _ = fs::create_dir_all(&dir);
-            let _ = fs::write(dir.join("english.lng"), EMBEDDED_ENGLISH_LNG);
-            let _ = fs::write(dir.join("hungarian.lng"), EMBEDDED_HUNGARIAN_LNG);
+            for (lang, content) in files {
+                let _ = fs::write(dir.join(format!("{}.lng", lang)), content);
+            }
         }
     }
+}
+
+#[tauri::command]
+async fn restore_languages_to_disk(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    {
+        let conn = state.db.lock().await;
+
+        conn.execute(
+            "INSERT INTO app_languages (lang, content, updated_at) VALUES ('english', ?1, datetime('now', 'localtime'))
+             ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+            params![EMBEDDED_ENGLISH_LNG],
+        ).map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "INSERT INTO app_languages (lang, content, updated_at) VALUES ('hungarian', ?1, datetime('now', 'localtime'))
+             ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+            params![EMBEDDED_HUNGARIAN_LNG],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    write_language_files_to_disk(&[
+        ("english", EMBEDDED_ENGLISH_LNG),
+        ("hungarian", EMBEDDED_HUNGARIAN_LNG),
+    ]);
 
     Ok(())
 }
@@ -3328,8 +3501,7 @@ async fn restore_languages_to_disk(state: tauri::State<'_, AppState>) -> Result<
 #[tauri::command]
 async fn download_languages_from_github(state: tauri::State<'_, AppState>) -> Result<HashMap<String, String>, String> {
     let langs = ["english", "hungarian"];
-    let mut result = HashMap::new();
-    let conn = state.db.lock().await;
+    let mut downloaded: Vec<(&str, String)> = Vec::with_capacity(langs.len());
 
     for lang in &langs {
         let url = format!(
@@ -3342,16 +3514,25 @@ async fn download_languages_from_github(state: tauri::State<'_, AppState>) -> Re
         }
         let text = resp.text().await.map_err(|e| format!("Válasz olvasási hiba ({url}): {e}"))?;
         let _: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("Érvénytelen JSON ({lang}.lng): {e}"))?;
+        downloaded.push((lang, text));
+    }
 
-        conn.execute(
-            "INSERT INTO app_languages (lang, content, updated_at) VALUES (?1, ?2, datetime('now', 'localtime'))
-             ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-            params![lang, text],
-        ).map_err(|e| e.to_string())?;
+    {
+        let conn = state.db.lock().await;
+        for (lang, text) in &downloaded {
+            conn.execute(
+                "INSERT INTO app_languages (lang, content, updated_at) VALUES (?1, ?2, datetime('now', 'localtime'))
+                 ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+                params![lang, text],
+            ).map_err(|e| e.to_string())?;
+        }
+    }
 
-        let _ = fs::create_dir_all("public/languages");
-        let _ = fs::write(format!("public/languages/{}.lng", lang), &text);
+    let disk_pairs: Vec<(&str, &str)> = downloaded.iter().map(|(l, t)| (*l, t.as_str())).collect();
+    write_language_files_to_disk(&disk_pairs);
 
+    let mut result = HashMap::new();
+    for (lang, text) in downloaded {
         result.insert(lang.to_string(), text);
     }
 
@@ -3627,7 +3808,7 @@ pub(crate) fn tmdb_title_score(
 ) -> f64 {
     let nq = normalise_for_match(query);
     let nc = normalise_for_match(cand_title);
-    let no = cand_orig.map(|o| normalise_for_match(o));
+    let no = cand_orig.map(normalise_for_match);
 
     let jaccard = |a: &str, b: &str| -> f64 {
         if a.is_empty() && b.is_empty() { return 1.0; }
@@ -3761,6 +3942,7 @@ const TMDB_NEGATIVE_TTL_DAYS: i64 = 7;
 ///  * 401 -> `Unauthorized`, 404 -> `NotFound` (no retry)
 ///  * 429 -> waits `Retry-After` (capped), at most `TMDB_MAX_RATE_LIMIT_RETRIES` retries, then `RateLimited`
 ///  * 5xx / network error -> one retry after `state.tmdb.retry_delay`, then `Transient`
+///
 /// The concurrency permit is held for the whole call (including waits) but never together with the DB lock.
 pub(crate) async fn tmdb_get_text<F>(state: &AppState, make_req: F) -> Result<String, TmdbError>
 where
@@ -4460,8 +4642,11 @@ async fn get_tmdb_details_for_lang(state: tauri::State<'_, AppState>,
     get_tmdb_by_id(state.inner(), tmdb_id, &media_type, &lang, Some(&cache_key), false).await
 }
 
-#[tauri::command]
-async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Option<String>) -> Result<Vec<TmdbSearchResultItem>, String> {
+pub(crate) async fn search_tmdb_inner(
+    state: &AppState,
+    query: String,
+    lang: Option<String>,
+) -> Result<Vec<TmdbSearchResultItem>, String> {
     let q = query.trim().to_string();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -4469,50 +4654,23 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
 
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
 
-    let api_key = match get_tmdb_api_key_from_state(state.inner()).await {
+    let api_key = match get_tmdb_api_key_from_state(state).await {
         Some(k) => k,
         _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
     };
 
-    let mut results: Vec<TmdbRawItem> = Vec::new();
-    let resp = build_tmdb_search_req(state.inner(), &api_key, &q, &target_lang).send().await.map_err(|e| format!("TMDB keresési hiba: {}", e))?;
-    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-        return Err("Érvénytelen TMDB API kulcs / Invalid TMDB API key".to_string());
-    }
-    if resp.status().is_success() {
-        if let Ok(text) = resp.text().await {
-            if let Ok(search_json) = serde_json::from_str::<TmdbSearchResponse>(&text) {
-                results = search_json.results.unwrap_or_default();
-            }
-        }
-    }
+    let mut results = tmdb_search_items(state, &api_key, &q, &target_lang).await?;
 
     // If no results and clean_title(q) differs from q, try searching with clean_title
     let cleaned = clean_title(&q);
     if results.is_empty() && !cleaned.is_empty() && cleaned != q {
-        if let Ok(resp2) = build_tmdb_search_req(state.inner(), &api_key, &cleaned, &target_lang).send().await {
-            if resp2.status().is_success() {
-                if let Ok(text2) = resp2.text().await {
-                    if let Ok(search_json2) = serde_json::from_str::<TmdbSearchResponse>(&text2) {
-                        results = search_json2.results.unwrap_or_default();
-                    }
-                }
-            }
-        }
+        results = tmdb_search_items(state, &api_key, &cleaned, &target_lang).await?;
     }
 
     // Fallback to en-US if still empty and language was not en-US
     if results.is_empty() && target_lang != "en-US" {
         let query_term = if !cleaned.is_empty() { &cleaned } else { &q };
-        if let Ok(resp3) = build_tmdb_search_req(state.inner(), &api_key, query_term, "en-US").send().await {
-            if resp3.status().is_success() {
-                if let Ok(text3) = resp3.text().await {
-                    if let Ok(search_json3) = serde_json::from_str::<TmdbSearchResponse>(&text3) {
-                        results = search_json3.results.unwrap_or_default();
-                    }
-                }
-            }
-        }
+        results = tmdb_search_items(state, &api_key, query_term, "en-US").await?;
     }
 
     let mut items = Vec::new();
@@ -4541,6 +4699,11 @@ async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Opt
     }
 
     Ok(items)
+}
+
+#[tauri::command]
+async fn search_tmdb(state: tauri::State<'_, AppState>, query: String, lang: Option<String>) -> Result<Vec<TmdbSearchResultItem>, String> {
+    search_tmdb_inner(state.inner(), query, lang).await
 }
 
 #[tauri::command]
@@ -4589,6 +4752,71 @@ async fn clear_tmdb_match(state: tauri::State<'_, AppState>, app: tauri::AppHand
     Ok(())
 }
 
+fn extract_xml_encoding_label(raw: &[u8]) -> Option<String> {
+    let head_len = raw.len().min(512);
+    let head = String::from_utf8_lossy(&raw[..head_len]);
+    let decl_start = head.find("<?xml")?;
+    let rest = &head[decl_start..];
+    let decl_end = rest.find("?>")?;
+    let decl = &rest[..decl_end];
+    let lower = decl.to_ascii_lowercase();
+    let enc_idx = lower.find("encoding")?;
+    let after_enc = decl[enc_idx + "encoding".len()..].trim_start();
+    let after_eq = after_enc.strip_prefix('=')?.trim_start();
+    let quote = after_eq.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let val_rest = &after_eq[1..];
+    let end_quote = val_rest.find(quote)?;
+    let label = val_rest[..end_quote].trim();
+    if label.is_empty() {
+        None
+    } else {
+        Some(label.to_string())
+    }
+}
+
+fn decode_xmltv_bytes(bytes: &[u8]) -> Result<String, String> {
+    let owned_raw: Vec<u8>;
+    let raw: &[u8] = if bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b {
+        let mut decoder = GzDecoder::new(bytes);
+        let mut buf = Vec::new();
+        decoder
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("Kitömörítési hiba: {}", e))?;
+        owned_raw = buf;
+        &owned_raw
+    } else {
+        bytes
+    };
+
+    if let Some((enc, bom_len)) = encoding_rs::Encoding::for_bom(raw) {
+        if enc == encoding_rs::UTF_8 {
+            if let Ok(s) = std::str::from_utf8(&raw[bom_len..]) {
+                return Ok(s.to_string());
+            }
+        } else {
+            let (decoded, _, _) = enc.decode(&raw[bom_len..]);
+            return Ok(decoded.into_owned());
+        }
+    }
+
+    if let Ok(s) = std::str::from_utf8(raw) {
+        return Ok(s.to_string());
+    }
+
+    if let Some(label) = extract_xml_encoding_label(raw) {
+        if let Some(enc) = encoding_rs::Encoding::for_label(label.as_bytes()) {
+            let (decoded, _, _) = enc.decode(raw);
+            return Ok(decoded.into_owned());
+        }
+        return Err(format!("Nem támogatott XML karakterkódolás: {}", label));
+    }
+
+    Err("UTF8 konverziós hiba: a fájl nem érvényes UTF-8 és nincs felismerhető XML encoding fejléc".to_string())
+}
+
 #[tauri::command]
 async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String, url: String) -> Result<(), String> {
     if url.trim().is_empty() {
@@ -4622,15 +4850,7 @@ async fn update_source_epg(state: tauri::State<'_, AppState>, source_id: String,
     }
 
     let bytes = response.bytes().await.map_err(|e| format!("Adatolvasási hiba: {}", e))?;
-
-    let xml_string = if bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b {
-        let mut decoder = GzDecoder::new(&bytes[..]);
-        let mut s = String::new();
-        decoder.read_to_string(&mut s).map_err(|e| format!("Kitömörítési hiba: {}", e))?;
-        s
-    } else {
-        String::from_utf8(bytes.to_vec()).map_err(|e| format!("UTF8 konverziós hiba: {}", e))?
-    };
+    let xml_string = decode_xmltv_bytes(&bytes)?;
 
     let mut conn = state.db.lock().await;
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
@@ -4671,7 +4891,8 @@ pub(crate) fn repair_source_programmes<T: RepairableProgramme>(programmes: &mut 
             .then_with(|| a.start_ts().cmp(&b.start_ts()))
     });
 
-    let mut channel_plans: Vec<(usize, usize, usize, usize, Vec<Option<usize>>)> = Vec::new();
+    type ChannelPlan = (usize, usize, usize, usize, Vec<Option<usize>>);
+    let mut channel_plans: Vec<ChannelPlan> = Vec::new();
     let mut src_30m: usize = 0;
     let mut src_other: usize = 0;
 
@@ -4698,7 +4919,7 @@ pub(crate) fn repair_source_programmes<T: RepairableProgramme>(programmes: &mut 
                     next_idx[i] = next_idx[nd];
                 }
             }
-            if next_distinct.map_or(true, |nd| ch_progs[nd].start_ts() != Some(s)) {
+            if next_distinct.is_none_or(|nd| ch_progs[nd].start_ts() != Some(s)) {
                 next_distinct = Some(i);
             }
         }
@@ -4750,7 +4971,7 @@ pub(crate) fn repair_source_programmes<T: RepairableProgramme>(programmes: &mut 
                 continue;
             };
             let e_opt = ch_progs[i].stop_ts();
-            let should_repair = if e_opt.map_or(true, |e| e <= s) {
+            let should_repair = if e_opt.is_none_or(|e| e <= s) {
                 ns - s <= MAX_REPAIR_SPAN_SECS
             } else if fix_30m_dummy && e_opt == Some(s + DUMMY_STOP_SECS) {
                 (ns > s + DUMMY_STOP_SECS && ns - s <= MAX_REPAIR_SPAN_SECS)
@@ -4825,6 +5046,7 @@ fn import_xmltv_into_tx(
 
     let mut buf = Vec::new();
     let mut current_tag = String::new();
+    let mut in_channel = false;
     let mut curr_ch_id = String::new();
     let mut curr_ch_name = String::new();
     let mut curr_ch_icon = String::new();
@@ -4850,6 +5072,7 @@ fn import_xmltv_into_tx(
                 current_tag = name.clone();
 
                 if name == "channel" {
+                    in_channel = true;
                     curr_ch_id.clear(); curr_ch_name.clear(); curr_ch_icon.clear();
                     for attr in e.attributes().flatten() {
                         if attr.key.as_ref() == b"id" {
@@ -4868,10 +5091,25 @@ fn import_xmltv_into_tx(
                             curr_prog_stop = String::from_utf8_lossy(&attr.value).to_string();
                         }
                     }
-                } else if name == "icon" {
+                } else if name == "icon" && in_channel {
                     for attr in e.attributes().flatten() {
                         if attr.key.as_ref() == b"src" {
-                            curr_ch_icon = String::from_utf8_lossy(&attr.value).to_string();
+                            curr_ch_icon = attr
+                                .unescape_value()
+                                .map(|v| v.into_owned())
+                                .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
+                        }
+                    }
+                }
+            }
+            Ok(Event::Empty(e)) => {
+                if in_channel && e.name().as_ref() == b"icon" {
+                    for attr in e.attributes().flatten() {
+                        if attr.key.as_ref() == b"src" {
+                            curr_ch_icon = attr
+                                .unescape_value()
+                                .map(|v| v.into_owned())
+                                .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
                         }
                     }
                 }
@@ -4889,6 +5127,7 @@ fn import_xmltv_into_tx(
             Ok(Event::End(e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 if name == "channel" {
+                    in_channel = false;
                     ch_stmt.execute(params![curr_ch_id, source_id, curr_ch_name, curr_ch_icon]).ok();
                 } else if name == "programme" {
                     if curr_prog_ch.trim().is_empty()
@@ -4932,11 +5171,11 @@ fn import_xmltv_into_tx(
                         let existing_valid = existing
                             .stop_ts
                             .zip(existing.start_ts)
-                            .map_or(false, |(e, s)| e > s);
+                            .is_some_and(|(e, s)| e > s);
                         let cand_valid = cand
                             .stop_ts
                             .zip(cand.start_ts)
-                            .map_or(false, |(e, s)| e > s);
+                            .is_some_and(|(e, s)| e > s);
 
                         if !existing_valid && cand_valid {
                             if cand.desc.is_empty() && !existing.desc.is_empty() {
@@ -4952,12 +5191,12 @@ fn import_xmltv_into_tx(
                                 && existing
                                     .stop_ts
                                     .zip(existing.start_ts)
-                                    .map_or(false, |(e, s)| e - s == DUMMY_STOP_SECS);
+                                    .is_some_and(|(e, s)| e - s == DUMMY_STOP_SECS);
                             let cand_is_dummy_30m = cand_valid
                                 && cand
                                     .stop_ts
                                     .zip(cand.start_ts)
-                                    .map_or(false, |(e, s)| e - s == DUMMY_STOP_SECS);
+                                    .is_some_and(|(e, s)| e - s == DUMMY_STOP_SECS);
 
                             if cand.desc.len() > existing.desc.len() {
                                 if existing_valid && !existing_is_dummy_30m && cand_is_dummy_30m {
@@ -5030,10 +5269,12 @@ fn apply_windows_dark_titlebar(hwnd: isize) {
     }
 
     unsafe {
-        let dwmapi = LoadLibraryA(b"dwmapi.dll\0".as_ptr());
+        let dwmapi = LoadLibraryA(c"dwmapi.dll".as_ptr().cast::<u8>());
         if !dwmapi.is_null() {
-            let func = GetProcAddress(dwmapi, b"DwmSetWindowAttribute\0".as_ptr());
-            if let Some(set_attr) = std::mem::transmute::<_, Option<DwmSetWindowAttributeFn>>(func) {
+            let func = GetProcAddress(dwmapi, c"DwmSetWindowAttribute".as_ptr().cast::<u8>());
+            if let Some(set_attr) =
+                std::mem::transmute::<*mut c_void, Option<DwmSetWindowAttributeFn>>(func)
+            {
                 let dark_mode: i32 = 1;
                 set_attr(hwnd, 20, &dark_mode as *const _ as *const c_void, 4);
 
@@ -5431,11 +5672,19 @@ mod tests {
 
     #[test]
     fn test_map_country_code() {
-        assert_eq!(map_country_code("HU"), ("hungary", "hu"));
-        assert_eq!(map_country_code("de"), ("germany", "de"));
-        assert_eq!(map_country_code("at"), ("austria", "at"));
-        assert_eq!(map_country_code("US"), ("united-states", "us"));
-        assert_eq!(map_country_code("UK"), ("united-kingdom", "uk"));
+        assert_eq!(map_country_code("HU"), (Some("hungary"), "hu".to_string()));
+        assert_eq!(map_country_code("de"), (Some("germany"), "de".to_string()));
+        assert_eq!(map_country_code("at"), (Some("austria"), "at".to_string()));
+        assert_eq!(map_country_code("US"), (Some("united-states"), "us".to_string()));
+        assert_eq!(map_country_code("UK"), (Some("united-kingdom"), "uk".to_string()));
+        assert_eq!(map_country_code("CA"), (Some("canada"), "ca".to_string()));
+        assert_eq!(map_country_code("CH"), (Some("switzerland"), "ch".to_string()));
+        assert_eq!(map_country_code("SE"), (Some("nordic"), "se".to_string()));
+        assert_eq!(map_country_code("NO"), (Some("nordic"), "no".to_string()));
+        assert_eq!(map_country_code("DK"), (Some("nordic"), "dk".to_string()));
+        assert_eq!(map_country_code("FI"), (Some("nordic"), "fi".to_string()));
+        // Unknown country code must NOT fall back to Hungary
+        assert_eq!(map_country_code("ZZ"), (None, "zz".to_string()));
     }
 
     #[test]
@@ -5480,27 +5729,38 @@ mod tests {
             "countries/hungary/cool-tv-hu.png".to_string(),
             "countries/international/animal-planet-int.png".to_string(),
             "countries/france/eurosport-1-fr.png".to_string(),
+            "countries/nordic/sweden/svt-1-se.png".to_string(),
         ];
 
         // 1. Country match
-        let res1 = match_tv_logo_from_tree(&paths, "hungary", "hu", "cool-tv");
+        let res1 = match_tv_logo_from_tree(&paths, Some("hungary"), "hu", "cool-tv");
         assert!(res1.is_some());
         assert_eq!(res1.unwrap().source_name, "tv-logo");
 
         // 2. International fallback
-        let res2 = match_tv_logo_from_tree(&paths, "hungary", "hu", "animal-planet");
+        let res2 = match_tv_logo_from_tree(&paths, Some("hungary"), "hu", "animal-planet");
         assert!(res2.is_some());
         assert_eq!(res2.unwrap().source_name, "tv-logo (int)");
 
         // 3. Global in any country fallback
-        let res3 = match_tv_logo_from_tree(&paths, "hungary", "hu", "eurosport-1");
+        let res3 = match_tv_logo_from_tree(&paths, Some("hungary"), "hu", "eurosport-1");
         assert!(res3.is_some());
         assert_eq!(res3.unwrap().source_name, "tv-logo (global)");
 
         // 4. Fuzzy matching test
-        let res_fuzzy = match_tv_logo_from_tree(&paths, "hungary", "hu", "cool-tv-hd");
+        let res_fuzzy = match_tv_logo_from_tree(&paths, Some("hungary"), "hu", "cool-tv-hd");
         assert!(res_fuzzy.is_some());
         assert_eq!(res_fuzzy.unwrap().source_name, "tv-logo");
+
+        // 5. Nested Nordic directory match
+        let res_nordic = match_tv_logo_from_tree(&paths, Some("nordic"), "se", "svt-1");
+        assert!(res_nordic.is_some());
+        assert_eq!(res_nordic.unwrap().source_name, "tv-logo");
+
+        // 6. Unknown country (None) skips target country and still finds international/global
+        let res_unknown = match_tv_logo_from_tree(&paths, None, "zz", "animal-planet");
+        assert!(res_unknown.is_some());
+        assert_eq!(res_unknown.unwrap().source_name, "tv-logo (int)");
     }
 
     #[test]
@@ -5909,6 +6169,222 @@ mod tests {
             )
             .unwrap();
         assert_eq!(empty_count, 0);
+    }
+
+    #[test]
+    fn test_import_xmltv_extracts_self_closing_channel_icons() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="ch1">
+    <display-name>M1 HD</display-name>
+    <icon src="https://example.com/m1.png?a=1&amp;b=2" />
+  </channel>
+  <channel id="ch2">
+    <icon src="https://example.com/rtl.png"></icon>
+    <display-name>RTL</display-name>
+  </channel>
+  <programme start="20261125100000 +0000" stop="20261125110000 +0000" channel="ch1">
+    <title>Híradó</title>
+    <icon src="https://example.com/prog-icon.png" />
+    <desc>Esti hírek</desc>
+  </programme>
+</tv>"#;
+
+        let tx = conn.transaction().unwrap();
+        import_xmltv_into_tx(&tx, "src1", xml).unwrap();
+        tx.commit().unwrap();
+
+        let (name1, icon1): (String, String) = conn
+            .query_row(
+                "SELECT name, icon FROM channels WHERE source_id = 'src1' AND id = 'ch1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name1, "M1 HD");
+        assert_eq!(icon1, "https://example.com/m1.png?a=1&b=2");
+
+        let (name2, icon2): (String, String) = conn
+            .query_row(
+                "SELECT name, icon FROM channels WHERE source_id = 'src1' AND id = 'ch2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(name2, "RTL");
+        assert_eq!(icon2, "https://example.com/rtl.png");
+
+        let (prog_title, prog_desc): (String, String) = conn
+            .query_row(
+                "SELECT title, desc FROM programmes WHERE source_id = 'src1' AND channel_id = 'ch1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(prog_title, "Híradó");
+        assert_eq!(prog_desc, "Esti hírek");
+    }
+
+    #[test]
+    fn test_decode_xmltv_bytes_non_utf8_plain_and_gzip() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let sample = "<?xml version=\"1.0\" encoding=\"ISO-8859-2\"?><tv><channel id=\"1\"><display-name>Árvíztűrő tükörfúrógép</display-name></channel></tv>";
+        let (iso_bytes, _, had_errors) = encoding_rs::ISO_8859_2.encode(sample);
+        assert!(!had_errors);
+
+        // Plain ISO-8859-2
+        let decoded_plain = decode_xmltv_bytes(&iso_bytes).unwrap();
+        assert!(decoded_plain.contains("Árvíztűrő tükörfúrógép"));
+
+        // Gzipped ISO-8859-2
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(&iso_bytes).unwrap();
+        let gz_bytes = gz.finish().unwrap();
+        let decoded_gz = decode_xmltv_bytes(&gz_bytes).unwrap();
+        assert!(decoded_gz.contains("Árvíztűrő tükörfúrógép"));
+
+        // Windows-1250
+        let win_sample = "<?xml version='1.0' encoding='windows-1250'?><tv><title>Műsorfüzet ŐŰ</title></tv>";
+        let (win_bytes, _, had_errors2) = encoding_rs::WINDOWS_1250.encode(win_sample);
+        assert!(!had_errors2);
+        let decoded_win = decode_xmltv_bytes(&win_bytes).unwrap();
+        assert!(decoded_win.contains("Műsorfüzet ŐŰ"));
+
+        // Invalid UTF-8 without encoding header must fail cleanly
+        assert!(decode_xmltv_bytes(&[0x3c, 0x74, 0x76, 0x3e, 0xff, 0xfe]).is_err());
+    }
+
+    #[test]
+    fn test_source_sort_position_serde_and_all_favorites_ordering() {
+        // Legacy backup JSON without sortPosition must deserialize cleanly
+        let legacy_json = r#"{"id":"s1","name":"Src 1","url":"https://a.test/epg.xml","lastDownloaded":null,"countryCode":"HU","timeOffset":0}"#;
+        let parsed: Source = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(parsed.sort_position, None);
+
+        // New JSON with sortPosition preserves it
+        let new_json = r#"{"id":"s2","name":"Src 2","url":"https://b.test/epg.xml","lastDownloaded":null,"countryCode":"HU","timeOffset":0,"sortPosition":2}"#;
+        let parsed2: Source = serde_json::from_str(new_json).unwrap();
+        assert_eq!(parsed2.sort_position, Some(2));
+
+        // Verify COALESCE(s.sort_position, s.rowid) ordering
+        let conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+        conn.execute(
+            "INSERT INTO sources (id, name, url, sort_position) VALUES ('s_first_inserted', 'First', 'https://a', 10)",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO sources (id, name, url, sort_position) VALUES ('s_second_inserted', 'Second', 'https://b', 1)",
+            [],
+        ).unwrap();
+        conn.execute("INSERT INTO channels (id, source_id, name, icon) VALUES ('c1', 's_first_inserted', 'Ch1', '')", []).unwrap();
+        conn.execute("INSERT INTO channels (id, source_id, name, icon) VALUES ('c2', 's_second_inserted', 'Ch2', '')", []).unwrap();
+        conn.execute("INSERT INTO channel_user_settings (source_id, channel_id, is_favorite) VALUES ('s_first_inserted', 'c1', 1)", []).unwrap();
+        conn.execute("INSERT INTO channel_user_settings (source_id, channel_id, is_favorite) VALUES ('s_second_inserted', 'c2', 1)", []).unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT c.source_id
+             FROM channels c
+             JOIN sources s ON s.id = c.source_id
+             JOIN channel_user_settings cus ON cus.source_id = c.source_id AND cus.channel_id = c.id
+             WHERE cus.is_favorite = 1 AND COALESCE(cus.is_hidden, 0) = 0
+             ORDER BY COALESCE(s.sort_position, s.rowid) ASC"
+        ).unwrap();
+        let ordered: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().flatten().collect();
+        assert_eq!(ordered, vec!["s_second_inserted", "s_first_inserted"]);
+    }
+
+    #[test]
+    fn test_deduplicate_logos_protects_channel_icons_and_cleans_orphans() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+        conn.execute("ATTACH DATABASE ':memory:' AS images_db", []).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE images_db.images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sha256 TEXT NOT NULL UNIQUE,
+                mime_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL,
+                data TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE images_db.image_urls (
+                url TEXT PRIMARY KEY,
+                image_id INTEGER NOT NULL,
+                image_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+            );"
+        ).unwrap();
+
+        // Image 1: shared by active channels.icon (url_ch1) and custom_icon (url_custom1)
+        conn.execute("INSERT INTO images_db.images (id, sha256, mime_type, byte_size, data, created_at) VALUES (1, 'h1', 'image/png', 5000, 'data:image/png;base64,A', datetime('now'))", []).unwrap();
+        conn.execute("INSERT INTO images_db.image_urls (url, image_id, image_type, created_at) VALUES ('https://xmltv.test/ch1-very-long-url.png', 1, 'logo', datetime('now'))", []).unwrap();
+        conn.execute("INSERT INTO images_db.image_urls (url, image_id, image_type, created_at) VALUES ('https://c.test/1.png', 1, 'logo', datetime('now'))", []).unwrap();
+        conn.execute("INSERT INTO channels (id, source_id, name, icon) VALUES ('c1', 's1', 'Ch1', 'https://xmltv.test/ch1-very-long-url.png')", []).unwrap();
+        conn.execute("INSERT INTO channel_user_settings (source_id, channel_id, custom_icon) VALUES ('s1', 'c2', 'https://c.test/1.png')", []).unwrap();
+
+        // Image 2: two active channels.icon URLs -> BOTH must be protected!
+        conn.execute("INSERT INTO images_db.images (id, sha256, mime_type, byte_size, data, created_at) VALUES (2, 'h2', 'image/png', 4000, 'data:image/png;base64,B', datetime('now'))", []).unwrap();
+        conn.execute("INSERT INTO images_db.image_urls (url, image_id, image_type, created_at) VALUES ('https://a.test/2.png', 2, 'logo', datetime('now'))", []).unwrap();
+        conn.execute("INSERT INTO images_db.image_urls (url, image_id, image_type, created_at) VALUES ('https://b.test/2.png', 2, 'logo', datetime('now'))", []).unwrap();
+        conn.execute("INSERT INTO channels (id, source_id, name, icon) VALUES ('c3', 's1', 'Ch3', 'https://a.test/2.png')", []).unwrap();
+        conn.execute("INSERT INTO channels (id, source_id, name, icon) VALUES ('c4', 's2', 'Ch4', 'https://b.test/2.png')", []).unwrap();
+
+        // Image 3: completely orphaned logo (no channel or custom_icon references it)
+        conn.execute("INSERT INTO images_db.images (id, sha256, mime_type, byte_size, data, created_at) VALUES (3, 'h3', 'image/png', 3000, 'data:image/png;base64,C', datetime('now'))", []).unwrap();
+        conn.execute("INSERT INTO images_db.image_urls (url, image_id, image_type, created_at) VALUES ('https://orphan.test/3.png', 3, 'logo', datetime('now'))", []).unwrap();
+
+        // Image 4: poster -> must never be touched
+        conn.execute("INSERT INTO images_db.images (id, sha256, mime_type, byte_size, data, created_at) VALUES (4, 'h4', 'image/jpeg', 9000, 'data:image/jpeg;base64,P', datetime('now'))", []).unwrap();
+        conn.execute("INSERT INTO images_db.image_urls (url, image_id, image_type, created_at) VALUES ('https://image.tmdb.org/p4.jpg', 4, 'poster', datetime('now'))", []).unwrap();
+
+        let report = find_duplicate_logos_inner(&conn).unwrap();
+        let expected_saved = "https://c.test/1.png".len() as i64
+            + "https://orphan.test/3.png".len() as i64
+            + 3000;
+        assert_eq!(report.redundant_count, 2);
+        assert_eq!(report.potential_saved_bytes, expected_saved);
+
+        let res = deduplicate_logos_inner(&conn).unwrap();
+        assert_eq!(res.removed_urls, 2);
+        assert_eq!(res.removed_images, 1);
+        assert_eq!(res.freed_bytes, expected_saved);
+
+        // Active channels.icon URL for image 1 MUST still exist, and custom_icon was repointed to it
+        let ch1_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM images_db.image_urls WHERE url = 'https://xmltv.test/ch1-very-long-url.png'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(ch1_exists, 1);
+
+        let updated_custom: String = conn.query_row(
+            "SELECT custom_icon FROM channel_user_settings WHERE source_id = 's1' AND channel_id = 'c2'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(updated_custom, "https://xmltv.test/ch1-very-long-url.png");
+
+        // Both active channels.icon URLs for image 2 MUST still exist
+        let img2_urls: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM images_db.image_urls WHERE image_id = 2",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(img2_urls, 2);
+
+        // Orphaned image 3 is gone, poster image 4 is intact
+        let img3_exists: i64 = conn.query_row("SELECT COUNT(*) FROM images_db.images WHERE id = 3", [], |r| r.get(0)).unwrap();
+        let img4_exists: i64 = conn.query_row("SELECT COUNT(*) FROM images_db.images WHERE id = 4", [], |r| r.get(0)).unwrap();
+        assert_eq!(img3_exists, 0);
+        assert_eq!(img4_exists, 1);
     }
 }
 

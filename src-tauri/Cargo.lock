@@ -1130,6 +1130,7 @@ version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",
+ "encoding_rs",
  "flate2",
  "open",
  "quick-xml 0.31.0",

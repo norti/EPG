@@ -376,7 +376,7 @@ pub fn query_continue_watching(
             item.first_aired
                 .as_deref()
                 .and_then(iso_utc_to_epoch)
-                .map_or(false, |aired_ts| aired_ts <= now_secs)
+                .is_some_and(|aired_ts| aired_ts <= now_secs)
         })
         .collect();
 
@@ -498,6 +498,7 @@ pub(crate) fn classify_history_response(body: &str) -> HistoryPostOutcome {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn trakt_mark_watched(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
@@ -657,6 +658,7 @@ pub async fn trakt_mark_watched(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn trakt_watchlist_add(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,

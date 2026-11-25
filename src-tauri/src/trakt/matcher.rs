@@ -25,7 +25,7 @@ impl TitleIndex {
              FROM trakt_watchlist_cache",
         )?;
 
-        let rows: Vec<(
+        type WatchlistRow = (
             i64,
             String,
             String,
@@ -33,7 +33,8 @@ impl TitleIndex {
             Option<String>,
             Option<i64>,
             Option<i64>,
-        )> = stmt
+        );
+        let rows: Vec<WatchlistRow> = stmt
             .query_map([], |r| {
                 Ok((
                     r.get(0)?,

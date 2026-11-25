@@ -497,7 +497,7 @@ fn synced_within(state: &AppState, window: Duration) -> bool {
         .lock()
         .ok()
         .and_then(|last| *last)
-        .map_or(false, |t| t.elapsed() < window)
+        .is_some_and(|t| t.elapsed() < window)
 }
 
 async fn throttled_summary(state: &AppState) -> SyncSummary {
@@ -519,6 +519,7 @@ async fn throttled_summary(state: &AppState) -> SyncSummary {
 /// Decision logic of the sync buttons (kept separate from the sync itself so it is testable).
 ///  * `force = false` (header button): skipped, with `throttled = true`, if a sync finished within `window`.
 ///  * `force = true` (Settings, full re-download): never skipped.
+///
 /// Calls are serialized, so a double click runs the sync once; the second click then finds a fresh
 /// timestamp. Only a successful run starts the debounce window: a failed (e.g. offline) sync can be retried at once.
 pub async fn manual_sync_in<F, Fut>(
@@ -640,7 +641,7 @@ pub async fn run_sync(
 
     let wl_changed = force
         || wl_empty
-        || stored_act.as_ref().map_or(true, |s| {
+        || stored_act.as_ref().is_none_or(|s| {
             s.watchlist.as_ref().and_then(|w| w.updated_at.as_ref())
                 != activities.watchlist.as_ref().and_then(|w| w.updated_at.as_ref())
         });
@@ -649,7 +650,7 @@ pub async fn run_sync(
         || hist_empty
         || history_dirty
         || !watched_shows_synced
-        || stored_act.as_ref().map_or(true, |s| {
+        || stored_act.as_ref().is_none_or(|s| {
             s.episodes.as_ref().and_then(|e| e.watched_at.as_ref())
                 != activities.episodes.as_ref().and_then(|e| e.watched_at.as_ref())
                 || s.movies.as_ref().and_then(|m| m.watched_at.as_ref())
@@ -1214,7 +1215,7 @@ pub async fn sync_watched_shows(
             .map_err(|e| e.to_string())?
             .flatten()
             .filter(|(_, _, _, ep_id)| {
-                ep_id.map_or(true, |id| !pending_ep_ids.contains(&id))
+                ep_id.is_none_or(|id| !pending_ep_ids.contains(&id))
             })
             .map(|(s, se, ep, _)| (s, se, ep))
             .collect();
@@ -1277,7 +1278,7 @@ pub async fn sync_watched_shows(
                     has_active_ep = true;
                     active_count += 1;
                     if let Some(w) = ep.last_watched_at.as_deref() {
-                        if max_watched.map_or(true, |m| w > m) {
+                        if max_watched.is_none_or(|m| w > m) {
                             max_watched = Some(w);
                         }
                     }
@@ -1610,6 +1611,7 @@ const PROGRESS_MAX_PER_SYNC: usize = 35;
 ///  2. its progress was never downloaded,
 ///  3. a calendar episode aired after the last download, or
 ///  4. its stored next episode aired after the last download;
+///
 /// plus up to `PROGRESS_SAFETY_NET_MAX` shows whose data is older than a week.
 /// `all = true` (full sync) selects every candidate. Timestamps are compared to the second
 /// (Trakt sends `.000Z`, local values have no fraction).

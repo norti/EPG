@@ -17,6 +17,7 @@ tokio = { version = "1.54", features = ["full"] }
 reqwest = { version = "0.11", features = ["gzip", "json"] }
 zeroize = { version = "1.9", features = ["derive"] }
 flate2 = "1.1"
+encoding_rs = "0.8"
 quick-xml = "0.31"
 rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5.0"
