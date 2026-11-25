@@ -17,7 +17,7 @@ pub const MIGRATIONS: &[MigFn] = &[
     migrate_v8,
 ];
 
-pub fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
+fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
     let sql = format!("PRAGMA table_info({})", table);
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query([])?;
@@ -234,7 +234,8 @@ fn migrate_v1(conn: &Connection) -> rusqlite::Result<()> {
             url TEXT,
             last_downloaded TEXT,
             country_code TEXT,
-            time_offset INTEGER
+            time_offset INTEGER,
+            sort_position INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS favorites (
@@ -315,61 +316,6 @@ fn migrate_v1(conn: &Connection) -> rusqlite::Result<()> {
     add_column_if_missing(conn, "tmdb_cache", "hu_title", "TEXT")?;
     add_column_if_missing(conn, "tmdb_cache", "en_title", "TEXT")?;
     add_column_if_missing(conn, "tmdb_cache", "original_language", "TEXT")?;
-
-    let has_migrated_legacy_cleanup: bool = conn
-        .query_row(
-            "SELECT 1 FROM settings WHERE key = 'migration_cleanup_v1'",
-            [],
-            |_| Ok(true),
-        )
-        .unwrap_or(false);
-
-    if !has_migrated_legacy_cleanup {
-        conn.execute(
-            "DELETE FROM tmdb_cache WHERE query_title = 'Jurassic World' AND (title LIKE '%gefallene%' OR title LIKE '%Fallen Kingdom%')",
-            [],
-        )?;
-        conn.execute(
-            "DELETE FROM tmdb_cache WHERE query_title = 'G.I. Joe' AND (title LIKE '%Megtorlás%' OR title LIKE '%Retaliation%')",
-            [],
-        )?;
-
-        conn.execute(
-            "DELETE FROM sources WHERE id IN ('src_porthu', 'src_magenta', 'src_sky')",
-            [],
-        )?;
-        conn.execute(
-            "DELETE FROM channels WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')",
-            [],
-        )?;
-        conn.execute(
-            "DELETE FROM programmes WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')",
-            [],
-        )?;
-        conn.execute(
-            "DELETE FROM channel_orders WHERE source_id IN ('src_porthu', 'src_magenta', 'src_sky')",
-            [],
-        )?;
-
-        conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_cleanup_v1', '1')",
-            [],
-        )?;
-    }
-
-    let lang_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM app_languages", [], |r| r.get(0))
-        .unwrap_or(0);
-    if lang_count == 0 {
-        conn.execute(
-            "INSERT OR IGNORE INTO app_languages (lang, content, updated_at) VALUES ('english', ?1, datetime('now', 'localtime'))",
-            params![EMBEDDED_ENGLISH_LNG],
-        )?;
-        conn.execute(
-            "INSERT OR IGNORE INTO app_languages (lang, content, updated_at) VALUES ('hungarian', ?1, datetime('now', 'localtime'))",
-            params![EMBEDDED_HUNGARIAN_LNG],
-        )?;
-    }
 
     Ok(())
 }

@@ -102,8 +102,7 @@ struct EpgResponse {
     programmes: Vec<Programme>,
 }
 
-const EMBEDDED_ENGLISH_LNG: &str = include_str!("../../public/languages/english.lng");
-const EMBEDDED_HUNGARIAN_LNG: &str = include_str!("../../public/languages/hungarian.lng");
+use crate::migrations::{EMBEDDED_ENGLISH_LNG, EMBEDDED_HUNGARIAN_LNG};
 
 fn get_embedded_language(lang: &str) -> Option<&'static str> {
     match lang.to_lowercase().as_str() {
