@@ -1,12 +1,31 @@
 /**
  * Trakt.tv UI Controller (Header, View Toggle, Auth, Modal, EPG Matcher, Settings)
  */
-(function () {
-  'use strict';
+import { state, invoke, listen, hasTauri } from '../application/state.js';
+import {
+  t,
+  getCurrentLang,
+  addLanguageChangeListener,
+} from '../application/i18n.js';
+import { Icons } from '../utils/icons.js';
+import { TraktDates } from './trakt-dates.js';
+import { iconHtml, showConfirm, showAlert } from '../application/ui.js';
+import { renderEPG } from '../application/epg.js';
+import {
+  updateModalLeftColVisibility,
+  resetModalTmdbUi,
+  renderTmdbDetailsInModal,
+  closeFixOverlay,
+} from '../tmdb/tmdb.js';
+import { updateModalFavStar, setModalContext } from '../application/modal.js';
+import {
+  renderDashboard,
+  renderWatchlistView,
+  renderCalendarView,
+  renderProgressAndAiringsInto,
+} from './trakt-dashboard.js';
 
-  const { invoke } = window.__TAURI__.core;
-
-  let isTraktMode = false;
+  let traktModeActive = false;
   let currentSubView = 'dashboard'; // 'dashboard' | 'watchlist' | 'calendar_my' | 'calendar_global'
   let authStatus = { loggedIn: false, enabled: true, profile: null };
   let syncStatus = {
@@ -26,6 +45,8 @@
   let loginPollFallbackTimer = null;
   let modalAttachSeq = 0;
   let manualSyncInFlight = false;
+  let cachedAvatarUrl = null;
+  let cachedAvatarDataUri = null;
 
   function stopLoginFallbackTimer() {
     if (loginPollFallbackTimer) {
@@ -46,7 +67,7 @@
     } catch (_) {}
     updateHeaderVisibility();
     updateSyncStatusUi();
-    if (isTraktMode) await loadActiveTraktView();
+    if (traktModeActive) await loadActiveTraktView();
     if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
       await loadSettingsTab();
     }
@@ -76,10 +97,6 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
-  }
-
-  function iconHtml(name, size = 16) {
-    return window.Icons ? window.Icons.get(name, { size }) : '';
   }
 
   function formatTraktError(err) {
@@ -127,9 +144,9 @@
     if (!traktBtn) return;
     if (!authStatus.enabled) {
       traktBtn.classList.add('u-hidden');
-      if (isTraktMode) exitTraktMode();
+      if (traktModeActive) exitTraktMode();
     } else {
-      traktBtn.classList.toggle('u-hidden', isTraktMode);
+      traktBtn.classList.toggle('u-hidden', traktModeActive);
     }
     updateWatchlistCountBadge();
   }
@@ -176,14 +193,14 @@
         syncBtn.disabled = true;
         if (iconSpan) {
           iconSpan.setAttribute('data-icon', 'trakt-sync-active');
-          if (window.Icons) window.Icons.replace(syncBtn);
+          if (Icons) Icons.replace(syncBtn);
         }
       } else {
         syncBtn.classList.remove('trakt-sync-spinning');
         syncBtn.disabled = false;
         if (iconSpan) {
           iconSpan.setAttribute('data-icon', 'trakt-sync');
-          if (window.Icons) window.Icons.replace(syncBtn);
+          if (Icons) Icons.replace(syncBtn);
         }
       }
     }
@@ -214,7 +231,7 @@
     const logoutBtn = document.getElementById('traktSettingsLogoutBtn');
     if (logoutBtn) logoutBtn.disabled = isBusy;
 
-    const locale = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
+    const locale = getCurrentLang() === 'english' ? 'en-US' : 'hu-HU';
     let formattedLastSync = '';
     let isOverdue = false;
     if (syncStatus.lastSyncOkAt) {
@@ -400,7 +417,7 @@
     viewport.innerHTML = `<div class="trakt-loading"><span class="spinner-small"></span> ${esc(t('trakt_loading'))}</div>`;
 
     try {
-      const startDate = window.TraktDates.getLocalYesterdayYmd();
+      const startDate = TraktDates.getLocalYesterdayYmd();
       if (currentSubView === 'dashboard') {
         const data = await invoke('trakt_get_dashboard_data', {
           startDate,
@@ -411,16 +428,16 @@
         syncStatus.pendingCount = data.pendingCount;
         syncStatus.offline = data.offline;
         updateSyncStatusUi();
-        window.TraktDashboard.renderDashboard(viewport, data);
+        renderDashboard(viewport, data);
       } else if (currentSubView === 'watchlist') {
         const items = await invoke('trakt_get_watchlist', { filter: null });
-        window.TraktDashboard.renderWatchlistView(viewport, items, watchlistState);
+        renderWatchlistView(viewport, items, watchlistState);
       } else if (currentSubView === 'calendar_my') {
         const eps = await invoke('trakt_get_calendar_my', {
           startDate,
           forceRefresh: false,
         });
-        window.TraktDashboard.renderCalendarView(viewport, eps, 'my');
+        renderCalendarView(viewport, eps, 'my');
       } else if (currentSubView === 'calendar_global') {
         const [eps, filters] = await Promise.all([
           invoke('trakt_get_calendar_global', {
@@ -441,7 +458,7 @@
               forceRefresh: true,
             });
             const saved = await invoke('trakt_get_global_calendar_filters').catch(() => nextFilters);
-            window.TraktDashboard.renderCalendarView(viewport, updated, 'global', {
+            renderCalendarView(viewport, updated, 'global', {
               filters: saved,
               onChangeFilters: handleGlobalFilterChange,
             });
@@ -449,7 +466,7 @@
             viewport.innerHTML = `<div class="trakt-error-box">${esc(formatTraktError(err))}</div>`;
           }
         };
-        window.TraktDashboard.renderCalendarView(viewport, eps, 'global', {
+        renderCalendarView(viewport, eps, 'global', {
           filters,
           onChangeFilters: handleGlobalFilterChange,
         });
@@ -461,7 +478,7 @@
 
   async function enterTraktMode(subView = 'dashboard') {
     if (!authStatus.enabled) return;
-    isTraktMode = true;
+    traktModeActive = true;
     currentSubView = subView;
     document.body.classList.add('trakt-mode');
     document.getElementById('epgViewport').classList.add('u-hidden');
@@ -473,7 +490,7 @@
   }
 
   function exitTraktMode(options = {}) {
-    isTraktMode = false;
+    traktModeActive = false;
     document.body.classList.remove('trakt-mode');
     document.getElementById('traktViewport').classList.add('u-hidden');
     document.getElementById('epgViewport').classList.remove('u-hidden');
@@ -511,7 +528,7 @@
         syncStatus.offline = false;
         if (res.lastSyncOkAt) syncStatus.lastSyncOkAt = res.lastSyncOkAt;
         updateSyncStatusUi();
-        if (isTraktMode) {
+        if (traktModeActive) {
           await loadActiveTraktView();
         }
         if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
@@ -526,7 +543,7 @@
           // A sync finished less than a minute ago: nothing was requested, the local data is current.
           showToast(t('trakt_sync_up_to_date'));
         } else {
-          if (isTraktMode) {
+          if (traktModeActive) {
             await loadActiveTraktView();
           }
           if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
@@ -754,7 +771,7 @@
 
       if (data && data.traktId) {
         const drawer = document.getElementById('modalTraktDrawerSection');
-        if (drawer && window.TraktDashboard?.renderProgressAndAiringsInto) {
+        if (drawer && renderProgressAndAiringsInto) {
           const aliases = Array.from(
             new Set(
               [
@@ -765,7 +782,7 @@
               ].filter(Boolean)
             )
           );
-          window.TraktDashboard.renderProgressAndAiringsInto(
+          renderProgressAndAiringsInto(
             drawer,
             {
               traktId: data.traktId,
@@ -789,9 +806,7 @@
     detachFromModal();
 
     const seq = ++modalAttachSeq;
-    if (typeof window.setModalContext === 'function') {
-      window.setModalContext(item.title, null, item.overview || '');
-    }
+    setModalContext(item.title, null, item.overview || '');
 
     document.getElementById('modalTitle').textContent = item.title;
     document.getElementById('modalTime').textContent = item.subtitle || (item.year ? String(item.year) : '');
@@ -805,7 +820,7 @@
     let tmdbData = null;
     if (item.tmdbId) {
       try {
-        const lang = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
+        const lang = getCurrentLang() === 'english' ? 'en-US' : 'hu-HU';
         tmdbData = await invoke('get_tmdb_details_by_id', {
           tmdbId: item.tmdbId,
           mediaType: item.mediaType || 'show',
@@ -855,7 +870,7 @@
 
     // Render Season/Episode Progress Drawer + EPG Airings
     const drawerEl = document.getElementById('modalTraktDrawerSection');
-    if (drawerEl && window.TraktDashboard) {
+    if (drawerEl) {
       const aliases = Array.from(
         new Set(
           [
@@ -868,7 +883,7 @@
           ].filter(Boolean)
         )
       );
-      window.TraktDashboard.renderProgressAndAiringsInto(
+      renderProgressAndAiringsInto(
         drawerEl,
         {
           ...item,
@@ -943,16 +958,21 @@
     if (accountCard) {
       if (authStatus.loggedIn) {
         const prof = authStatus.profile || { username: 'Trakt User', vip: false };
-        const locale = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
+        const locale = getCurrentLang() === 'english' ? 'en-US' : 'hu-HU';
         const joinedStr = prof.joinedAt ? new Date(prof.joinedAt).toLocaleDateString(locale) : '-';
         const syncStr = syncStatus.lastSyncOkAt
           ? new Date(syncStatus.lastSyncOkAt).toLocaleString(locale)
           : t('trakt_sync_never');
         const overdueClass = syncStatus.overdue ? 'is-overdue' : '';
 
+        const avatarSrc =
+          prof.avatarUrl && cachedAvatarUrl === prof.avatarUrl && cachedAvatarDataUri
+            ? cachedAvatarDataUri
+            : null;
+
         accountCard.innerHTML = `
           <div class="trakt-profile-row">
-            ${prof.avatarUrl ? `<img src="${esc(prof.avatarUrl)}" alt="" class="trakt-profile-avatar" />` : `<div class="trakt-profile-avatar-ph">${iconHtml('trakt-login', 24)}</div>`}
+            ${avatarSrc ? `<img src="${esc(avatarSrc)}" alt="" class="trakt-profile-avatar" />` : `<div class="trakt-profile-avatar-ph" id="traktProfileAvatarPh">${iconHtml('trakt-login', 24)}</div>`}
             <div class="trakt-profile-info">
               <div class="trakt-profile-name">
                 <strong>${esc(prof.name || prof.username)}</strong>
@@ -976,6 +996,25 @@
           </div>
         `;
 
+        if (prof.avatarUrl && !avatarSrc) {
+          const avatarUrl = prof.avatarUrl;
+          const phEl = accountCard.querySelector('#traktProfileAvatarPh');
+          invoke('cache_logo', { url: avatarUrl })
+            .then((dataUri) => {
+              if (!dataUri) return;
+              cachedAvatarUrl = avatarUrl;
+              cachedAvatarDataUri = dataUri;
+              if (phEl && phEl.isConnected) {
+                const img = document.createElement('img');
+                img.className = 'trakt-profile-avatar';
+                img.alt = '';
+                img.src = dataUri;
+                phEl.replaceWith(img);
+              }
+            })
+            .catch(() => {});
+        }
+
         const sBtn = accountCard.querySelector('#traktSettingsSyncBtn');
         if (sBtn) {
           sBtn.onclick = async () => {
@@ -998,6 +1037,8 @@
             await invoke('trakt_logout');
             authStatus.loggedIn = false;
             authStatus.profile = null;
+            cachedAvatarUrl = null;
+            cachedAvatarDataUri = null;
             await loadSettingsTab();
           };
         }
@@ -1056,8 +1097,8 @@
   // ==========================================================================
 
   async function init() {
-    if (window.Icons) {
-      window.Icons.replace();
+    if (Icons) {
+      Icons.replace();
     }
 
     try {
@@ -1104,9 +1145,7 @@
     if (syncBtn) syncBtn.onclick = () => triggerManualSync(false);
 
     // Tauri background events
-    if (window.__TAURI__ && window.__TAURI__.event) {
-      const { listen } = window.__TAURI__.event;
-
+    if (hasTauri()) {
       listen('trakt-login-state', async (event) => {
         const payload = event.payload || {};
         if (payload.status === 'ok') {
@@ -1117,7 +1156,7 @@
           authStatus.loggedIn = false;
           authStatus.profile = null;
           updateSyncStatusUi();
-          if (isTraktMode) await loadActiveTraktView();
+          if (traktModeActive) await loadActiveTraktView();
           if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
             await loadSettingsTab();
           }
@@ -1150,7 +1189,7 @@
           (prevStatus === 'syncing' || prevStatus === 'stopping') &&
           (syncStatus.status === 'idle' || syncStatus.status === 'cancelled');
         if (finishedFromBusy && !manualSyncInFlight) {
-          if (isTraktMode) {
+          if (traktModeActive) {
             await loadActiveTraktView();
           }
           if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
@@ -1162,16 +1201,16 @@
       }).catch((e) => console.warn('[Trakt] listen trakt-sync-state failed:', e));
 
       listen('trakt-watchlist-changed', async () => {
-        if (typeof epgData !== 'undefined' && epgData && epgData.programmes) {
-          await prepareMatchesForEpg(epgData.programmes);
-          if (!isTraktMode && typeof renderEPG === 'function') {
+        if (state.epgData && state.epgData.programmes) {
+          await prepareMatchesForEpg(state.epgData.programmes);
+          if (!traktModeActive) {
             renderEPG();
           }
         } else {
           updateWatchlistCountBadge();
         }
         // Refresh the global calendar or watchlist view so watchlist state reflects the change
-        if (isTraktMode && (currentSubView === 'calendar_global' || currentSubView === 'watchlist')) {
+        if (traktModeActive && (currentSubView === 'calendar_global' || currentSubView === 'watchlist')) {
           const scrollEl =
             document.getElementById('traktCalendarDays') ||
             document.getElementById('traktWatchlistGrid');
@@ -1197,7 +1236,7 @@
     if (typeof addLanguageChangeListener === 'function') {
       addLanguageChangeListener(() => {
         updateSyncStatusUi();
-        if (isTraktMode) loadActiveTraktView();
+        if (traktModeActive) loadActiveTraktView();
         if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
           loadSettingsTab();
         }
@@ -1206,19 +1245,19 @@
   }
 
   async function refreshDashboardIfActive() {
-    if (!isTraktMode || currentSubView !== 'dashboard') return;
+    if (!traktModeActive || currentSubView !== 'dashboard') return;
     const viewport = document.getElementById('traktViewport');
     if (!viewport) return;
     const todayList = document.getElementById('traktTodayList');
     const prevScrollTop = todayList ? todayList.scrollTop : 0;
     try {
-      const startDate = window.TraktDates.getLocalYesterdayYmd();
+      const startDate = TraktDates.getLocalYesterdayYmd();
       const data = await invoke('trakt_get_dashboard_data', {
         startDate,
         forceRefresh: false,
       });
-      if (!isTraktMode || currentSubView !== 'dashboard') return;
-      window.TraktDashboard.renderDashboard(viewport, data, { preservePage: true });
+      if (!traktModeActive || currentSubView !== 'dashboard') return;
+      renderDashboard(viewport, data, { preservePage: true });
       const newTodayList = document.getElementById('traktTodayList');
       if (newTodayList && prevScrollTop > 0) {
         newTodayList.scrollTop = prevScrollTop;
@@ -1226,19 +1265,22 @@
     } catch (_) {}
   }
 
-  window.TraktUI = {
-    init,
-    enterTraktMode,
-    exitTraktMode,
-    prepareMatchesForEpg,
-    isOnWatchlist,
-    attachToModal,
-    detachFromModal,
-    openTraktItemModal,
-    loadSettingsTab,
-    refreshDashboardIfActive,
-    showTraktError,
-    showToast,
-    isTraktMode: () => isTraktMode,
-  };
-})();
+  function isTraktMode() {
+    return traktModeActive;
+  }
+
+export {
+  init as initTraktUI,
+  enterTraktMode,
+  exitTraktMode,
+  prepareMatchesForEpg,
+  isOnWatchlist,
+  attachToModal,
+  detachFromModal,
+  openTraktItemModal,
+  loadSettingsTab,
+  refreshDashboardIfActive,
+  showTraktError,
+  showToast,
+  isTraktMode,
+};

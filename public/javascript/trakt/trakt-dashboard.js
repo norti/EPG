@@ -1,10 +1,23 @@
 /**
  * Trakt.tv Dashboard, Watchlist, Calendars & Progress Drawer renderer
  */
-(function () {
-  'use strict';
-
-  const { invoke } = window.__TAURI__.core;
+import { invoke } from '../application/state.js';
+import { t, getCurrentLang } from '../application/i18n.js';
+import { SearchUtils } from '../utils/search.js';
+import { TraktDates } from './trakt-dates.js';
+import { iconHtml } from '../application/ui.js';
+import {
+  parseEPGDate,
+  isFavoriteTitle,
+  jumpToEpgAiring,
+} from '../application/epg.js';
+import { toggleFavorite } from '../application/favorites.js';
+import {
+  openTraktItemModal,
+  showTraktError,
+  showToast,
+  refreshDashboardIfActive,
+} from './trakt-ui.js';
 
   // Concurrency-limited image loader (max 3 parallel cache_logo / TMDB poster calls)
   const imageQueue = [];
@@ -189,10 +202,6 @@
       .replace(/'/g, '&#039;');
   }
 
-  function iconHtml(name, size = 16) {
-    return window.Icons ? window.Icons.get(name, { size }) : '';
-  }
-
   function createThumbElement(posterPath, size = 'w342', fallbackIcon = 'device-tv', tmdbId = null, tmdbMediaType = 'tv') {
     const thumb = document.createElement('div');
     thumb.className = 'trakt-card-thumb';
@@ -209,7 +218,7 @@
   }
 
   function getDisplayShowTitle(item) {
-    if (typeof currentLang !== 'undefined' && currentLang === 'hungarian' && item.showTitleHu) {
+    if (getCurrentLang() === 'hungarian' && item.showTitleHu) {
       return item.showTitleHu;
     }
     return item.showTitle || item.titleHu || item.title || '';
@@ -239,11 +248,11 @@
     const epName = ep.episodeTitle || '';
     const epTitleSuffix = epName ? ` – ${epName}` : '';
     const nowDate = options.nowDate || new Date();
-    const localTime = window.TraktDates ? window.TraktDates.formatLocalTime(ep.firstAired) : '';
+    const localTime = TraktDates ? TraktDates.formatLocalTime(ep.firstAired) : '';
     let datePrefix = '';
     if (options.showDate && ep.firstAired) {
       const d = new Date(ep.firstAired);
-      const locale = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
+      const locale = getCurrentLang() === 'english' ? 'en-US' : 'hu-HU';
       datePrefix = d.toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ';
     }
     const continueLabel = isContinue
@@ -251,8 +260,8 @@
       : '';
     let rightMetaText = `${datePrefix}${localTime}`;
     if (options.showDynamicPastDay || isContinue) {
-      const dynamicMeta = window.TraktDates
-        ? window.TraktDates.formatDashboardReleaseMeta(ep.firstAired, nowDate, {
+      const dynamicMeta = TraktDates
+        ? TraktDates.formatDashboardReleaseMeta(ep.firstAired, nowDate, {
             yesterday: t('day_yesterday'),
           })
         : localTime;
@@ -341,7 +350,7 @@
             wlBtn.innerHTML = `${iconHtml('trakt-watchlist-on', 15)} <span>${esc(t('trakt_watchlist_added'))}</span>`;
           } catch (err) {
             wlBtn.disabled = false;
-            if (window.TraktUI) window.TraktUI.showTraktError(err);
+            showTraktError(err);
           }
         };
       }
@@ -365,20 +374,18 @@
 
     card.onclick = (e) => {
       if (e.target.closest('button')) return;
-      if (window.TraktUI) {
-        window.TraktUI.openTraktItemModal({
-          traktId: ep.showTraktId,
-          tmdbId: ep.showTmdbId,
-          mediaType: 'show',
-          title: showTitle,
-          originalTitle: ep.showTitle,
-          overview: ep.overview,
-          posterPath: ep.posterPath,
-          network: ep.network,
-          onWatchlist: ep.onWatchlist,
-          subtitle: `${epCode}${epTitleSuffix}${rightMetaText ? ' · ' + rightMetaText : ''}`,
-        });
-      }
+      openTraktItemModal({
+        traktId: ep.showTraktId,
+        tmdbId: ep.showTmdbId,
+        mediaType: 'show',
+        title: showTitle,
+        originalTitle: ep.showTitle,
+        overview: ep.overview,
+        posterPath: ep.posterPath,
+        network: ep.network,
+        onWatchlist: ep.onWatchlist,
+        subtitle: `${epCode}${epTitleSuffix}${rightMetaText ? ' · ' + rightMetaText : ''}`,
+      });
     };
 
     return card;
@@ -410,9 +417,7 @@
       if (res && res.queued) {
         btn.classList.add('is-queued');
         btn.innerHTML = `${iconHtml('trakt-pending', 16)} <span>${esc(t('trakt_status_pending'))}</span>`;
-        if (window.TraktUI) {
-          window.TraktUI.showToast(t('trakt_error_offline'));
-        }
+        showToast(t('trakt_error_offline'));
       } else {
         btn.classList.add('is-watched');
         btn.innerHTML = `${iconHtml('trakt-watched-done', 16)} <span>${esc(t('trakt_status_watched'))}</span>`;
@@ -440,16 +445,16 @@
         posterPath: ep.posterPath,
       });
 
-      if (ep.isContinueWatching && !(res && res.queued) && window.TraktUI?.refreshDashboardIfActive) {
+      if (ep.isContinueWatching && !(res && res.queued) && true) {
         setTimeout(() => {
-          window.TraktUI.refreshDashboardIfActive();
+          refreshDashboardIfActive();
         }, 650);
       }
     } catch (err) {
       btn.disabled = false;
       btn.classList.remove('is-pending');
       btn.innerHTML = `${iconHtml('trakt-watched', 16)} <span>${esc(t('trakt_btn_mark_watched'))}</span>`;
-      if (window.TraktUI) window.TraktUI.showTraktError(err);
+      showTraktError(err);
     }
   }
 
@@ -470,9 +475,9 @@
     const info = document.createElement('div');
     info.className = 'trakt-poster-card-body';
 
-    const lang = typeof currentLang !== 'undefined' ? currentLang : 'hungarian';
-    const relTime = window.TraktDates
-      ? window.TraktDates.formatRelativeTime(item.watchedAt, lang)
+    const lang = getCurrentLang();
+    const relTime = TraktDates
+      ? TraktDates.formatRelativeTime(item.watchedAt, lang)
       : item.watchedAt;
     const fullDate = item.watchedAt
       ? new Date(item.watchedAt).toLocaleString(lang === 'english' ? 'en-US' : 'hu-HU')
@@ -496,17 +501,15 @@
     card.appendChild(info);
 
     card.onclick = () => {
-      if (window.TraktUI) {
-        window.TraktUI.openTraktItemModal({
-          traktId: item.showTraktId || item.traktId,
-          tmdbId: item.showTmdbId,
-          mediaType: item.mediaType === 'movie' ? 'movie' : 'show',
-          title: item.showTitle,
-          originalTitle: item.showTitle,
-          posterPath: item.posterPath,
-          subtitle: `${subLine} · ${fullDate}`,
-        });
-      }
+      openTraktItemModal({
+        traktId: item.showTraktId || item.traktId,
+        tmdbId: item.showTmdbId,
+        mediaType: item.mediaType === 'movie' ? 'movie' : 'show',
+        title: item.showTitle,
+        originalTitle: item.showTitle,
+        posterPath: item.posterPath,
+        subtitle: `${subLine} · ${fullDate}`,
+      });
     };
 
     return card;
@@ -525,11 +528,11 @@
   }
 
   function renderDashboard(viewport, data, options = {}) {
-    const lang = typeof currentLang !== 'undefined' ? currentLang : 'hungarian';
+    const lang = getCurrentLang();
     const now = new Date();
     const allCalendarEps = data.calendarEpisodes || [];
-    const split = window.TraktDates.splitDashboardEpisodes(allCalendarEps, now);
-    const furtherWeeks = window.TraktDates.getFurtherWeekRanges(now, 30);
+    const split = TraktDates.splitDashboardEpisodes(allCalendarEps, now);
+    const furtherWeeks = TraktDates.getFurtherWeekRanges(now, 30);
 
     if (!options.preservePage) {
       furtherWeekIndex = 0;
@@ -562,7 +565,7 @@
     const todayCombined = [
       ...split.today.map((ep) => ({ ...ep, isContinueWatching: false })),
       ...continueItems,
-    ].sort(window.TraktDates.compareEpisodesByStartTime);
+    ].sort(TraktDates.compareEpisodesByStartTime);
 
     viewport.innerHTML = `
       <div class="trakt-dashboard">
@@ -664,12 +667,12 @@
 
       furtherWeekIndex = Math.max(0, Math.min(idx, furtherWeeks.length - 1));
       const activeWeek = furtherWeeks[furtherWeekIndex];
-      const activeRangeLabel = window.TraktDates.formatShortDateRange(
+      const activeRangeLabel = TraktDates.formatShortDateRange(
         activeWeek.start,
         activeWeek.end,
         lang
       );
-      const weekEps = window.TraktDates.filterEpisodesByDateRange(
+      const weekEps = TraktDates.filterEpisodesByDateRange(
         allCalendarEps,
         activeWeek.startKey,
         activeWeek.endKey
@@ -686,7 +689,7 @@
         furtherPrevBtn.disabled = !hasPrev;
         if (hasPrev) {
           const prevW = furtherWeeks[furtherWeekIndex - 1];
-          const prevLbl = window.TraktDates.formatShortDateRange(prevW.start, prevW.end, lang);
+          const prevLbl = TraktDates.formatShortDateRange(prevW.start, prevW.end, lang);
           furtherPrevBtn.title = `${t('trakt_pager_prev_week')} (${prevLbl})`;
         } else {
           furtherPrevBtn.title = t('trakt_pager_prev_week');
@@ -698,7 +701,7 @@
         furtherNextBtn.disabled = !hasNext;
         if (hasNext) {
           const nextW = furtherWeeks[furtherWeekIndex + 1];
-          const nextLbl = window.TraktDates.formatShortDateRange(nextW.start, nextW.end, lang);
+          const nextLbl = TraktDates.formatShortDateRange(nextW.start, nextW.end, lang);
           furtherNextBtn.title = `${t('trakt_pager_next_week')} (${nextLbl})`;
         } else {
           furtherNextBtn.title = t('trakt_pager_next_week');
@@ -748,7 +751,7 @@
     const query = (stateObj.query || '').trim();
     const queryLower = query.toLowerCase();
     const preparedQuery =
-      query && window.SearchUtils ? window.SearchUtils.prepareQuery(query) : null;
+      query && SearchUtils ? SearchUtils.prepareQuery(query) : null;
 
     viewport.innerHTML = `
       <div class="trakt-subview">
@@ -778,10 +781,10 @@
       if (query) {
         if (preparedQuery) {
           const titleMatch =
-            window.SearchUtils.matchPrepared(it.title || '', preparedQuery) ||
-            window.SearchUtils.matchPrepared(it.titleHu || '', preparedQuery) ||
+            SearchUtils.matchPrepared(it.title || '', preparedQuery) ||
+            SearchUtils.matchPrepared(it.titleHu || '', preparedQuery) ||
             (it.aliases || []).some((a) =>
-              window.SearchUtils.matchPrepared(a, preparedQuery),
+              SearchUtils.matchPrepared(a, preparedQuery),
             );
           if (!titleMatch) return false;
         } else {
@@ -823,7 +826,7 @@
         card.appendChild(thumb);
 
         const displayTitle =
-          typeof currentLang !== 'undefined' && currentLang === 'hungarian' && item.titleHu
+          getCurrentLang() === 'hungarian' && item.titleHu
             ? item.titleHu
             : item.title;
 
@@ -855,7 +858,7 @@
             renderWatchlistView(viewport, items, stateObj);
           } catch (err) {
             removeBtn.disabled = false;
-            if (window.TraktUI) window.TraktUI.showTraktError(err);
+            showTraktError(err);
           }
         };
         body.appendChild(removeBtn);
@@ -863,24 +866,22 @@
 
         card.onclick = (e) => {
           if (e.target.closest('button')) return;
-          if (window.TraktUI) {
-            window.TraktUI.openTraktItemModal({
-              traktId: item.traktId,
-              tmdbId: item.tmdbId,
-              mediaType: item.mediaType,
-              title: displayTitle,
-              originalTitle: item.title,
-              aliases: item.aliases || [],
-              year: item.year,
-              rating: item.rating,
-              votes: item.votes,
-              status: item.status,
-              network: item.network,
-              overview: item.overview,
-              posterPath: item.posterPath,
-              onWatchlist: true,
-            });
-          }
+          openTraktItemModal({
+            traktId: item.traktId,
+            tmdbId: item.tmdbId,
+            mediaType: item.mediaType,
+            title: displayTitle,
+            originalTitle: item.title,
+            aliases: item.aliases || [],
+            year: item.year,
+            rating: item.rating,
+            votes: item.votes,
+            status: item.status,
+            network: item.network,
+            overview: item.overview,
+            posterPath: item.posterPath,
+            onWatchlist: true,
+          });
         };
 
         grid.appendChild(card);
@@ -920,19 +921,19 @@
     const isGlobal = mode === 'global';
     const titleKey = isGlobal ? 'trakt_calendar_global_title' : 'trakt_calendar_my_title';
     const iconName = isGlobal ? 'trakt-calendar-global' : 'trakt-calendar-my';
-    const lang = typeof currentLang !== 'undefined' ? currentLang : 'hungarian';
+    const lang = getCurrentLang();
 
-    const todayKey = window.TraktDates.toLocalYmd(new Date());
+    const todayKey = TraktDates.toLocalYmd(new Date());
     const maxDays = isGlobal ? 14 : 30;
-    const maxKey = window.TraktDates.toLocalYmd(window.TraktDates.addLocalDays(new Date(), maxDays));
+    const maxKey = TraktDates.toLocalYmd(TraktDates.addLocalDays(new Date(), maxDays));
 
     const filtered = (episodes || []).filter((ep) => {
       if (!ep.firstAired) return false;
-      const k = window.TraktDates.toLocalYmd(new Date(ep.firstAired));
+      const k = TraktDates.toLocalYmd(new Date(ep.firstAired));
       return k >= todayKey && k <= maxKey;
     });
 
-    const grouped = window.TraktDates.groupByLocalDay(filtered);
+    const grouped = TraktDates.groupByLocalDay(filtered);
     const sortedDays = Array.from(grouped.keys()).sort();
 
     let globalFilterHtml = '';
@@ -1009,7 +1010,7 @@
       const section = document.createElement('div');
       section.className = 'trakt-cal-day-group';
 
-      const heading = window.TraktDates.formatDayHeading(dayKey, lang, {
+      const heading = TraktDates.formatDayHeading(dayKey, lang, {
         today: t('day_today'),
         tomorrow: t('day_tomorrow'),
       });
@@ -1032,8 +1033,8 @@
       container.appendChild(section);
     });
 
-    if (window.TraktDates && typeof window.TraktDates.attachStickyDayHeader === 'function') {
-      window.TraktDates.attachStickyDayHeader(
+    if (TraktDates && typeof TraktDates.attachStickyDayHeader === 'function') {
+      TraktDates.attachStickyDayHeader(
         container,
         document.getElementById('traktCalActiveDay'),
         { groupSelector: '.trakt-cal-day-group' }
@@ -1054,7 +1055,7 @@
 
     const showTraktId = item.traktId || item.showTraktId;
     const isShow = item.mediaType === 'show' || item.mediaType === 'tv';
-    const lang = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
+    const lang = getCurrentLang() === 'english' ? 'en-US' : 'hu-HU';
     const titlesToSearch = Array.from(
       new Set([item.title, item.originalTitle, ...(item.aliases || [])].filter(Boolean))
     );
@@ -1173,7 +1174,7 @@
     if (airings.length === 0) {
       airingsEl.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_no_epg_airings'))}</div>`;
     } else {
-      const lang = typeof currentLang !== 'undefined' ? currentLang : 'hungarian';
+      const lang = getCurrentLang();
       const locale = lang === 'english' ? 'en-US' : 'hu-HU';
       const todayMid = new Date();
       todayMid.setHours(0, 0, 0, 0);
@@ -1215,7 +1216,7 @@
         }
 
         const startTimeStr = `${pad2(startDate.getHours())}:${pad2(startDate.getMinutes())}`;
-        const isFav = window.EpgApp ? window.EpgApp.isFavoriteTitle(a.title) : false;
+        const isFav = isFavoriteTitle(a.title);
 
         const row = document.createElement('div');
         row.className = 'trakt-airing-row';
@@ -1238,9 +1239,7 @@
         if (jumpBtn) {
           jumpBtn.onclick = (e) => {
             e.stopPropagation();
-            if (window.EpgApp && typeof window.EpgApp.jumpToEpgAiring === 'function') {
-              window.EpgApp.jumpToEpgAiring(a);
-            }
+            jumpToEpgAiring(a);
           };
         }
 
@@ -1249,10 +1248,10 @@
           favBtn.dataset.progTitle = a.title || '';
           favBtn.onclick = async (e) => {
             e.stopPropagation();
-            if (!a.title || !window.EpgApp || typeof window.EpgApp.toggleFavorite !== 'function') return;
+            if (!a.title) return;
             favBtn.disabled = true;
             try {
-              const newFav = await window.EpgApp.toggleFavorite(a.title);
+              const newFav = await toggleFavorite(a.title);
               updateFavButtonsForTitle(a.title, !!newFav);
             } finally {
               favBtn.disabled = false;
@@ -1265,11 +1264,10 @@
     }
   }
 
-  window.TraktDashboard = {
-    renderDashboard,
-    renderWatchlistView,
-    renderCalendarView,
-    renderProgressAndAiringsInto,
-    prependToHistoryRow,
-  };
-})();
+export {
+  renderDashboard,
+  renderWatchlistView,
+  renderCalendarView,
+  renderProgressAndAiringsInto,
+  prependToHistoryRow,
+};

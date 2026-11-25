@@ -1,4 +1,39 @@
-function parseEPGDate(str, manualOffsetHours = 0) {
+import {
+  state,
+  invoke,
+  VIEW_HEIGHT_MAP,
+  HORIZONTAL_SCALE_MAP,
+} from "./state.js";
+import { t, getCurrentLang } from "./i18n.js";
+import { Icons } from "../utils/icons.js";
+import { SearchUtils } from "../utils/search.js";
+import {
+  iconHtml,
+  fuzzySearchMatch,
+  openChannelEditModal,
+  updateGridCornerButton,
+  formatDayHeader,
+  updateAllFavBtnState,
+  updateLayoutButtonUi,
+  renderEmptySourcesState,
+  renderEmptyFavoritesState,
+  escapeHtml,
+  appendSafeImage,
+} from "./ui.js";
+import { downloadSource } from "./sources.js";
+import { toggleFavorite } from "./favorites.js";
+import { hidePosterZoom, closeFixOverlay } from "../tmdb/tmdb.js";
+import { openModal } from "./modal.js";
+import { renderChannelOrderList } from "./channels.js";
+import {
+  prepareMatchesForEpg,
+  isOnWatchlist,
+  detachFromModal,
+  isTraktMode,
+  exitTraktMode,
+} from "../trakt/trakt-ui.js";
+
+export function parseEPGDate(str, manualOffsetHours = 0) {
   if (!str || str.length < 12) return new Date();
 
   const y = parseInt(str.substring(0, 4), 10);
@@ -32,7 +67,7 @@ function parseEPGDate(str, manualOffsetHours = 0) {
   return new Date(utcMs);
 }
 
-function formatDateLabel(dateStr) {
+export function formatDateLabel(dateStr) {
   const date = new Date(dateStr + "T00:00:00");
   const months = t("months");
   const days = t("days");
@@ -49,26 +84,26 @@ function formatDateLabel(dateStr) {
   else if (diffDays === 1) dayName = t("day_tomorrow");
 
   const dayNum = date.getDate();
-  if (currentLang === "english") {
+  if (getCurrentLang() === "english") {
     return `${dayName} - ${months[date.getMonth()]} ${dayNum}, ${date.getFullYear()}`;
   }
   return `${dayName} - ${date.getFullYear()}. ${months[date.getMonth()]} ${dayNum}.`;
 }
 
-async function updateHeaderSortDropdown() {
+export async function updateHeaderSortDropdown() {
   // Header sort selector removed; channel sorting is managed in Settings -> Channels.
 }
 
-function applyActiveSortToEpgChannels() {
-  if (!epgData || !epgData.channels || epgData.channels.length === 0) return;
-  if (!epgData.rawChannels) {
-    epgData.rawChannels = [...epgData.channels];
+export function applyActiveSortToEpgChannels() {
+  if (!state.epgData || !state.epgData.channels || state.epgData.channels.length === 0) return;
+  if (!state.epgData.rawChannels) {
+    state.epgData.rawChannels = [...state.epgData.channels];
   }
-  epgData.channels = [...epgData.rawChannels];
+  state.epgData.channels = [...state.epgData.rawChannels];
 }
 
-async function fetchEPG(options = {}) {
-  if (!currentSourceId) {
+export async function fetchEPG(options = {}) {
+  if (!state.currentSourceId) {
     renderEmptySourcesState();
     return;
   }
@@ -76,32 +111,32 @@ async function fetchEPG(options = {}) {
   updateAllFavBtnState();
   document.getElementById("status").textContent = t("status_loading");
   try {
-    epgData = await invoke("get_epg_data", { sourceId: currentSourceId });
+    state.epgData = await invoke("get_epg_data", { sourceId: state.currentSourceId });
 
-    if (currentSourceId === "__ALL_FAVORITES__") {
-      if (!epgData.channels || epgData.channels.length === 0) {
+    if (state.currentSourceId === "__ALL_FAVORITES__") {
+      if (!state.epgData.channels || state.epgData.channels.length === 0) {
         document.getElementById("status").textContent = t("status_ready");
         await updateHeaderSortDropdown();
         renderEmptyFavoritesState();
         return;
       }
-    } else if (!epgData.channels || epgData.channels.length === 0) {
-      await downloadSource(currentSourceId);
-      epgData = await invoke("get_epg_data", {
-        sourceId: currentSourceId,
+    } else if (!state.epgData.channels || state.epgData.channels.length === 0) {
+      await downloadSource(state.currentSourceId);
+      state.epgData = await invoke("get_epg_data", {
+        sourceId: state.currentSourceId,
       });
     }
 
-    epgData.rawChannels = [...(epgData.channels || [])];
+    state.epgData.rawChannels = [...(state.epgData.channels || [])];
     await updateHeaderSortDropdown();
     applyActiveSortToEpgChannels();
 
-    const currentSrcObj = sources.find((s) => s.id === currentSourceId);
+    const currentSrcObj = state.sources.find((s) => s.id === state.currentSourceId);
     const defaultOffset = currentSrcObj ? currentSrcObj.timeOffset || 0 : 0;
 
-    epgData.programmes.forEach((p) => {
+    state.epgData.programmes.forEach((p) => {
       const offset =
-        currentSourceId === "__ALL_FAVORITES__" &&
+        state.currentSourceId === "__ALL_FAVORITES__" &&
         p.timeOffset !== undefined &&
         p.timeOffset !== null
           ? p.timeOffset
@@ -110,9 +145,7 @@ async function fetchEPG(options = {}) {
       p.stop = parseEPGDate(p.stop, offset);
     });
 
-    if (window.TraktUI) {
-      await window.TraktUI.prepareMatchesForEpg(epgData.programmes);
-    }
+    await prepareMatchesForEpg(state.epgData.programmes);
 
     document.getElementById("status").textContent = t("status_ready");
     setupDateSelector(options.targetDateStr || null);
@@ -122,7 +155,7 @@ async function fetchEPG(options = {}) {
     }
 
     // Cache logos in the background for channels that have a URL but no cached data (throttled queue)
-    const uncachedChannels = epgData.channels.filter((c) => {
+    const uncachedChannels = state.epgData.channels.filter((c) => {
       const logoUrl = c.customIcon || c.icon;
       return (
         logoUrl &&
@@ -170,24 +203,24 @@ function updateDateNavBtns() {
   if (nextBtn) nextBtn.disabled = idx < 0 || idx >= count - 1;
 }
 
-function navigateDate(delta) {
+export function navigateDate(delta) {
   const dateSelect = document.getElementById("dateSelect");
   if (!dateSelect || dateSelect.options.length === 0) return;
   const newIdx = dateSelect.selectedIndex + delta;
   if (newIdx >= 0 && newIdx < dateSelect.options.length) {
     dateSelect.selectedIndex = newIdx;
-    selectedDateStr = dateSelect.value;
+    state.selectedDateStr = dateSelect.value;
     updateDateNavBtns();
     renderEPG();
   }
 }
 
-function setupDateSelector(preferredDateStr = null) {
+export function setupDateSelector(preferredDateStr = null) {
   const dateSelect = document.getElementById("dateSelect");
   if (!dateSelect) return;
   const dates = new Set();
 
-  epgData.programmes.forEach((p) => {
+  state.epgData.programmes.forEach((p) => {
     if (p.start && !isNaN(p.start.getTime())) {
       const y = p.start.getFullYear();
       const m = String(p.start.getMonth() + 1).padStart(2, "0");
@@ -209,25 +242,25 @@ function setupDateSelector(preferredDateStr = null) {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   if (preferredDateStr && sortedDates.includes(preferredDateStr)) {
-    selectedDateStr = preferredDateStr;
+    state.selectedDateStr = preferredDateStr;
   } else if (sortedDates.includes(todayStr)) {
-    selectedDateStr = todayStr;
+    state.selectedDateStr = todayStr;
   } else if (sortedDates.length > 0) {
-    selectedDateStr = sortedDates[0];
+    state.selectedDateStr = sortedDates[0];
   }
-  dateSelect.value = selectedDateStr;
+  dateSelect.value = state.selectedDateStr;
 
   updateDateNavBtns();
 
   dateSelect.onchange = (e) => {
-    selectedDateStr = e.target.value;
+    state.selectedDateStr = e.target.value;
     updateDateNavBtns();
     renderEPG();
   };
 }
 
 function setupMainHeaderPointerDrag(headerItem, columnWrapper, channelId) {
-  const isHorizontal = currentLayout === "horizontal";
+  const isHorizontal = state.currentLayout === "horizontal";
   const itemSelector = isHorizontal
     ? ".channel-row-wrapper"
     : ".channel-column-wrapper";
@@ -296,15 +329,15 @@ function setupMainHeaderPointerDrag(headerItem, columnWrapper, channelId) {
         targetCol.dataset.channelId !== channelId
       ) {
         const targetId = targetCol.dataset.channelId;
-        const fromIdx = epgData.channels.findIndex((c) => c.id === channelId);
-        const toIdx = epgData.channels.findIndex((c) => c.id === targetId);
+        const fromIdx = state.epgData.channels.findIndex((c) => c.id === channelId);
+        const toIdx = state.epgData.channels.findIndex((c) => c.id === targetId);
 
         if (fromIdx !== -1 && toIdx !== -1) {
-          const [moved] = epgData.channels.splice(fromIdx, 1);
-          epgData.channels.splice(toIdx, 0, moved);
-          const newOrder = epgData.channels.map((c) => c.id);
+          const [moved] = state.epgData.channels.splice(fromIdx, 1);
+          state.epgData.channels.splice(toIdx, 0, moved);
+          const newOrder = state.epgData.channels.map((c) => c.id);
           await invoke("save_channel_order", {
-            sourceId: currentSourceId,
+            sourceId: state.currentSourceId,
             order: newOrder,
           });
           renderEPG();
@@ -335,7 +368,7 @@ function setupProgramObserver() {
   const viewport = document.getElementById("epgViewport");
   if (!viewport) return;
 
-  const isHorizontal = currentLayout === "horizontal";
+  const isHorizontal = state.currentLayout === "horizontal";
   const rootMargin = isHorizontal
     ? "300px 600px 300px 600px"
     : "600px 300px 600px 300px";
@@ -386,9 +419,9 @@ function renderProgramDetails(el) {
     };
   }
 
-  if (isTrakt && window.Icons) {
+  if (isTrakt && Icons) {
     const badge = el.querySelector(".trakt-epg-badge");
-    if (badge) window.Icons.replace(el);
+    if (badge) Icons.replace(el);
   }
 
   el.dataset.rendered = "true";
@@ -409,7 +442,7 @@ function renderSingleChannelMultiDay(
   channelsContainer.innerHTML = "";
 
   const dates = new Set();
-  epgData.programmes.forEach((p) => {
+  state.epgData.programmes.forEach((p) => {
     if (p.channel === channel.id && p.start && !isNaN(p.start.getTime())) {
       const y = p.start.getFullYear();
       const m = String(p.start.getMonth() + 1).padStart(2, "0");
@@ -424,16 +457,16 @@ function renderSingleChannelMultiDay(
   let firstMatchEl = null;
 
   const progQuery =
-    filterText && window.SearchUtils
-      ? window.SearchUtils.prepareQuery(filterText)
+    filterText && SearchUtils
+      ? SearchUtils.prepareQuery(filterText)
       : null;
   const channelQuery =
-    filterText && window.SearchUtils
-      ? window.SearchUtils.prepareQuery(filterText, { minFuzzyLength: 6 })
+    filterText && SearchUtils
+      ? SearchUtils.prepareQuery(filterText, { minFuzzyLength: 6 })
       : null;
   const chNameMatch = filterText
     ? channelQuery
-      ? window.SearchUtils.matchPrepared(channel.name, channelQuery)
+      ? SearchUtils.matchPrepared(channel.name, channelQuery)
       : fuzzySearchMatch(channel.name, filterText, { minFuzzyLength: 6 })
     : false;
   const progMatchCache = filterText ? new Map() : null;
@@ -443,7 +476,7 @@ function renderSingleChannelMultiDay(
     let hit = progMatchCache.get(key);
     if (hit === undefined) {
       hit = progQuery
-        ? window.SearchUtils.matchPrepared(key, progQuery)
+        ? SearchUtils.matchPrepared(key, progQuery)
         : fuzzySearchMatch(key, filterText);
       progMatchCache.set(key, hit);
     }
@@ -456,7 +489,7 @@ function renderSingleChannelMultiDay(
     dayEndDate.setDate(dayEndDate.getDate() + 1);
     const dayEnd = dayEndDate;
 
-    const dayProgs = epgData.programmes.filter(
+    const dayProgs = state.epgData.programmes.filter(
       (p) => p.channel === channel.id && p.stop > dayStart && p.start < dayEnd,
     );
 
@@ -507,8 +540,8 @@ function renderSingleChannelMultiDay(
 
       if (durationMin <= 0) return;
 
-      const isFav = favorites.includes(prog.title);
-      const isTrakt = window.TraktUI?.isOnWatchlist(prog.title) ?? false;
+      const isFav = state.favorites.includes(prog.title);
+      const isTrakt = isOnWatchlist(prog.title);
       const isHighlight = filterText ? isProgMatch(prog.title) : false;
       const isActual = prog.start <= now && prog.stop > now;
 
@@ -518,8 +551,8 @@ function renderSingleChannelMultiDay(
         progEl.style.left = `${startDiffMin * minuteScale}px`;
         progEl.style.width = `${Math.max(20, durationMin * minuteScale - 1)}px`;
       } else {
-        progEl.style.top = `${startDiffMin * currentMinuteHeight}px`;
-        progEl.style.height = `${Math.max(16, durationMin * currentMinuteHeight - 1)}px`;
+        progEl.style.top = `${startDiffMin * state.currentMinuteHeight}px`;
+        progEl.style.height = `${Math.max(16, durationMin * state.currentMinuteHeight - 1)}px`;
       }
 
       const startStr = prog.start.toTimeString().substring(0, 5);
@@ -566,8 +599,8 @@ function renderSingleChannelMultiDay(
   }
 }
 
-function renderEPG() {
-  if (!currentSourceId || sources.length === 0) {
+export function renderEPG() {
+  if (!state.currentSourceId || state.sources.length === 0) {
     renderEmptySourcesState();
     return;
   }
@@ -584,7 +617,7 @@ function renderEPG() {
   timeColumn.innerHTML = "";
   channelsContainer.innerHTML = "";
 
-  const isHorizontal = currentLayout === "horizontal";
+  const isHorizontal = state.currentLayout === "horizontal";
   const minuteScale = getEffectiveMinuteScale();
 
   if (isHorizontal) {
@@ -597,16 +630,16 @@ function renderEPG() {
 
   document.documentElement.style.setProperty(
     "--minute-height",
-    `${currentMinuteHeight}px`,
+    `${state.currentMinuteHeight}px`,
   );
   document.documentElement.style.setProperty(
     "--minute-scale",
     `${minuteScale}px`,
   );
-  document.documentElement.style.setProperty("--step-min", currentStepMin);
+  document.documentElement.style.setProperty("--step-min", state.currentStepMin);
 
   const totalMinutes = 1440;
-  for (let min = 0; min < totalMinutes; min += currentStepMin) {
+  for (let min = 0; min < totalMinutes; min += state.currentStepMin) {
     const h = Math.floor(min / 60) % 24;
     const m = min % 60;
     const timeDiv = document.createElement("div");
@@ -618,7 +651,7 @@ function renderEPG() {
 
   const dateNavGroup = document.querySelector(".date-nav-group");
   if (dateNavGroup) {
-    dateNavGroup.classList.toggle("u-hidden", !!activeSingleChannelId);
+    dateNavGroup.classList.toggle("u-hidden", !!state.activeSingleChannelId);
   }
   updateGridCornerButton();
 
@@ -627,9 +660,9 @@ function renderEPG() {
   const activeName = document.getElementById("activeChannelName");
 
   if (activeBadge) {
-    if (activeSingleChannelId) {
-      const channel = epgData.channels.find(
-        (c) => c.id === activeSingleChannelId,
+    if (state.activeSingleChannelId) {
+      const channel = state.epgData.channels.find(
+        (c) => c.id === state.activeSingleChannelId,
       );
       if (channel) {
         const effectiveLogo =
@@ -648,7 +681,7 @@ function renderEPG() {
         activeBadge.classList.remove("u-hidden");
         activeBadge.title = t("grid_back_btn_title");
         activeBadge.onclick = () => {
-          activeSingleChannelId = null;
+          state.activeSingleChannelId = null;
           renderEPG();
           scrollToNow();
         };
@@ -660,20 +693,20 @@ function renderEPG() {
     }
   }
 
-  if (activeSingleChannelId) {
-    const channel = epgData.channels.find(
-      (c) => c.id === activeSingleChannelId,
+  if (state.activeSingleChannelId) {
+    const channel = state.epgData.channels.find(
+      (c) => c.id === state.activeSingleChannelId,
     );
     if (channel) {
       renderSingleChannelMultiDay(channel, filterText, isHorizontal, minuteScale);
       return;
     }
-    activeSingleChannelId = null;
+    state.activeSingleChannelId = null;
     const activeBadge = document.getElementById("activeChannelBadge");
     if (activeBadge) activeBadge.classList.add("u-hidden");
   }
 
-  const dayStart = new Date(`${selectedDateStr}T00:00:00`);
+  const dayStart = new Date(`${state.selectedDateStr}T00:00:00`);
   // Use next day's midnight in wall-clock time (DST-safe)
   const dayEndDate = new Date(dayStart);
   dayEndDate.setDate(dayEndDate.getDate() + 1);
@@ -683,12 +716,12 @@ function renderEPG() {
   let firstMatchEl = null;
 
   const progQuery =
-    filterText && window.SearchUtils
-      ? window.SearchUtils.prepareQuery(filterText)
+    filterText && SearchUtils
+      ? SearchUtils.prepareQuery(filterText)
       : null;
   const channelQuery =
-    filterText && window.SearchUtils
-      ? window.SearchUtils.prepareQuery(filterText, { minFuzzyLength: 6 })
+    filterText && SearchUtils
+      ? SearchUtils.prepareQuery(filterText, { minFuzzyLength: 6 })
       : null;
   const progMatchCache = filterText ? new Map() : null;
   const isProgMatch = (title) => {
@@ -697,17 +730,17 @@ function renderEPG() {
     let hit = progMatchCache.get(key);
     if (hit === undefined) {
       hit = progQuery
-        ? window.SearchUtils.matchPrepared(key, progQuery)
+        ? SearchUtils.matchPrepared(key, progQuery)
         : fuzzySearchMatch(key, filterText);
       progMatchCache.set(key, hit);
     }
     return hit;
   };
 
-  epgData.channels.forEach((channel) => {
+  state.epgData.channels.forEach((channel) => {
     if (channel.isHidden) return;
 
-    const channelProgs = epgData.programmes.filter(
+    const channelProgs = state.epgData.programmes.filter(
       (p) => p.channel === channel.id && p.stop > dayStart && p.start < dayEnd,
     );
 
@@ -715,7 +748,7 @@ function renderEPG() {
 
     if (filterText) {
       const chNameMatch = channelQuery
-        ? window.SearchUtils.matchPrepared(channel.name, channelQuery)
+        ? SearchUtils.matchPrepared(channel.name, channelQuery)
         : fuzzySearchMatch(channel.name, filterText, { minFuzzyLength: 6 });
       if (!chNameMatch && !channelProgs.some((p) => isProgMatch(p.title))) {
         return;
@@ -739,7 +772,7 @@ function renderEPG() {
       channel.cachedIcon || channel.customIcon || channel.icon || "";
 
     const showSourceBadge =
-      currentSourceId === "__ALL_FAVORITES__" || !!channel.sourceName;
+      state.currentSourceId === "__ALL_FAVORITES__" || !!channel.sourceName;
     const sourceBadgeText = channel.sourceName || channel.countryCode || "";
     const sourceBadgeHtml =
       showSourceBadge && sourceBadgeText
@@ -776,7 +809,7 @@ function renderEPG() {
     if (allProgsBtn) {
       allProgsBtn.onclick = (e) => {
         e.stopPropagation();
-        activeSingleChannelId = channel.id;
+        state.activeSingleChannelId = channel.id;
         renderEPG();
         scrollToNow();
       };
@@ -789,7 +822,7 @@ function renderEPG() {
         const result = await openChannelEditModal(channel);
         if (!result) return;
 
-        const targetSrc = channel.sourceId || currentSourceId;
+        const targetSrc = channel.sourceId || state.currentSourceId;
         const targetChId = channel.id.includes("::")
           ? channel.id.split("::").slice(1).join("::")
           : channel.id;
@@ -842,7 +875,7 @@ function renderEPG() {
     if (favBtn) {
       favBtn.onclick = async (e) => {
         e.stopPropagation();
-        const targetSrc = channel.sourceId || currentSourceId;
+        const targetSrc = channel.sourceId || state.currentSourceId;
         const targetChId = channel.id.includes("::")
           ? channel.id.split("::").slice(1).join("::")
           : channel.id;
@@ -851,16 +884,16 @@ function renderEPG() {
           channelId: targetChId,
         });
         channel.isFavorite = newFav;
-        if (currentSourceId === "__ALL_FAVORITES__" && !newFav) {
-          epgData.channels = epgData.channels.filter(
+        if (state.currentSourceId === "__ALL_FAVORITES__" && !newFav) {
+          state.epgData.channels = state.epgData.channels.filter(
             (c) => c.id !== channel.id,
           );
-          if (epgData.channels.length === 0) {
+          if (state.epgData.channels.length === 0) {
             renderEmptyFavoritesState();
             return;
           }
         } else {
-          epgData.channels.sort((a, b) => {
+          state.epgData.channels.sort((a, b) => {
             if (a.isFavorite !== b.isFavorite) {
               return a.isFavorite ? -1 : 1;
             }
@@ -902,8 +935,8 @@ function renderEPG() {
 
       if (durationMin <= 0) return;
 
-      const isFav = favorites.includes(prog.title);
-      const isTrakt = window.TraktUI?.isOnWatchlist(prog.title) ?? false;
+      const isFav = state.favorites.includes(prog.title);
+      const isTrakt = isOnWatchlist(prog.title);
       const isHighlight = filterText ? isProgMatch(prog.title) : false;
       const isActual = prog.start <= now && prog.stop > now;
 
@@ -913,8 +946,8 @@ function renderEPG() {
         progEl.style.left = `${startDiffMin * minuteScale}px`;
         progEl.style.width = `${Math.max(20, durationMin * minuteScale - 1)}px`;
       } else {
-        progEl.style.top = `${startDiffMin * currentMinuteHeight}px`;
-        progEl.style.height = `${Math.max(16, durationMin * currentMinuteHeight - 1)}px`;
+        progEl.style.top = `${startDiffMin * state.currentMinuteHeight}px`;
+        progEl.style.height = `${Math.max(16, durationMin * state.currentMinuteHeight - 1)}px`;
       }
 
       const startStr = prog.start.toTimeString().substring(0, 5);
@@ -961,7 +994,7 @@ function renderEPG() {
   }
 }
 
-async function jumpToEpgAiring(airing) {
+export async function jumpToEpgAiring(airing) {
   if (!airing || !airing.sourceId || !airing.channelId) return;
 
   const jumpOverlay = document.getElementById("epgJumpOverlay");
@@ -986,16 +1019,14 @@ async function jumpToEpgAiring(airing) {
 
     hidePosterZoom();
     closeFixOverlay();
-    if (window.TraktUI) {
-      window.TraktUI.detachFromModal();
-    }
+    detachFromModal();
     document.getElementById("modalOverlay").classList.remove("active");
 
-    if (window.TraktUI && window.TraktUI.isTraktMode()) {
-      window.TraktUI.exitTraktMode({ skipRender: true });
+    if (isTraktMode()) {
+      exitTraktMode({ skipRender: true });
     }
 
-    activeSingleChannelId = null;
+    state.activeSingleChannelId = null;
 
     const searchInput = document.getElementById("searchInput");
     if (searchInput && searchInput.value.trim()) {
@@ -1008,14 +1039,14 @@ async function jumpToEpgAiring(airing) {
       }
     }
 
-    if (currentSourceId !== airing.sourceId) {
-      currentSourceId = airing.sourceId;
+    if (state.currentSourceId !== airing.sourceId) {
+      state.currentSourceId = airing.sourceId;
       const sourceSelect = document.getElementById("sourceSelect");
-      if (sourceSelect) sourceSelect.value = currentSourceId;
+      if (sourceSelect) sourceSelect.value = state.currentSourceId;
       updateAllFavBtnState();
       invoke("set_setting", {
         key: "current_source_id",
-        value: currentSourceId,
+        value: state.currentSourceId,
       }).catch(() => {});
       await fetchEPG({ skipScrollToNow: true, targetDateStr });
     } else {
@@ -1025,12 +1056,12 @@ async function jumpToEpgAiring(airing) {
           (o) => o.value === targetDateStr,
         );
         if (hasDate) {
-          selectedDateStr = targetDateStr;
+          state.selectedDateStr = targetDateStr;
           dateSelect.value = targetDateStr;
           updateDateNavBtns();
         }
       } else {
-        selectedDateStr = targetDateStr;
+        state.selectedDateStr = targetDateStr;
       }
       renderEPG();
     }
@@ -1041,7 +1072,7 @@ async function jumpToEpgAiring(airing) {
 
       const wrappers = Array.from(
         document.querySelectorAll(
-          currentLayout === "horizontal"
+          state.currentLayout === "horizontal"
             ? ".channel-row-wrapper"
             : ".channel-column-wrapper",
         ),
@@ -1073,7 +1104,7 @@ async function jumpToEpgAiring(airing) {
         }
       }
 
-      if (currentLayout === "horizontal") {
+      if (state.currentLayout === "horizontal") {
         const minuteScale = getEffectiveMinuteScale();
         const targetLeft = targetProgEl
           ? targetProgEl.offsetLeft
@@ -1085,7 +1116,7 @@ async function jumpToEpgAiring(airing) {
       } else {
         const targetTop = targetProgEl
           ? targetProgEl.offsetTop
-          : startMin * currentMinuteHeight;
+          : startMin * state.currentMinuteHeight;
         viewport.scrollTop = Math.max(0, targetTop - 120);
         if (wrapper) {
           viewport.scrollLeft = Math.max(0, wrapper.offsetLeft - 80);
@@ -1118,20 +1149,18 @@ async function jumpToEpgAiring(airing) {
   }
 }
 
-window.EpgApp = {
-  isFavoriteTitle: (title) => favorites.includes(title),
-  toggleFavorite,
-  jumpToEpgAiring,
-};
+export function isFavoriteTitle(title) {
+  return state.favorites.includes(title);
+}
 
-function renderNowLine() {
+export function renderNowLine() {
   const oldLines = document.querySelectorAll(".now-line, .now-line-vertical");
   oldLines.forEach((l) => l.remove());
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  if (activeSingleChannelId) {
+  if (state.activeSingleChannelId) {
     const todayWrapper = document.querySelector(
       `[data-date-str="${todayStr}"]`,
     );
@@ -1139,7 +1168,7 @@ function renderNowLine() {
 
     const currentMin = now.getHours() * 60 + now.getMinutes();
 
-    if (currentLayout === "horizontal") {
+    if (state.currentLayout === "horizontal") {
       const progGrid = todayWrapper.querySelector(".channel-row-programmes");
       if (!progGrid) return;
       const minuteScale = getEffectiveMinuteScale();
@@ -1151,7 +1180,7 @@ function renderNowLine() {
     } else {
       const progGrid = todayWrapper.querySelector(".programme-grid");
       if (!progGrid) return;
-      const topPx = currentMin * currentMinuteHeight;
+      const topPx = currentMin * state.currentMinuteHeight;
       const line = document.createElement("div");
       line.className = "now-line";
       line.style.top = `${topPx}px`;
@@ -1160,10 +1189,10 @@ function renderNowLine() {
     return;
   }
 
-  if (selectedDateStr === todayStr) {
+  if (state.selectedDateStr === todayStr) {
     const currentMin = now.getHours() * 60 + now.getMinutes();
 
-    if (currentLayout === "horizontal") {
+    if (state.currentLayout === "horizontal") {
       const channelColWidth =
         parseInt(
           getComputedStyle(document.documentElement).getPropertyValue(
@@ -1183,7 +1212,7 @@ function renderNowLine() {
             "--header-height",
           ),
         ) || 56;
-      const topPx = currentMin * currentMinuteHeight + headerHeight;
+      const topPx = currentMin * state.currentMinuteHeight + headerHeight;
       const line = document.createElement("div");
       line.className = "now-line";
       line.style.top = `${topPx}px`;
@@ -1192,27 +1221,27 @@ function renderNowLine() {
   }
 }
 
-function scrollToNow() {
+export function scrollToNow() {
   const viewport = document.getElementById("epgViewport");
   if (!viewport) return;
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  if (activeSingleChannelId) {
+  if (state.activeSingleChannelId) {
     const todayWrapper = document.querySelector(
       `[data-date-str="${todayStr}"]`,
     );
     const currentMin = now.getHours() * 60 + now.getMinutes();
 
-    if (currentLayout === "horizontal") {
+    if (state.currentLayout === "horizontal") {
       const minuteScale = getEffectiveMinuteScale();
       viewport.scrollLeft = Math.max(0, currentMin * minuteScale - 300);
       if (todayWrapper) {
         viewport.scrollTop = Math.max(0, todayWrapper.offsetTop - 50);
       }
     } else {
-      viewport.scrollTop = Math.max(0, currentMin * currentMinuteHeight - 200);
+      viewport.scrollTop = Math.max(0, currentMin * state.currentMinuteHeight - 200);
       if (todayWrapper) {
         viewport.scrollLeft = Math.max(0, todayWrapper.offsetLeft - 80);
       }
@@ -1220,11 +1249,11 @@ function scrollToNow() {
     return;
   }
 
-  if (currentLayout === "horizontal") {
+  if (state.currentLayout === "horizontal") {
     // Find the earliest starting time among all currently running programs
     let earliestStartMin = null;
-    if (selectedDateStr === todayStr && epgData.programmes) {
-      epgData.programmes.forEach((p) => {
+    if (state.selectedDateStr === todayStr && state.epgData.programmes) {
+      state.epgData.programmes.forEach((p) => {
         if (p.start <= now && p.stop > now) {
           const sMin = p.start.getHours() * 60 + p.start.getMinutes();
           if (earliestStartMin === null || sMin < earliestStartMin) {
@@ -1252,50 +1281,14 @@ function scrollToNow() {
   }
 }
 
-const mainSearchInput = document.getElementById("searchInput");
-mainSearchInput.oninput = () => {
-  clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(renderEPG, 300);
-};
-mainSearchInput.onkeydown = (e) => {
-  if (e.key === "Enter") {
-    clearTimeout(searchTimeout);
-    renderEPG();
-  }
-};
-
-document.getElementById("searchBtn").onclick = () => {
-  clearTimeout(searchTimeout);
-  renderEPG();
-};
-document.getElementById("clearSearchBtn").onclick = () => {
-  clearTimeout(searchTimeout);
-  mainSearchInput.value = "";
-  renderEPG();
-};
-
 function getEffectiveMinuteScale() {
-  if (currentLayout === "horizontal") {
-    return HORIZONTAL_SCALE_MAP[currentStepMin] || currentMinuteHeight * 2;
+  if (state.currentLayout === "horizontal") {
+    return (
+      HORIZONTAL_SCALE_MAP[state.currentStepMin] ||
+      state.currentMinuteHeight * 2
+    );
   }
-  return currentMinuteHeight;
-}
-
-const viewSelect = document.getElementById("viewSelect");
-if (viewSelect) {
-  viewSelect.onchange = async (e) => {
-    currentStepMin = parseInt(e.target.value, 10);
-    currentMinuteHeight = VIEW_HEIGHT_MAP[currentStepMin] || 2;
-    await invoke("set_setting", {
-      key: "view_step_min",
-      value: String(currentStepMin),
-    });
-    await invoke("set_setting", {
-      key: "view_minute_height",
-      value: String(currentMinuteHeight),
-    });
-    renderEPG();
-  };
+  return state.currentMinuteHeight;
 }
 
 let epgScrollRaf = null;
@@ -1307,28 +1300,7 @@ function scheduleEPGScrollUpdate() {
   });
 }
 
-const layoutToggleBtn = document.getElementById("layoutToggleBtn");
-if (layoutToggleBtn) {
-  layoutToggleBtn.onclick = async () => {
-    currentLayout = currentLayout === "horizontal" ? "vertical" : "horizontal";
-    await invoke("set_setting", {
-      key: "view_layout",
-      value: currentLayout,
-    });
-    updateLayoutButtonUi();
-    renderEPG();
-  };
-}
-
-const epgViewportEl = document.getElementById("epgViewport");
-if (epgViewportEl) {
-  epgViewportEl.addEventListener("scroll", scheduleEPGScrollUpdate, {
-    passive: true,
-  });
-}
-
-// --- EPG Viewport drag-to-pan (minden irány, kivéve csatorna header) ---
-(function setupViewportPan() {
+function setupViewportPan() {
   const viewport = document.getElementById("epgViewport");
   let isPanning = false;
   let hasDragged = false;
@@ -1376,7 +1348,7 @@ if (epgViewportEl) {
       isPanning = true;
       try {
         viewport.setPointerCapture(panPointerId);
-      } catch (err) {}
+      } catch (_err) {}
       viewport.classList.add("is-panning");
     }
 
@@ -1397,7 +1369,7 @@ if (epgViewportEl) {
     if (hasDragged) {
       try {
         viewport.releasePointerCapture(panPointerId);
-      } catch (err) {}
+      } catch (_err) {}
       viewport.classList.remove("is-panning");
     }
 
@@ -1426,44 +1398,107 @@ if (epgViewportEl) {
     },
     true,
   );
-})();
-// --- EPG Viewport drag-to-pan vége ---
-
-const gridHomeBtn = document.getElementById("gridHomeBtn");
-if (gridHomeBtn) {
-  gridHomeBtn.onclick = (e) => {
-    e.stopPropagation();
-    if (activeSingleChannelId) {
-      activeSingleChannelId = null;
-      renderEPG();
-      scrollToNow();
-    } else {
-      const viewport = document.getElementById("epgViewport");
-      if (viewport) {
-        if (currentLayout === "horizontal") {
-          viewport.scrollTop = 0;
-        } else {
-          viewport.scrollLeft = 0;
-        }
-      }
-      scrollToNow();
-    }
-  };
 }
 
-document.getElementById("nowBtn").onclick = () => {
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  if (!activeSingleChannelId) {
-    if (selectedDateStr !== todayStr) {
-      selectedDateStr = todayStr;
-      document.getElementById("dateSelect").value = selectedDateStr;
+export function initEpg() {
+  const mainSearchInput = document.getElementById("searchInput");
+  mainSearchInput.oninput = () => {
+    clearTimeout(state.searchTimeout);
+    state.searchTimeout = setTimeout(renderEPG, 300);
+  };
+  mainSearchInput.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      clearTimeout(state.searchTimeout);
       renderEPG();
     }
-  }
-  scrollToNow();
-};
+  };
 
-setInterval(() => {
-  renderNowLine();
-}, 60000);
+  document.getElementById("searchBtn").onclick = () => {
+    clearTimeout(state.searchTimeout);
+    renderEPG();
+  };
+  document.getElementById("clearSearchBtn").onclick = () => {
+    clearTimeout(state.searchTimeout);
+    mainSearchInput.value = "";
+    renderEPG();
+  };
+
+  const viewSelect = document.getElementById("viewSelect");
+  if (viewSelect) {
+    viewSelect.onchange = async (e) => {
+      state.currentStepMin = parseInt(e.target.value, 10);
+      state.currentMinuteHeight = VIEW_HEIGHT_MAP[state.currentStepMin] || 2;
+      await invoke("set_setting", {
+        key: "view_step_min",
+        value: String(state.currentStepMin),
+      });
+      await invoke("set_setting", {
+        key: "view_minute_height",
+        value: String(state.currentMinuteHeight),
+      });
+      renderEPG();
+    };
+  }
+
+  const layoutToggleBtn = document.getElementById("layoutToggleBtn");
+  if (layoutToggleBtn) {
+    layoutToggleBtn.onclick = async () => {
+      state.currentLayout =
+        state.currentLayout === "horizontal" ? "vertical" : "horizontal";
+      await invoke("set_setting", {
+        key: "view_layout",
+        value: state.currentLayout,
+      });
+      updateLayoutButtonUi();
+      renderEPG();
+    };
+  }
+
+  const epgViewportEl = document.getElementById("epgViewport");
+  if (epgViewportEl) {
+    epgViewportEl.addEventListener("scroll", scheduleEPGScrollUpdate, {
+      passive: true,
+    });
+  }
+
+  setupViewportPan();
+
+  const gridHomeBtn = document.getElementById("gridHomeBtn");
+  if (gridHomeBtn) {
+    gridHomeBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (state.activeSingleChannelId) {
+        state.activeSingleChannelId = null;
+        renderEPG();
+        scrollToNow();
+      } else {
+        const viewport = document.getElementById("epgViewport");
+        if (viewport) {
+          if (state.currentLayout === "horizontal") {
+            viewport.scrollTop = 0;
+          } else {
+            viewport.scrollLeft = 0;
+          }
+        }
+        scrollToNow();
+      }
+    };
+  }
+
+  document.getElementById("nowBtn").onclick = () => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    if (!state.activeSingleChannelId) {
+      if (state.selectedDateStr !== todayStr) {
+        state.selectedDateStr = todayStr;
+        document.getElementById("dateSelect").value = state.selectedDateStr;
+        renderEPG();
+      }
+    }
+    scrollToNow();
+  };
+
+  setInterval(() => {
+    renderNowLine();
+  }, 60000);
+}

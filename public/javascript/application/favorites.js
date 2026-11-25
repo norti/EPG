@@ -1,9 +1,16 @@
-async function toggleFavorite(title) {
+import { state, invoke } from "./state.js";
+import { t } from "./i18n.js";
+import { TraktDates } from "../trakt/trakt-dates.js";
+import { iconHtml, escapeHtml } from "./ui.js";
+import { formatDateLabel, renderEPG } from "./epg.js";
+import { updateModalFavStar } from "./modal.js";
+
+export async function toggleFavorite(title) {
   const isFav = await invoke("toggle_favorite", { title });
   if (isFav) {
-    if (!favorites.includes(title)) favorites.push(title);
+    if (!state.favorites.includes(title)) state.favorites.push(title);
   } else {
-    favorites = favorites.filter((t) => t !== title);
+    state.favorites = state.favorites.filter((item) => item !== title);
   }
   updateModalFavStar();
   renderEPG();
@@ -11,7 +18,7 @@ async function toggleFavorite(title) {
   return isFav;
 }
 
-function renderFavoritesList() {
+export function renderFavoritesList() {
   const content = document.getElementById("favListContent");
   const activeDayEl = document.getElementById("favActiveDay");
   content.innerHTML = "";
@@ -20,14 +27,14 @@ function renderFavoritesList() {
     activeDayEl.textContent = "";
   }
 
-  if (favorites.length === 0) {
+  if (state.favorites.length === 0) {
     content.innerHTML = `<p class="empty-list-message">${t("no_favorites")}</p>`;
     return;
   }
 
   let matchedList = [];
-  favorites.forEach((favTitle) => {
-    const progs = epgData.programmes.filter((p) => p.title === favTitle);
+  state.favorites.forEach((favTitle) => {
+    const progs = state.epgData.programmes.filter((p) => p.title === favTitle);
     progs.forEach((p) => matchedList.push(p));
   });
 
@@ -43,7 +50,7 @@ function renderFavoritesList() {
   });
 
   if (Object.keys(groupedByDay).length === 0) {
-    favorites.forEach((favTitle) => {
+    state.favorites.forEach((favTitle) => {
       const row = document.createElement("div");
       row.className = "fav-item-row";
       row.innerHTML = `
@@ -67,7 +74,7 @@ function renderFavoritesList() {
     groupDiv.appendChild(header);
 
     progs.forEach((prog) => {
-      const ch = epgData.channels.find((c) => c.id === prog.channel);
+      const ch = state.epgData.channels.find((c) => c.id === prog.channel);
       const chName = ch ? ch.name : prog.channel;
       const startStr = prog.start.toTimeString().substring(0, 5);
 
@@ -86,12 +93,8 @@ function renderFavoritesList() {
     content.appendChild(groupDiv);
   }
 
-  if (
-    activeDayEl &&
-    window.TraktDates &&
-    typeof window.TraktDates.attachStickyDayHeader === "function"
-  ) {
-    window.TraktDates.attachStickyDayHeader(content, activeDayEl, {
+  if (activeDayEl && typeof TraktDates.attachStickyDayHeader === "function") {
+    TraktDates.attachStickyDayHeader(content, activeDayEl, {
       groupSelector: ".fav-day-group",
     });
   }

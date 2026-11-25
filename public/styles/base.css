@@ -19,6 +19,10 @@
   --font-family-base:
     Inter, "Asap Condensed", Roboto, "Segoe UI", Arial, sans-serif;
 
+  /* Scrollbar Dimensions */
+  --scrollbar-size: 18px;
+  --scrollbar-custom-size: 10px;
+
   /* Z-Index Scale */
   --z-modal: 200;
   --z-dialog: 250;
@@ -32,12 +36,11 @@
 html,
 body {
   color-scheme: var(--color-scheme, dark);
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar {
-  width: 18px;
-  height: 18px;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 ::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
@@ -53,13 +56,9 @@ body {
   background: var(--scrollbar-track);
 }
 
-.custom-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-custom-thumb) var(--scrollbar-custom-track);
-}
 .custom-scroll::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--scrollbar-custom-size);
+  height: var(--scrollbar-custom-size);
 }
 .custom-scroll::-webkit-scrollbar-track {
   background: var(--scrollbar-custom-track);
@@ -91,14 +90,88 @@ body {
 header {
   height: 60px;
   background-color: var(--bg-header);
-  padding: 0 20px;
+  padding: 0 16px;
   box-shadow: var(--shadow-header);
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   box-sizing: border-box;
   z-index: 100;
   position: relative;
+  overflow: hidden;
+}
+
+.header-scroll-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+.header-scroll-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  scroll-behavior: smooth;
+}
+.header-scroll-area > * {
+  flex-shrink: 0;
+}
+.header-scroll-area::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+.header-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.header-scroll-area::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-custom-thumb);
+  border-radius: 2px;
+}
+.header-scroll-area::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-custom-thumb-hover);
+}
+
+.header-scroll-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 32px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+.header-scroll-btn:hover {
+  background-color: var(--bg-surface-hover);
+  border-color: var(--badge-year-border);
+}
+
+.header-right-pinned {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.header-right-pinned .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .search-box {
@@ -310,7 +383,16 @@ input[type="text"] {
 #status {
   color: var(--accent-green-status);
   font-size: 12px;
-  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+@media (max-width: 720px) {
+  #status {
+    display: none;
+  }
 }
 
 .epg-viewport {
@@ -1690,7 +1772,8 @@ input[type="text"] {
 .source-options-row {
   display: flex;
   align-items: center;
-  gap: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
   width: 100%;
 }
 .source-field-group {
@@ -2597,7 +2680,10 @@ input[type="text"].channel-edit-input:focus {
 }
 
 #sourceCountrySelect {
-  width: 300px;
+  width: 210px;
+  max-width: 100%;
+  min-width: 0;
+  flex: 0 1 210px;
 }
 
 #sourceOffsetInput {
@@ -2607,10 +2693,27 @@ input[type="text"].channel-edit-input:focus {
   text-align: right;
 }
 
-#saveSourceBtn {
+.source-form-actions {
   margin-left: auto;
-  padding: 6px 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+#saveSourceBtn {
+  padding: 6px 16px;
   font-weight: bold;
+  flex-shrink: 0;
+}
+
+#cancelEditSourceBtn {
+  background-color: var(--accent-red-dark);
+  padding: 6px 8px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -3695,9 +3798,8 @@ body.trakt-mode #epgViewport {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 0;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
 }
 
 .trakt-nav-btn {

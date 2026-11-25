@@ -1,5 +1,22 @@
-async function refreshSourcesFromDb() {
-  sources = await invoke("get_sources");
+import { state, invoke, LOCALE_COMPARE_OPTIONS } from "./state.js";
+import { t, getCurrentLang } from "./i18n.js";
+import { Countries } from "../utils/countries.js";
+import {
+  iconHtml,
+  showConfirm,
+  showAlert,
+  updateAllFavBtnState,
+  renderEmptySourcesState,
+  escapeHtml,
+} from "./ui.js";
+import { fetchEPG, renderEPG } from "./epg.js";
+import {
+  loadChannelOrderSourcesDropdown,
+  renderChannelOrderList,
+} from "./channels.js";
+
+export async function refreshSourcesFromDb() {
+  state.sources = await invoke("get_sources");
   loadSourcesDropdown();
   loadChannelOrderSourcesDropdown();
 }
@@ -13,21 +30,21 @@ async function saveSourceOrderFromDom() {
   const newOrder = items.map((el) => el.dataset.sourceId);
   // Update the in-memory sources array to match new order
   newOrder.forEach((id, idx) => {
-    const src = sources.find((s) => s.id === id);
+    const src = state.sources.find((s) => s.id === id);
     if (src) src._sortPos = idx;
   });
-  sources.sort((a, b) => (a._sortPos ?? 0) - (b._sortPos ?? 0));
+  state.sources.sort((a, b) => (a._sortPos ?? 0) - (b._sortPos ?? 0));
   // Reload dropdown option order
   Array.from(sourceSelect.options).forEach((opt) => {
     if (opt.value !== "__ALL_FAVORITES__") opt.remove();
   });
-  sources.forEach((s) => {
+  state.sources.forEach((s) => {
     const opt = document.createElement("option");
     opt.value = s.id;
     opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
     sourceSelect.appendChild(opt);
   });
-  sourceSelect.value = currentSourceId;
+  sourceSelect.value = state.currentSourceId;
   // Renumber order-index badges
   items.forEach((el, i) => {
     const badge = el.querySelector(".source-order-index");
@@ -36,37 +53,37 @@ async function saveSourceOrderFromDom() {
   await invoke("save_source_order", { order: newOrder });
 }
 
-function loadSourcesDropdown() {
+export function loadSourcesDropdown() {
   const sourceSelect = document.getElementById("sourceSelect");
   const sourcesList = document.getElementById("sourcesList");
   sourceSelect.innerHTML = "";
   sourcesList.innerHTML = "";
 
-  if (sources.length > 0) {
+  if (state.sources.length > 0) {
     const allFavOpt = document.createElement("option");
     allFavOpt.value = "__ALL_FAVORITES__";
     allFavOpt.textContent = t("all_favorites_source");
     sourceSelect.appendChild(allFavOpt);
   }
 
-  sources.forEach((s, idx) => {
+  state.sources.forEach((s, idx) => {
     const opt = document.createElement("option");
     opt.value = s.id;
     opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
     sourceSelect.appendChild(opt);
 
-    const isDownloading = downloadingSources.has(s.id);
+    const isDownloading = state.downloadingSources.has(s.id);
     const lastDateHtml = isDownloading
       ? `<span class="source-updating-status">${escapeHtml(t("status_updating"))}</span>`
       : escapeHtml(
           s.lastDownloaded
             ? new Date(s.lastDownloaded).toLocaleString(
-                currentLang === "english" ? "en-US" : "hu-HU",
+                getCurrentLang() === "english" ? "en-US" : "hu-HU",
               )
             : t("never_updated"),
         );
 
-    const isUpdatingAll = isUpdatingAllSources;
+    const isUpdatingAll = state.isUpdatingAllSources;
     const allCount =
       s.channelCount !== undefined && s.channelCount !== null
         ? s.channelCount
@@ -182,19 +199,19 @@ function loadSourcesDropdown() {
     sourcesList.appendChild(item);
   });
 
-  if (!currentSourceId && sources.length > 0) {
-    currentSourceId = "__ALL_FAVORITES__";
+  if (!state.currentSourceId && state.sources.length > 0) {
+    state.currentSourceId = "__ALL_FAVORITES__";
   }
-  sourceSelect.value = currentSourceId;
+  sourceSelect.value = state.currentSourceId;
   updateAllFavBtnState();
 
   sourceSelect.onchange = async (e) => {
-    activeSingleChannelId = null;
-    currentSourceId = e.target.value;
+    state.activeSingleChannelId = null;
+    state.currentSourceId = e.target.value;
     updateAllFavBtnState();
     await invoke("set_setting", {
       key: "current_source_id",
-      value: currentSourceId,
+      value: state.currentSourceId,
     });
     fetchEPG();
   };
@@ -202,19 +219,19 @@ function loadSourcesDropdown() {
   const allFavBtn = document.getElementById("allFavChannelsBtn");
   if (allFavBtn) {
     allFavBtn.onclick = async () => {
-      activeSingleChannelId = null;
-      if (currentSourceId === "__ALL_FAVORITES__") {
-        if (sources.length > 0) {
-          currentSourceId = sources[0].id;
+      state.activeSingleChannelId = null;
+      if (state.currentSourceId === "__ALL_FAVORITES__") {
+        if (state.sources.length > 0) {
+          state.currentSourceId = state.sources[0].id;
         }
       } else {
-        currentSourceId = "__ALL_FAVORITES__";
+        state.currentSourceId = "__ALL_FAVORITES__";
       }
-      sourceSelect.value = currentSourceId;
+      sourceSelect.value = state.currentSourceId;
       updateAllFavBtnState();
       await invoke("set_setting", {
         key: "current_source_id",
-        value: currentSourceId,
+        value: state.currentSourceId,
       });
       fetchEPG();
     };
@@ -228,12 +245,12 @@ function loadSourcesDropdown() {
       if (items.length === 0) return;
       items.sort((a, b) => {
         const srcA =
-          sources.find((s) => s.id === a.dataset.sourceId)?.name || "";
+          state.sources.find((s) => s.id === a.dataset.sourceId)?.name || "";
         const srcB =
-          sources.find((s) => s.id === b.dataset.sourceId)?.name || "";
+          state.sources.find((s) => s.id === b.dataset.sourceId)?.name || "";
         return srcA.localeCompare(
           srcB,
-          currentLang === "hungarian" ? "hu" : "en",
+          getCurrentLang() === "hungarian" ? "hu" : "en",
           LOCALE_COMPARE_OPTIONS,
         );
       });
@@ -245,13 +262,11 @@ function loadSourcesDropdown() {
   }
 }
 
-// KORRIGÁLT XMLTV IDŐPONT ÉRTELMEZŐ (Kezeli a +0200, +0000 offset-et ISO UTC konverzióval)
+export async function downloadSource(id) {
+  const src = state.sources.find((s) => s.id === id);
+  if (!src || state.downloadingSources.has(id)) return;
 
-window.downloadSource = async function (id) {
-  const src = sources.find((s) => s.id === id);
-  if (!src || downloadingSources.has(id)) return;
-
-  downloadingSources.add(id);
+  state.downloadingSources.add(id);
   loadSourcesDropdown();
 
   document.getElementById("status").textContent = t("status_downloading", {
@@ -259,15 +274,18 @@ window.downloadSource = async function (id) {
   });
   try {
     await invoke("update_source_epg", { sourceId: src.id, url: src.url });
-    downloadingSources.delete(id);
+    state.downloadingSources.delete(id);
     await refreshSourcesFromDb();
 
     document.getElementById("status").textContent = t("status_download_success");
-    if (id === currentSourceId || currentSourceId === "__ALL_FAVORITES__") {
+    if (
+      id === state.currentSourceId ||
+      state.currentSourceId === "__ALL_FAVORITES__"
+    ) {
       await fetchEPG();
     }
   } catch (err) {
-    downloadingSources.delete(id);
+    state.downloadingSources.delete(id);
     await refreshSourcesFromDb();
     console.error(err);
     await showAlert(
@@ -276,16 +294,16 @@ window.downloadSource = async function (id) {
     );
     document.getElementById("status").textContent = t("status_download_error");
   }
-};
+}
 
-window.updateAllSources = async function () {
-  if (isUpdatingAllSources) return;
-  if (!sources || sources.length === 0) {
+export async function updateAllSources() {
+  if (state.isUpdatingAllSources) return;
+  if (!state.sources || state.sources.length === 0) {
     await showAlert(t("alert_warning_title"), t("no_sources_to_update"));
     return;
   }
 
-  isUpdatingAllSources = true;
+  state.isUpdatingAllSources = true;
   const btn = document.getElementById("updateAllSourcesBtn");
   const originalText = btn ? btn.textContent : t("btn_update_all");
 
@@ -295,9 +313,9 @@ window.updateAllSources = async function () {
   let hasErrors = false;
 
   try {
-    for (let i = 0; i < sources.length; i++) {
-      const s = sources[i];
-      const progressLabel = `${t("btn_update_all_progress")} (${i + 1}/${sources.length}): ${s.name}...`;
+    for (let i = 0; i < state.sources.length; i++) {
+      const s = state.sources[i];
+      const progressLabel = `${t("btn_update_all_progress")} (${i + 1}/${state.sources.length}): ${s.name}...`;
       if (btn) btn.textContent = progressLabel;
       const statusEl = document.getElementById("status");
       if (statusEl) {
@@ -306,7 +324,7 @@ window.updateAllSources = async function () {
         });
       }
 
-      downloadingSources.add(s.id);
+      state.downloadingSources.add(s.id);
       loadSourcesDropdown();
 
       try {
@@ -316,11 +334,11 @@ window.updateAllSources = async function () {
         console.error(`Hiba a(z) ${s.name} forrás frissítésekor:`, err);
         hasErrors = true;
       } finally {
-        downloadingSources.delete(s.id);
+        state.downloadingSources.delete(s.id);
       }
     }
   } finally {
-    isUpdatingAllSources = false;
+    state.isUpdatingAllSources = false;
   }
 
   await refreshSourcesFromDb();
@@ -333,41 +351,45 @@ window.updateAllSources = async function () {
       t("alert_error_title"),
       t("status_update_all_done_errors", {
         count: updatedCount,
-        total: sources.length,
+        total: state.sources.length,
       }),
     );
   } else {
     if (statusEl) statusEl.textContent = t("status_download_success");
   }
 
-  if (currentSourceId) {
+  if (state.currentSourceId) {
     await fetchEPG();
   }
-};
-
-const updateAllBtn = document.getElementById("updateAllSourcesBtn");
-if (updateAllBtn) {
-  updateAllBtn.onclick = () => window.updateAllSources();
 }
 
-window.editSource = function (id) {
-  const src = sources.find((s) => s.id === id);
+function resetSourceForm() {
+  document.getElementById("editSourceId").value = "";
+  document.getElementById("sourceNameInput").value = "";
+  document.getElementById("sourceUrlInput").value = "";
+  document.getElementById("sourceCountrySelect").value = "HU";
+  document.getElementById("sourceOffsetInput").value = 0;
+  document.getElementById("saveSourceBtn").textContent = t("btn_save_source");
+  const cancelBtn = document.getElementById("cancelEditSourceBtn");
+  if (cancelBtn) cancelBtn.classList.add("u-hidden");
+}
+
+export function editSource(id) {
+  const src = state.sources.find((s) => s.id === id);
   if (!src) return;
 
   document.getElementById("editSourceId").value = src.id;
   document.getElementById("sourceNameInput").value = src.name;
   document.getElementById("sourceUrlInput").value = src.url;
-  const normalizedCountry = window.Countries
-    ? window.Countries.normalizeCode(src.countryCode)
-    : src.countryCode || "HU";
+  const normalizedCountry = Countries.normalizeCode(src.countryCode);
   document.getElementById("sourceCountrySelect").value = normalizedCountry;
   document.getElementById("sourceOffsetInput").value = src.timeOffset || 0;
-  document.getElementById("saveSourceBtn").textContent = t(
-    "btn_save_source_edit",
-  );
-};
+  document.getElementById("saveSourceBtn").textContent = t("btn_save_source");
+  const cancelBtn = document.getElementById("cancelEditSourceBtn");
+  if (cancelBtn) cancelBtn.classList.remove("u-hidden");
+}
 
-window.deleteSource = async function (id) {
+export async function deleteSource(id) {
   const confirmed = await showConfirm(
     t("confirm_delete_source_title"),
     t("confirm_delete_source"),
@@ -376,90 +398,100 @@ window.deleteSource = async function (id) {
 
   try {
     await invoke("delete_source", { sourceId: id });
+    if (document.getElementById("editSourceId")?.value === id) {
+      resetSourceForm();
+    }
     await refreshSourcesFromDb();
 
-    if (sources.length === 0) {
-      currentSourceId = "";
+    if (state.sources.length === 0) {
+      state.currentSourceId = "";
       await invoke("set_setting", {
         key: "current_source_id",
         value: "",
       });
       updateAllFavBtnState();
-    } else if (currentSourceId === id) {
-      currentSourceId = "__ALL_FAVORITES__";
+    } else if (state.currentSourceId === id) {
+      state.currentSourceId = "__ALL_FAVORITES__";
       await invoke("set_setting", {
         key: "current_source_id",
-        value: currentSourceId,
+        value: state.currentSourceId,
       });
     }
 
     loadSourcesDropdown();
-    if (currentSourceId) {
+    if (state.currentSourceId) {
       await fetchEPG();
     } else {
-      epgData = { channels: [], programmes: [] };
+      state.epgData = { channels: [], programmes: [] };
       renderEmptySourcesState();
     }
   } catch (err) {
     console.error(err);
     await showAlert(t("alert_error_title"), err);
   }
-};
+}
 
-document.getElementById("clearDbBtn").onclick = async () => {
-  const confirmed = await showConfirm(
-    t("confirm_clear_db_title"),
-    t("confirm_clear_db"),
-  );
-  if (!confirmed) return;
-
-  try {
-    activeSingleChannelId = null;
-    await invoke("clear_entire_database");
-    await refreshSourcesFromDb();
-    epgData = { channels: [], programmes: [] };
-    renderEPG();
-    renderChannelOrderList();
-    await showAlert(t("alert_success_title"), t("alert_db_cleared"));
-  } catch (err) {
-    console.error(err);
-    await showAlert(t("alert_error_title"), err);
+export function initSources() {
+  const updateAllBtn = document.getElementById("updateAllSourcesBtn");
+  if (updateAllBtn) {
+    updateAllBtn.onclick = () => updateAllSources();
   }
-};
 
-document.getElementById("saveSourceBtn").onclick = async () => {
-  const editId = document.getElementById("editSourceId").value;
-  const name = document.getElementById("sourceNameInput").value.trim();
-  const url = document.getElementById("sourceUrlInput").value.trim();
-  const countryCode = document.getElementById("sourceCountrySelect").value;
-  const timeOffset =
-    parseInt(document.getElementById("sourceOffsetInput").value, 10) || 0;
+  document.getElementById("clearDbBtn").onclick = async () => {
+    const confirmed = await showConfirm(
+      t("confirm_clear_db_title"),
+      t("confirm_clear_db"),
+    );
+    if (!confirmed) return;
 
-  if (!name || !url)
-    return await showAlert(t("alert_warning_title"), t("alert_fill_fields"));
-
-  const sourceObj = {
-    id: editId ? editId : "src_" + Date.now(),
-    name,
-    url,
-    lastDownloaded: null,
-    countryCode,
-    timeOffset,
+    try {
+      state.activeSingleChannelId = null;
+      await invoke("clear_entire_database");
+      await refreshSourcesFromDb();
+      state.epgData = { channels: [], programmes: [] };
+      renderEPG();
+      renderChannelOrderList();
+      await showAlert(t("alert_success_title"), t("alert_db_cleared"));
+    } catch (err) {
+      console.error(err);
+      await showAlert(t("alert_error_title"), err);
+    }
   };
 
-  await invoke("save_source", { source: sourceObj });
-  await refreshSourcesFromDb();
-
-  document.getElementById("editSourceId").value = "";
-  document.getElementById("sourceNameInput").value = "";
-  document.getElementById("sourceUrlInput").value = "";
-  document.getElementById("sourceCountrySelect").value = "HU";
-  document.getElementById("sourceOffsetInput").value = 0;
-  document.getElementById("saveSourceBtn").textContent = t("btn_save_source");
-
-  if (!currentSourceId || editId === currentSourceId) {
-    currentSourceId = sourceObj.id;
-    document.getElementById("sourceSelect").value = currentSourceId;
-    await fetchEPG();
+  const cancelEditBtn = document.getElementById("cancelEditSourceBtn");
+  if (cancelEditBtn) {
+    cancelEditBtn.onclick = () => resetSourceForm();
   }
-};
+
+  document.getElementById("saveSourceBtn").onclick = async () => {
+    const editId = document.getElementById("editSourceId").value;
+    const name = document.getElementById("sourceNameInput").value.trim();
+    const url = document.getElementById("sourceUrlInput").value.trim();
+    const countryCode = document.getElementById("sourceCountrySelect").value;
+    const timeOffset =
+      parseInt(document.getElementById("sourceOffsetInput").value, 10) || 0;
+
+    if (!name || !url)
+      return await showAlert(t("alert_warning_title"), t("alert_fill_fields"));
+
+    const sourceObj = {
+      id: editId ? editId : "src_" + Date.now(),
+      name,
+      url,
+      lastDownloaded: null,
+      countryCode,
+      timeOffset,
+    };
+
+    await invoke("save_source", { source: sourceObj });
+    await refreshSourcesFromDb();
+
+    resetSourceForm();
+
+    if (!state.currentSourceId || editId === state.currentSourceId) {
+      state.currentSourceId = sourceObj.id;
+      document.getElementById("sourceSelect").value = state.currentSourceId;
+      await fetchEPG();
+    }
+  };
+}

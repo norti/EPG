@@ -9,119 +9,141 @@
   </head>
   <body>
     <header>
-      <div class="active-channel-badge epg-only u-hidden" id="activeChannelBadge">
-        <img class="active-channel-logo u-hidden" id="activeChannelLogo" src="" alt="" />
-        <span class="active-channel-name" id="activeChannelName"></span>
-      </div>
-      <button
-        class="btn epg-only"
-        id="allFavChannelsBtn"
-        title="★ Összes kedvenc csatorna"
-        data-i18n-title="all_favorites_source"
-      >
-        <span id="allFavChannelsIcon" data-icon="star" data-icon-size="15"></span>
-        <span data-i18n="all_favorites_btn">Kedvenc csatornák</span>
-      </button>
-      <select id="sourceSelect" class="epg-only"></select>
-      <div class="date-nav-group epg-only">
+      <div class="header-scroll-wrap" id="headerScrollWrap">
         <button
-          class="btn btn-date-arrow btn-icon-only"
-          id="prevDayBtn"
-          title="Előző nap"
-          data-i18n-title="btn_prev_day"
+          type="button"
+          class="header-scroll-btn u-hidden"
+          id="headerScrollLeftBtn"
+          aria-label="Scroll left"
         >
           <span data-icon="chevron-left" data-icon-size="14"></span>
         </button>
-        <select id="dateSelect"></select>
+        <div class="header-scroll-area" id="headerScrollArea">
+          <div class="active-channel-badge epg-only u-hidden" id="activeChannelBadge">
+            <img class="active-channel-logo u-hidden" id="activeChannelLogo" src="" alt="" />
+            <span class="active-channel-name" id="activeChannelName"></span>
+          </div>
+          <button
+            class="btn epg-only"
+            id="allFavChannelsBtn"
+            title="★ Összes kedvenc csatorna"
+            data-i18n-title="all_favorites_source"
+          >
+            <span id="allFavChannelsIcon" data-icon="star" data-icon-size="15"></span>
+            <span data-i18n="all_favorites_btn">Kedvenc csatornák</span>
+          </button>
+          <select id="sourceSelect" class="epg-only"></select>
+          <div class="date-nav-group epg-only">
+            <button
+              class="btn btn-date-arrow btn-icon-only"
+              id="prevDayBtn"
+              title="Előző nap"
+              data-i18n-title="btn_prev_day"
+            >
+              <span data-icon="chevron-left" data-icon-size="14"></span>
+            </button>
+            <select id="dateSelect"></select>
+            <button
+              class="btn btn-date-arrow btn-icon-only"
+              id="nextDayBtn"
+              title="Következő nap"
+              data-i18n-title="btn_next_day"
+            >
+              <span data-icon="chevron-right" data-icon-size="14"></span>
+            </button>
+          </div>
+          <button class="btn epg-only" id="nowBtn" data-i18n="now_btn">MOST</button>
+          <button class="btn epg-only" id="favListBtn">
+            <span data-icon="star" data-icon-size="15"></span>
+            <span data-i18n="favorites_btn">Kedvencek</span>
+          </button>
+
+          <select id="viewSelect" class="epg-only">
+            <option value="60" data-i18n="view_1h">1 óra</option>
+            <option value="30" data-i18n="view_30m">30 perc</option>
+            <option value="20" data-i18n="view_20m" selected>20 perc</option>
+            <option value="10" data-i18n="view_10m">10 perc</option>
+            <option value="5" data-i18n="view_5m">5 perc</option>
+          </select>
+
+          <button
+            class="btn epg-only"
+            id="layoutToggleBtn"
+            title="Váltás vízszintes nézetre"
+            data-i18n-title="title_layout_toggle"
+          >
+            <span id="layoutToggleIcon" data-icon="layout-rows" data-icon-size="16"></span>
+            <span id="layoutToggleLabel" data-i18n="btn_layout_horizontal"
+              >Vízszintes</span
+            >
+          </button>
+
+          <div class="search-box epg-only">
+            <input
+              type="text"
+              id="searchInput"
+              placeholder="Keresés..."
+              data-i18n-placeholder="search_placeholder"
+            />
+            <button class="btn" id="searchBtn" data-i18n="search_btn">
+              KERESÉS
+            </button>
+            <button
+              class="btn btn-icon-only"
+              id="clearSearchBtn"
+              title="Keresés törlése"
+              data-i18n-title="clear_search"
+            >
+              <span data-icon="x" data-icon-size="15"></span>
+            </button>
+          </div>
+
+          <div id="traktHeaderControls" class="trakt-header-controls u-hidden">
+            <button class="btn trakt-nav-btn" id="traktBackBtn">
+              <span data-icon="arrow-left" data-icon-size="16"></span>
+              <span data-i18n="trakt_btn_back_epg">Vissza az EPG-hez</span>
+            </button>
+            <button class="btn trakt-nav-btn" id="traktWatchlistViewBtn">
+              <span data-icon="trakt-watchlist-on" data-icon-size="16"></span>
+              <span data-i18n="trakt_watchlist_title">Watchlist</span>
+            </button>
+            <button class="btn trakt-nav-btn" id="traktMyCalendarBtn">
+              <span data-icon="trakt-calendar-my" data-icon-size="16"></span>
+              <span data-i18n="trakt_calendar_my_title">Saját naptár (30 nap)</span>
+            </button>
+            <button class="btn trakt-nav-btn" id="traktGlobalCalendarBtn">
+              <span data-icon="trakt-calendar-global" data-icon-size="16"></span>
+              <span data-i18n="trakt_calendar_global_title">Globális naptár</span>
+            </button>
+            <button class="btn trakt-nav-btn" id="traktSyncBtn" data-i18n-title="trakt_btn_sync_hint" title="Csak a Trakt.tv-n történt változásokat tölti le">
+              <span data-icon="trakt-sync" data-icon-size="16"></span>
+              <span data-i18n="trakt_btn_sync">Szinkronizálás</span>
+            </button>
+            <span id="traktSyncStatus" class="trakt-sync-status"></span>
+          </div>
+        </div>
         <button
-          class="btn btn-date-arrow btn-icon-only"
-          id="nextDayBtn"
-          title="Következő nap"
-          data-i18n-title="btn_next_day"
+          type="button"
+          class="header-scroll-btn u-hidden"
+          id="headerScrollRightBtn"
+          aria-label="Scroll right"
         >
           <span data-icon="chevron-right" data-icon-size="14"></span>
         </button>
       </div>
-      <button class="btn epg-only" id="nowBtn" data-i18n="now_btn">MOST</button>
-      <button class="btn epg-only" id="favListBtn">
-        <span data-icon="star" data-icon-size="15"></span>
-        <span data-i18n="favorites_btn">Kedvencek</span>
-      </button>
 
-      <select id="viewSelect" class="epg-only">
-        <option value="60" data-i18n="view_1h">1 óra</option>
-        <option value="30" data-i18n="view_30m">30 perc</option>
-        <option value="20" data-i18n="view_20m" selected>20 perc</option>
-        <option value="10" data-i18n="view_10m">10 perc</option>
-        <option value="5" data-i18n="view_5m">5 perc</option>
-      </select>
-
-      <button
-        class="btn epg-only"
-        id="layoutToggleBtn"
-        title="Váltás vízszintes nézetre"
-        data-i18n-title="title_layout_toggle"
-      >
-        <span id="layoutToggleIcon" data-icon="layout-rows" data-icon-size="16"></span>
-        <span id="layoutToggleLabel" data-i18n="btn_layout_horizontal"
-          >Vízszintes</span
-        >
-      </button>
-
-      <div class="search-box epg-only">
-        <input
-          type="text"
-          id="searchInput"
-          placeholder="Keresés..."
-          data-i18n-placeholder="search_placeholder"
-        />
-        <button class="btn" id="searchBtn" data-i18n="search_btn">
-          KERESÉS
+      <div class="header-right-pinned">
+        <span id="status" data-i18n="status_starting">Indítás...</span>
+        <button class="btn trakt-header-btn u-hidden" id="traktBtn" title="Trakt.tv">
+          <img src="images/trakt/logo.svg" alt="Trakt" class="trakt-logo-btn-img" />
+          <span>Trakt</span>
+          <span id="traktWatchlistCountBadge" class="trakt-wl-count-badge u-hidden"></span>
         </button>
-        <button
-          class="btn btn-icon-only"
-          id="clearSearchBtn"
-          title="Keresés törlése"
-          data-i18n-title="clear_search"
-        >
-          <span data-icon="x" data-icon-size="15"></span>
+        <button class="btn" id="settingsBtn">
+          <span data-icon="settings" data-icon-size="15"></span>
+          <span data-i18n="settings_btn">Beállítások</span>
         </button>
       </div>
-
-      <div id="traktHeaderControls" class="trakt-header-controls u-hidden">
-        <button class="btn trakt-nav-btn" id="traktBackBtn">
-          <span data-icon="arrow-left" data-icon-size="16"></span>
-          <span data-i18n="trakt_btn_back_epg">Vissza az EPG-hez</span>
-        </button>
-        <button class="btn trakt-nav-btn" id="traktWatchlistViewBtn">
-          <span data-icon="trakt-watchlist-on" data-icon-size="16"></span>
-          <span data-i18n="trakt_watchlist_title">Watchlist</span>
-        </button>
-        <button class="btn trakt-nav-btn" id="traktMyCalendarBtn">
-          <span data-icon="trakt-calendar-my" data-icon-size="16"></span>
-          <span data-i18n="trakt_calendar_my_title">Saját naptár (30 nap)</span>
-        </button>
-        <button class="btn trakt-nav-btn" id="traktGlobalCalendarBtn">
-          <span data-icon="trakt-calendar-global" data-icon-size="16"></span>
-          <span data-i18n="trakt_calendar_global_title">Globális naptár</span>
-        </button>
-        <button class="btn trakt-nav-btn" id="traktSyncBtn" data-i18n-title="trakt_btn_sync_hint" title="Csak a Trakt.tv-n történt változásokat tölti le">
-          <span data-icon="trakt-sync" data-icon-size="16"></span>
-          <span data-i18n="trakt_btn_sync">Szinkronizálás</span>
-        </button>
-        <span id="traktSyncStatus" class="trakt-sync-status"></span>
-      </div>
-
-      <span id="status" data-i18n="status_starting">Indítás...</span>
-      <button class="btn trakt-header-btn u-hidden" id="traktBtn" title="Trakt.tv">
-        <img src="images/trakt/logo.svg" alt="Trakt" class="trakt-logo-btn-img" />
-        <span>Trakt</span>
-        <span id="traktWatchlistCountBadge" class="trakt-wl-count-badge u-hidden"></span>
-      </button>
-      <button class="btn" id="settingsBtn">
-        <span data-icon="settings" data-icon-size="15"></span>
-        <span data-i18n="settings_btn">Beállítások</span>
-      </button>
     </header>
 
     <div class="epg-viewport" id="epgViewport">
@@ -485,13 +507,24 @@
                     <span class="source-offset-hint" data-i18n="source_offset_unit">óra</span>
                   </div>
 
-                  <button
-                    class="btn btn-green"
-                    id="saveSourceBtn"
-                    data-i18n="btn_save_source"
-                  >
-                    MENTÉS
-                  </button>
+                  <div class="source-form-actions">
+                    <button
+                      class="btn btn-green"
+                      id="saveSourceBtn"
+                      data-i18n="btn_save_source"
+                    >
+                      MENTÉS
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-red btn-icon-only u-hidden"
+                      id="cancelEditSourceBtn"
+                      title="Mégse"
+                      data-i18n-title="btn_cancel"
+                    >
+                      <span data-icon="x" data-icon-size="15"></span>
+                    </button>
+                  </div>
                 </div>
               </div>
               <div
@@ -1331,23 +1364,6 @@
       </div>
     </div>
 
-    <script src="javascript/i18n.js"></script>
-    <script src="javascript/countries.js"></script>
-    <script src="javascript/icons.js"></script>
-    <script src="javascript/search.js"></script>
-    <script src="javascript/trakt-icons.js"></script>
-    <script src="javascript/trakt-dates.js"></script>
-    <script src="javascript/modules/state.js"></script>
-    <script src="javascript/modules/ui.js"></script>
-    <script src="javascript/modules/sources.js"></script>
-    <script src="javascript/modules/favorites.js"></script>
-    <script src="javascript/modules/epg.js"></script>
-    <script src="javascript/modules/tmdb.js"></script>
-    <script src="javascript/modules/modal.js"></script>
-    <script src="javascript/modules/channels.js"></script>
-    <script src="javascript/modules/settings.js"></script>
-    <script src="javascript/epg-viewer.js"></script>
-    <script src="javascript/trakt-dashboard.js"></script>
-    <script src="javascript/trakt-ui.js"></script>
+    <script type="module" src="javascript/epg-viewer.js"></script>
   </body>
 </html>

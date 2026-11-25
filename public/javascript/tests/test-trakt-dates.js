@@ -1,5 +1,5 @@
-const assert = require('assert');
-const TraktDates = require('../public/javascript/trakt-dates.js');
+import assert from 'node:assert';
+import { TraktDates } from '../trakt/trakt-dates.js';
 
 function testAllWeekdays() {
   // 2026-11-09 is Monday .. 2026-11-15 is Sunday

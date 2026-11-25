@@ -1,4 +1,14 @@
-function getTmdbLang(countryCode) {
+import { state, invoke } from "../application/state.js";
+import { t, getCurrentLang } from "../application/i18n.js";
+import {
+  iconHtml,
+  showConfirm,
+  showAlert,
+  escapeHtml,
+} from "../application/ui.js";
+import { attachToModal, detachFromModal } from "../trakt/trakt-ui.js";
+
+export function getTmdbLang(countryCode) {
   const code = (countryCode || "").toUpperCase();
   const map = {
     HU: "hu-HU",
@@ -15,10 +25,10 @@ function getTmdbLang(countryCode) {
     PT: "pt-PT",
     CZ: "cs-CZ",
   };
-  return map[code] || (currentLang === "english" ? "en-US" : "hu-HU");
+  return map[code] || (getCurrentLang() === "english" ? "en-US" : "hu-HU");
 }
 
-function copyText(text, badgeEl) {
+export function copyText(text, badgeEl) {
   if (!text) return;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard
@@ -36,9 +46,7 @@ function copyText(text, badgeEl) {
   }
 }
 
-let currentModalFetchIndex = 0;
 let currentModalLangSwitchIndex = 0;
-let currentModalChannel = null;
 let currentModalPosterPath = "";
 let currentModalLargePosterSrc = "";
 let currentModalTmdbData = null;
@@ -157,7 +165,7 @@ function showPosterZoom(e) {
   });
 }
 
-function hidePosterZoom() {
+export function hidePosterZoom() {
   if (posterZoomDebounce) clearTimeout(posterZoomDebounce);
   const popup = document.getElementById("posterZoomPopup");
   const img = document.getElementById("posterZoomImg");
@@ -203,7 +211,7 @@ function positionPosterZoom(e) {
   popup.style.top = `${top}px`;
 }
 
-function updateModalLeftColVisibility() {
+export function updateModalLeftColVisibility() {
   const leftCol = document.getElementById("modalLeftCol");
   const posterCol = document.getElementById("modalPosterCol");
   const posterTraktMeta = document.getElementById("modalPosterTraktMeta");
@@ -214,7 +222,7 @@ function updateModalLeftColVisibility() {
   leftCol.classList.toggle("u-hidden", !(hasPoster || hasTraktMeta));
 }
 
-function resetModalTmdbUi(preserveTrakt = false) {
+export function resetModalTmdbUi(preserveTrakt = false) {
   hidePosterZoom();
   currentModalLangSwitchIndex++;
   currentModalLargePosterSrc = "";
@@ -249,19 +257,16 @@ function resetModalTmdbUi(preserveTrakt = false) {
   tmdbOverview.classList.add("u-hidden");
   tmdbOverviewText.textContent = "";
   tmdbLoading.classList.add("u-hidden");
-  if (!preserveTrakt && window.TraktUI) {
-    window.TraktUI.detachFromModal();
+  if (!preserveTrakt) {
+    detachFromModal();
   }
   updateModalLeftColVisibility();
 }
 
-function getModalTitleVariants(tmdbData, appLang) {
+export function getModalTitleVariants(tmdbData, appLang) {
   if (!tmdbData) return [];
 
-  const lang = (
-    appLang ||
-    (typeof currentLang !== "undefined" ? currentLang : "hungarian")
-  ).toLowerCase();
+  const lang = (appLang || getCurrentLang() || "hungarian").toLowerCase();
   const isEnglishApp = lang === "english" || lang === "en";
 
   const huTitle = (
@@ -325,7 +330,7 @@ function setActiveTitleVariantBadge(activeBadge) {
   );
 }
 
-function renderTmdbDetailsInModal(tmdbData, options = {}) {
+export function renderTmdbDetailsInModal(tmdbData, options = {}) {
   resetModalTmdbUi(!!options.preserveTrakt);
   if (!tmdbData) return;
 
@@ -342,10 +347,10 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
   const tmdbOverview = document.getElementById("modalTmdbOverview");
   const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
 
-  const renderFetchIndex = currentModalFetchIndex;
+  const renderFetchIndex = state.currentModalFetchIndex;
   const renderSwitchIndex = currentModalLangSwitchIndex;
   const isCurrentRender = () =>
-    renderFetchIndex === currentModalFetchIndex &&
+    renderFetchIndex === state.currentModalFetchIndex &&
     renderSwitchIndex === currentModalLangSwitchIndex;
 
   // Poster (served through images.db cache for offline & zero repeated CDN hits)
@@ -393,7 +398,7 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
   }
 
   // Title variants badges: 1. app language, 2. English, 3. Original (if present)
-  const variants = getModalTitleVariants(tmdbData, currentLang);
+  const variants = getModalTitleVariants(tmdbData, getCurrentLang());
   const badgeMap = {
     hu: huBadge,
     en: enBadge,
@@ -439,11 +444,11 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
   }
 }
 
-function getCurrentModalLang() {
-  const srcId = currentModalChannel?.sourceId || currentSourceId;
-  const currentSrcObj = sources.find((s) => s.id === srcId);
+export function getCurrentModalLang() {
+  const srcId = state.currentModalChannel?.sourceId || state.currentSourceId;
+  const currentSrcObj = state.sources.find((s) => s.id === srcId);
   const countryCode =
-    currentModalChannel?.countryCode ||
+    state.currentModalChannel?.countryCode ||
     (currentSrcObj ? currentSrcObj.countryCode : "HU");
   return getTmdbLang(countryCode);
 }
@@ -487,7 +492,7 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
   const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
   const tmdbLoading = document.getElementById("modalTmdbLoading");
 
-  const fetchIndex = currentModalFetchIndex;
+  const fetchIndex = state.currentModalFetchIndex;
   const switchIndex = ++currentModalLangSwitchIndex;
 
   tmdbLoading.classList.remove("u-hidden");
@@ -496,11 +501,11 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
       tmdbId: tmdbData.tmdbId,
       mediaType: tmdbData.mediaType,
       lang: targetLang,
-      queryTitle: currentModalTitle,
+      queryTitle: state.currentModalTitle,
     });
 
     if (
-      fetchIndex !== currentModalFetchIndex ||
+      fetchIndex !== state.currentModalFetchIndex ||
       switchIndex !== currentModalLangSwitchIndex
     ) {
       return;
@@ -513,7 +518,7 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
     }
 
     const isCurrentSwitch = () =>
-      fetchIndex === currentModalFetchIndex &&
+      fetchIndex === state.currentModalFetchIndex &&
       switchIndex === currentModalLangSwitchIndex;
 
     if (details.posterPath) {
@@ -545,7 +550,7 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
     }
   } catch (e) {
     if (
-      fetchIndex === currentModalFetchIndex &&
+      fetchIndex === state.currentModalFetchIndex &&
       switchIndex === currentModalLangSwitchIndex
     ) {
       tmdbLoading.classList.add("u-hidden");
@@ -554,8 +559,8 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
   }
 }
 
-function openFixOverlay() {
-  if (!currentModalTitle) return;
+export function openFixOverlay() {
+  if (!state.currentModalTitle) return;
   const overlay = document.getElementById("modalFixOverlay");
   const programContext = document.getElementById("modalFixProgramContext");
   const programTitleEl = document.getElementById("modalFixProgramTitle");
@@ -568,8 +573,8 @@ function openFixOverlay() {
   if (modalContent) modalContent.classList.add("has-fix-open");
 
   if (programContext && programTitleEl && programDescEl) {
-    programTitleEl.textContent = currentModalTitle;
-    const rawDesc = (currentModalDesc || "").trim();
+    programTitleEl.textContent = state.currentModalTitle;
+    const rawDesc = (state.currentModalDesc || "").trim();
     if (rawDesc) {
       programDescEl.textContent = rawDesc;
       programDescEl.classList.remove("is-empty");
@@ -581,7 +586,7 @@ function openFixOverlay() {
   }
 
   overlay.classList.remove("u-hidden");
-  searchInput.value = currentModalTitle;
+  searchInput.value = state.currentModalTitle;
   clearBtn.classList.toggle("u-hidden", !searchInput.value);
   statusEl.classList.add("u-hidden");
   resultsEl.innerHTML = "";
@@ -591,10 +596,10 @@ function openFixOverlay() {
     searchInput.select();
   }, 50);
 
-  triggerFixSearch(currentModalTitle);
+  triggerFixSearch(state.currentModalTitle);
 }
 
-function closeFixOverlay() {
+export function closeFixOverlay() {
   const overlay = document.getElementById("modalFixOverlay");
   if (overlay) overlay.classList.add("u-hidden");
   const modalContent = document.querySelector("#modalOverlay .modal-content");
@@ -731,21 +736,19 @@ function renderFixResults(items) {
       const lang = getCurrentModalLang();
       try {
         const updatedDetails = await invoke("set_tmdb_match", {
-          queryTitle: currentModalTitle,
+          queryTitle: state.currentModalTitle,
           tmdbId: item.id,
           mediaType: item.mediaType,
           lang,
         });
         renderTmdbDetailsInModal(updatedDetails, { activeLang: lang });
         closeFixOverlay();
-        if (window.TraktUI) {
-          window.TraktUI.attachToModal({
-            title: currentModalTitle,
-            tmdbId: updatedDetails?.tmdbId ?? null,
-            mediaType: updatedDetails?.mediaType ?? null,
-            tmdbData: updatedDetails,
-          });
-        }
+        attachToModal({
+          title: state.currentModalTitle,
+          tmdbId: updatedDetails?.tmdbId ?? null,
+          mediaType: updatedDetails?.mediaType ?? null,
+          tmdbData: updatedDetails,
+        });
       } catch (err) {
         console.error("Hiba a TMDB egyezés mentésekor:", err);
         card.classList.remove("selecting");
@@ -758,29 +761,27 @@ function renderFixResults(items) {
 }
 
 async function removeTmdbMatch() {
-  if (!currentModalTitle) return;
+  if (!state.currentModalTitle) return;
   const lang = getCurrentModalLang();
   try {
     await invoke("clear_tmdb_match", {
-      queryTitle: currentModalTitle,
+      queryTitle: state.currentModalTitle,
       lang,
     });
     resetModalTmdbUi();
     closeFixOverlay();
-    if (window.TraktUI) {
-      window.TraktUI.attachToModal({
-        title: currentModalTitle,
-        tmdbId: null,
-        mediaType: null,
-        tmdbData: null,
-      });
-    }
+    attachToModal({
+      title: state.currentModalTitle,
+      tmdbId: null,
+      mediaType: null,
+      tmdbData: null,
+    });
   } catch (e) {
     console.error("Hiba a TMDB egyezés törlésekor:", e);
   }
 }
 
-function setTmdbKeyStatusState(statusBadge, state) {
+function setTmdbKeyStatusState(statusBadge, statusState) {
   if (!statusBadge) return;
   statusBadge.classList.remove(
     "tmdb-status--configured",
@@ -788,12 +789,12 @@ function setTmdbKeyStatusState(statusBadge, state) {
     "tmdb-status--valid",
     "tmdb-status--invalid",
   );
-  if (state) {
-    statusBadge.classList.add(`tmdb-status--${state}`);
+  if (statusState) {
+    statusBadge.classList.add(`tmdb-status--${statusState}`);
   }
 }
 
-async function loadTmdbSettings() {
+export async function loadTmdbSettings() {
   const statusBadge = document.getElementById("tmdbKeyStatusBadge");
   const keyInput = document.getElementById("tmdbApiKeyInput");
   const toggleBtn = document.getElementById("toggleTmdbKeyBtn");
@@ -878,81 +879,83 @@ async function clearTmdbCache() {
   }
 }
 
-document.getElementById("tmdbLogoLink").onclick = () => {
-  invoke("open_url", { url: "https://www.themoviedb.org" });
-};
+export function initTmdb() {
+  document.getElementById("tmdbLogoLink").onclick = () => {
+    invoke("open_url", { url: "https://www.themoviedb.org" });
+  };
 
-// Modal poster hover enlarge listeners
-const modalPosterColEl = document.getElementById("modalPosterCol");
-modalPosterColEl.addEventListener("mouseenter", (e) => {
-  if (posterZoomDebounce) clearTimeout(posterZoomDebounce);
-  posterZoomDebounce = setTimeout(() => {
-    showPosterZoom(e);
-  }, 120);
-});
-modalPosterColEl.addEventListener("mousemove", (e) => {
-  positionPosterZoom(e);
-});
-modalPosterColEl.addEventListener("mouseleave", () => {
-  hidePosterZoom();
-});
+  // Modal poster hover enlarge listeners
+  const modalPosterColEl = document.getElementById("modalPosterCol");
+  modalPosterColEl.addEventListener("mouseenter", (e) => {
+    if (posterZoomDebounce) clearTimeout(posterZoomDebounce);
+    posterZoomDebounce = setTimeout(() => {
+      showPosterZoom(e);
+    }, 120);
+  });
+  modalPosterColEl.addEventListener("mousemove", (e) => {
+    positionPosterZoom(e);
+  });
+  modalPosterColEl.addEventListener("mouseleave", () => {
+    hidePosterZoom();
+  });
 
-document.getElementById("modalFixBtn").onclick = () => {
-  openFixOverlay();
-};
+  document.getElementById("modalFixBtn").onclick = () => {
+    openFixOverlay();
+  };
 
-document.getElementById("modalFixClose").onclick = () => {
-  closeFixOverlay();
-};
-
-document.getElementById("modalFixSearchBtn").onclick = () => {
-  if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
-  const input = document.getElementById("modalFixSearchInput");
-  triggerFixSearch(input.value.trim());
-};
-
-document.getElementById("modalFixSearchInput").oninput = (e) => {
-  const val = e.target.value;
-  document
-    .getElementById("modalFixClearBtn")
-    .classList.toggle("u-hidden", !val);
-  if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
-  fixSearchDebounce = setTimeout(() => {
-    triggerFixSearch(val.trim());
-  }, 350);
-};
-
-document.getElementById("modalFixSearchInput").onkeydown = (e) => {
-  if (e.key === "Enter") {
-    if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
-    triggerFixSearch(e.target.value.trim());
-  } else if (e.key === "Escape") {
+  document.getElementById("modalFixClose").onclick = () => {
     closeFixOverlay();
-  }
-};
+  };
 
-document.getElementById("modalFixClearBtn").onclick = () => {
-  const input = document.getElementById("modalFixSearchInput");
-  input.value = "";
-  document.getElementById("modalFixClearBtn").classList.add("u-hidden");
-  input.focus();
-  triggerFixSearch("");
-};
+  document.getElementById("modalFixSearchBtn").onclick = () => {
+    if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+    const input = document.getElementById("modalFixSearchInput");
+    triggerFixSearch(input.value.trim());
+  };
 
-document.getElementById("modalFixRemoveBtn").onclick = () => {
-  removeTmdbMatch();
-};
+  document.getElementById("modalFixSearchInput").oninput = (e) => {
+    const val = e.target.value;
+    document
+      .getElementById("modalFixClearBtn")
+      .classList.toggle("u-hidden", !val);
+    if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+    fixSearchDebounce = setTimeout(() => {
+      triggerFixSearch(val.trim());
+    }, 350);
+  };
 
-document.getElementById("saveTmdbKeyBtn").onclick = saveTmdbKey;
-document.getElementById("clearTmdbKeyBtn").onclick = clearTmdbKey;
-document.getElementById("testTmdbKeyBtn").onclick = testTmdbKey;
-document.getElementById("clearTmdbCacheBtn").onclick = clearTmdbCache;
-document.getElementById("toggleTmdbKeyBtn").onclick = () => {
-  const input = document.getElementById("tmdbApiKeyInput");
-  const isHidden = input.type === "password";
-  input.type = isHidden ? "text" : "password";
-  const btn = document.getElementById("toggleTmdbKeyBtn");
-  if (btn) {
-    btn.innerHTML = iconHtml(isHidden ? "eye-off" : "eye", 16);
-  }
-};
+  document.getElementById("modalFixSearchInput").onkeydown = (e) => {
+    if (e.key === "Enter") {
+      if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
+      triggerFixSearch(e.target.value.trim());
+    } else if (e.key === "Escape") {
+      closeFixOverlay();
+    }
+  };
+
+  document.getElementById("modalFixClearBtn").onclick = () => {
+    const input = document.getElementById("modalFixSearchInput");
+    input.value = "";
+    document.getElementById("modalFixClearBtn").classList.add("u-hidden");
+    input.focus();
+    triggerFixSearch("");
+  };
+
+  document.getElementById("modalFixRemoveBtn").onclick = () => {
+    removeTmdbMatch();
+  };
+
+  document.getElementById("saveTmdbKeyBtn").onclick = saveTmdbKey;
+  document.getElementById("clearTmdbKeyBtn").onclick = clearTmdbKey;
+  document.getElementById("testTmdbKeyBtn").onclick = testTmdbKey;
+  document.getElementById("clearTmdbCacheBtn").onclick = clearTmdbCache;
+  document.getElementById("toggleTmdbKeyBtn").onclick = () => {
+    const input = document.getElementById("tmdbApiKeyInput");
+    const isHidden = input.type === "password";
+    input.type = isHidden ? "text" : "password";
+    const btn = document.getElementById("toggleTmdbKeyBtn");
+    if (btn) {
+      btn.innerHTML = iconHtml(isHidden ? "eye-off" : "eye", 16);
+    }
+  };
+}

@@ -1,29 +1,30 @@
-function iconHtml(name, size = 16) {
-  return window.Icons ? window.Icons.get(name, { size }) : "";
+import { state, invoke } from "./state.js";
+import { t, getCurrentLang } from "./i18n.js";
+import { Icons } from "../utils/icons.js";
+import { Countries } from "../utils/countries.js";
+import { SearchUtils } from "../utils/search.js";
+
+export function iconHtml(name, size = 16) {
+  return Icons.get(name, { size });
 }
 
 // ============================================================================
 // Fuzzy Search & Diacritics Normalization Utilities (delegated to SearchUtils)
 // ============================================================================
 
-function normalizeSearchText(str) {
-  return window.SearchUtils ? window.SearchUtils.normalizeText(str) : String(str || "").toLowerCase().trim();
+export function normalizeSearchText(str) {
+  return SearchUtils.normalizeText(str);
 }
 
-function levenshteinDistance(a, b) {
-  return window.SearchUtils ? window.SearchUtils.damerauLevenshtein(a, b) : 0;
+export function levenshteinDistance(a, b) {
+  return SearchUtils.damerauLevenshtein(a, b);
 }
 
-function fuzzySearchMatch(target, query, options) {
-  if (window.SearchUtils) {
-    return window.SearchUtils.fuzzyMatch(target, query, options);
-  }
-  if (!query) return true;
-  if (!target) return false;
-  return normalizeSearchText(target).includes(normalizeSearchText(query));
+export function fuzzySearchMatch(target, query, options) {
+  return SearchUtils.fuzzyMatch(target, query, options);
 }
 
-function showDialog({ title, message, isConfirm = false }) {
+export function showDialog({ title, message, isConfirm = false }) {
   return new Promise((resolve) => {
     const titleEl = document.getElementById("customConfirmTitle");
     const msgEl = document.getElementById("customConfirmMessage");
@@ -61,15 +62,15 @@ function showDialog({ title, message, isConfirm = false }) {
   });
 }
 
-function showConfirm(title, message) {
+export function showConfirm(title, message) {
   return showDialog({ title, message, isConfirm: true });
 }
 
-function showAlert(title, message) {
+export function showAlert(title, message) {
   return showDialog({ title, message, isConfirm: false }).then(() => {});
 }
 
-function showPrompt(title, message, defaultValue = "") {
+export function showPrompt(title, message, defaultValue = "") {
   return new Promise((resolve) => {
     document.getElementById("customPromptTitle").textContent = title;
     document.getElementById("customPromptMessage").textContent = message;
@@ -108,7 +109,7 @@ function showPrompt(title, message, defaultValue = "") {
   });
 }
 
-async function openLogoSearchModal(channelName, countryCode = "HU") {
+export async function openLogoSearchModal(channelName, countryCode = "HU") {
   const modal = document.getElementById("logoSearchModal");
   const closeBtn = document.getElementById("logoSearchClose");
   const input = document.getElementById("logoSearchInput");
@@ -129,12 +130,10 @@ async function openLogoSearchModal(channelName, countryCode = "HU") {
   }
 
   input.value = initialQuery;
-  if (window.Countries) {
-    window.Countries.populateSelect(countrySelect, {
-      format: "search",
-      selected: countryCode || "HU",
-    });
-  }
+  Countries.populateSelect(countrySelect, {
+    format: "search",
+    selected: countryCode || "HU",
+  });
 
   return new Promise((resolve) => {
     const doSearch = async () => {
@@ -226,10 +225,9 @@ async function openLogoSearchModal(channelName, countryCode = "HU") {
   });
 }
 
-function openChannelEditModal(channel) {
+export function openChannelEditModal(channel) {
   return new Promise((resolve) => {
     const overlay = document.getElementById("channelEditModalOverlay");
-    const titleEl = document.getElementById("channelEditModalTitle");
     const origTitleEl = document.getElementById("channelEditOrigTitle");
     const nameInput = document.getElementById("channelEditNameInput");
     const logoInput = document.getElementById("channelEditLogoInput");
@@ -254,9 +252,7 @@ function openChannelEditModal(channel) {
       if (displayUrl) {
         appendSafeImage(previewEl, displayUrl, { onErrorMode: "errSpan" });
       } else {
-        const tvSvg = window.Icons
-          ? window.Icons.get("device-tv", { size: 24 })
-          : "TV";
+        const tvSvg = Icons.get("device-tv", { size: 24 }) || "TV";
         previewEl.innerHTML = `<span class="logo-preview-placeholder">${tvSvg}</span>`;
       }
     };
@@ -272,8 +268,8 @@ function openChannelEditModal(channel) {
           channel.customName ||
           channel.originalName ||
           channel.name;
-        const actualSourceId = channel.sourceId || currentSourceId;
-        const srcObj = sources.find((s) => s.id === actualSourceId);
+        const actualSourceId = channel.sourceId || state.currentSourceId;
+        const srcObj = state.sources.find((s) => s.id === actualSourceId);
         const country =
           channel.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
         const selectedUrl = await openLogoSearchModal(queryName, country);
@@ -321,22 +317,14 @@ function openChannelEditModal(channel) {
   });
 }
 
-// Register EPG re-render on language change
-addLanguageChangeListener(() => {
-  setupDateSelector();
-  renderEPG();
-  loadSourcesDropdown();
-  renderFavoritesList();
-});
-
-function updateGridCornerButton() {
+export function updateGridCornerButton() {
   const btn = document.getElementById("gridHomeBtn");
   if (!btn) return;
 
   const iconEl = btn.querySelector(".grid-home-icon");
   const labelEl = btn.querySelector(".grid-home-label");
 
-  if (activeSingleChannelId) {
+  if (state.activeSingleChannelId) {
     btn.classList.add("back-mode");
     btn.title = t("grid_back_btn_title");
     if (iconEl) {
@@ -344,7 +332,7 @@ function updateGridCornerButton() {
       iconEl.innerHTML = iconHtml("arrow-left", 18);
     }
     if (labelEl) {
-      if (currentLayout === "horizontal") {
+      if (state.currentLayout === "horizontal") {
         labelEl.textContent = t("grid_back_btn_label");
         labelEl.classList.remove("u-hidden");
       } else {
@@ -360,7 +348,7 @@ function updateGridCornerButton() {
       iconEl.innerHTML = iconHtml("home", 18);
     }
     if (labelEl) {
-      if (currentLayout === "horizontal") {
+      if (state.currentLayout === "horizontal") {
         labelEl.textContent = t("grid_home_btn_label");
         labelEl.classList.remove("u-hidden");
       } else {
@@ -371,7 +359,7 @@ function updateGridCornerButton() {
   }
 }
 
-function formatDayHeader(dateStr) {
+export function formatDayHeader(dateStr) {
   const date = new Date(dateStr + "T00:00:00");
   const months = t("months");
   const days = t("days");
@@ -387,7 +375,7 @@ function formatDayHeader(dateStr) {
   const isToday = Math.round((target - today) / (1000 * 60 * 60 * 24)) === 0;
 
   const fullDateStr =
-    currentLang === "english" ? `${m} ${d}, ${y}` : `${y}. ${m} ${d}.`;
+    getCurrentLang() === "english" ? `${m} ${d}, ${y}` : `${y}. ${m} ${d}.`;
 
   let dayLabel = dayName;
   if (isToday) {
@@ -397,11 +385,11 @@ function formatDayHeader(dateStr) {
   return { fullDateStr, dayLabel, isToday };
 }
 
-function updateAllFavBtnState() {
+export function updateAllFavBtnState() {
   const btn = document.getElementById("allFavChannelsBtn");
   if (btn) {
     const iconEl = document.getElementById("allFavChannelsIcon");
-    if (currentSourceId === "__ALL_FAVORITES__") {
+    if (state.currentSourceId === "__ALL_FAVORITES__") {
       btn.classList.add("active");
       if (iconEl) {
         iconEl.setAttribute("data-icon", "star-filled");
@@ -417,13 +405,13 @@ function updateAllFavBtnState() {
   }
 }
 
-function updateLayoutButtonUi() {
+export function updateLayoutButtonUi() {
   const btn = document.getElementById("layoutToggleBtn");
   const icon = document.getElementById("layoutToggleIcon");
   const label = document.getElementById("layoutToggleLabel");
   if (!btn) return;
 
-  if (currentLayout === "horizontal") {
+  if (state.currentLayout === "horizontal") {
     btn.classList.add("horizontal-active");
     if (icon) {
       icon.setAttribute("data-icon", "layout-columns");
@@ -447,7 +435,7 @@ function updateLayoutButtonUi() {
   updateGridCornerButton();
 }
 
-function renderEmptySourcesState() {
+export function renderEmptySourcesState() {
   const activeBadge = document.getElementById("activeChannelBadge");
   if (activeBadge) activeBadge.classList.add("u-hidden");
   const container = document.getElementById("channelsContainer");
@@ -466,7 +454,7 @@ function renderEmptySourcesState() {
   document.getElementById("dateSelect").innerHTML = "";
 }
 
-function renderEmptyFavoritesState() {
+export function renderEmptyFavoritesState() {
   const activeBadge = document.getElementById("activeChannelBadge");
   if (activeBadge) activeBadge.classList.add("u-hidden");
   document.getElementById("channelsContainer").innerHTML = `
@@ -479,7 +467,7 @@ function renderEmptyFavoritesState() {
   document.getElementById("dateSelect").innerHTML = "";
 }
 
-function escapeHtml(text) {
+export function escapeHtml(text) {
   if (text === null || text === undefined) return "";
   return String(text)
     .replace(/&/g, "&amp;")
@@ -489,7 +477,7 @@ function escapeHtml(text) {
     .replace(/'/g, "&#039;");
 }
 
-function isSafeImageSrc(url) {
+export function isSafeImageSrc(url) {
   if (!url || typeof url !== "string") return false;
   const trimmed = url.trim();
   if (!trimmed) return false;
@@ -506,7 +494,7 @@ function isSafeImageSrc(url) {
   return !/^[a-z][a-z0-9+.-]*:/i.test(trimmed);
 }
 
-function appendSafeImage(container, src, options = {}) {
+export function appendSafeImage(container, src, options = {}) {
   if (!container || !isSafeImageSrc(src)) return null;
   const img = document.createElement("img");
   if (options.className) img.className = options.className;
@@ -533,14 +521,14 @@ function appendSafeImage(container, src, options = {}) {
   return img;
 }
 
-function formatByteSize(bytes) {
+export function formatByteSize(bytes) {
   if (!bytes || bytes <= 0) return "0 B";
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
   return (bytes / (1024 * 1024)).toFixed(2) + " MB";
 }
 
-function setExportImportStatus(elementId, text, type = "loading") {
+export function setExportImportStatus(elementId, text, type = "loading") {
   const el = document.getElementById(elementId);
   if (!el) return;
   el.className = `export-import-status status-${type}`;

@@ -1,14 +1,11 @@
 /**
  * Tabler Icons (MIT License) - EPG Viewer Inline SVG Helper
  * 
- * Auto-generálva a tools/update-icons.js script segítségével.
+ * Auto-generálva a public/javascript/tools/update-icons.js script segítségével.
  * Ikonok forrása: Tabler Icons (https://tabler.io/icons) - Copyright (c) Paweł Kuna (MIT)
  */
 
-(function () {
-  'use strict';
-
-  const ICONS = {
+const ICONS = {
   "alert-triangle": {
     "paths": "<path stroke=\"none\" d=\"M0 0h24v24H0z\" fill=\"none\" /><path d=\"M12 9v4\" /><path d=\"M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0\" /><path d=\"M12 16h.01\" />",
     "filled": false
@@ -277,5 +274,4 @@
     }
   };
 
-  window.Icons = AppIcons;
-})();
+export const Icons = AppIcons;

@@ -2,19 +2,23 @@
  * Tabler Icons segédprogram az EPG Viewer projekthez
  *
  * Használat:
- *   node tools/update-icons.js build         -> Újraépíti a public/javascript/icons.js fájlt az alapértelmezett ikonokkal
- *   node tools/update-icons.js add <név...>   -> Új ikont ad a public/javascript/icons.js-hez a helyi TODO/tabler-icons/ gyűjteményből
- *   node tools/update-icons.js search <kulcsszó> -> Keresés a helyi >6000 Tabler SVG ikon között
- *   node tools/update-icons.js list          -> Kilistázza a public/javascript/icons.js-ben elérhető ikonokat
+ *   node public/javascript/tools/update-icons.js build         -> Újraépíti a public/javascript/utils/icons.js fájlt az alapértelmezett ikonokkal
+ *   node public/javascript/tools/update-icons.js add <név...>   -> Új ikont ad a public/javascript/utils/icons.js-hez a helyi TODO/tabler-icons/ gyűjteményből
+ *   node public/javascript/tools/update-icons.js search <kulcsszó> -> Keresés a helyi >6000 Tabler SVG ikon között
+ *   node public/javascript/tools/update-icons.js list          -> Kilistázza a public/javascript/utils/icons.js-ben elérhető ikonokat
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT_DIR = path.resolve(__dirname, '..');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const ROOT_DIR = path.resolve(__dirname, '..', '..', '..');
 const OUTLINE_DIR = path.join(ROOT_DIR, 'TODO', 'tabler-icons', 'outline');
 const FILLED_DIR = path.join(ROOT_DIR, 'TODO', 'tabler-icons', 'filled');
-const OUTPUT_FILE = path.join(ROOT_DIR, 'public', 'javascript', 'icons.js');
+const OUTPUT_FILE = path.join(ROOT_DIR, 'public', 'javascript', 'utils', 'icons.js');
 
 // Az alkalmazásban használt és a PRE-PLAN 2.1 alapján szükséges ikonok alapértelmezett listája
 const DEFAULT_ICONS = [
@@ -116,16 +120,13 @@ function generateIconsJs(iconNames) {
   const fileContent = `/**
  * Tabler Icons (MIT License) - EPG Viewer Inline SVG Helper
  * 
- * Auto-generálva a tools/update-icons.js script segítségével.
+ * Auto-generálva a public/javascript/tools/update-icons.js script segítségével.
  * Ikonok forrása: Tabler Icons (https://tabler.io/icons) - Copyright (c) Paweł Kuna (MIT)
  */
 
-(function () {
-  'use strict';
+const ICONS = ${JSON.stringify(iconData, null, 2)};
 
-  const ICONS = ${JSON.stringify(iconData, null, 2)};
-
-  const AppIcons = {
+const AppIcons = {
     /**
      * Visszaadja a megadott nevű inline SVG HTML szöveget.
      * @param {string} name - Az ikon neve (pl. 'star', 'star-filled', 'settings', 'device-tv')
@@ -215,8 +216,7 @@ function generateIconsJs(iconNames) {
     }
   };
 
-  window.Icons = AppIcons;
-})();
+export const Icons = AppIcons;
 `;
 
   fs.writeFileSync(OUTPUT_FILE, fileContent, 'utf-8');
@@ -233,7 +233,7 @@ if (command === 'build') {
 } else if (command === 'add') {
   const newNames = args.slice(1);
   if (newNames.length === 0) {
-    console.error('Hiba: Nem adtál meg ikonnevet! Példa: node tools/update-icons.js add volume microphone');
+    console.error('Hiba: Nem adtál meg ikonnevet! Példa: node public/javascript/tools/update-icons.js add volume microphone');
     process.exit(1);
   }
   // Olvassuk be a meglévőket
@@ -245,7 +245,7 @@ if (command === 'build') {
       try {
         const parsed = JSON.parse(match[1]);
         currentList = Object.keys(parsed);
-      } catch (e) {}
+      } catch (_e) {}
     }
   }
   for (const n of newNames) {
@@ -263,12 +263,12 @@ if (command === 'build') {
       console.log(keys.join(', '));
     }
   } else {
-    console.log('A public/icons.js még nem létezik.');
+    console.log('A public/javascript/utils/icons.js még nem létezik.');
   }
 } else if (command === 'search') {
   const keyword = (args[1] || '').toLowerCase();
   if (!keyword) {
-    console.error('Hiba: Nem adtál meg keresőszót! Példa: node tools/update-icons.js search tv');
+    console.error('Hiba: Nem adtál meg keresőszót! Példa: node public/javascript/tools/update-icons.js search tv');
     process.exit(1);
   }
   const outlineFiles = fs.readdirSync(OUTLINE_DIR).filter(f => f.endsWith('.svg')).map(f => f.replace('.svg', ''));

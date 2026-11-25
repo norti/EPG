@@ -1,15 +1,6 @@
 /**
  * Reusable text normalization & fuzzy search utilities for EPG Viewer.
- * Works in both browser (window.SearchUtils) and Node.js (CommonJS require).
  */
-(function (root, factory) {
-  if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
-  } else {
-    root.SearchUtils = factory();
-  }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  'use strict';
 
   const NON_ALNUM_RE = /[^\p{L}\p{N}]+/u;
 
@@ -199,12 +190,20 @@
     return matchPrepared(target, prepared);
   }
 
-  return {
-    normalizeText,
-    tokenize,
-    damerauLevenshtein,
-    prepareQuery,
-    matchPrepared,
-    fuzzyMatch,
-  };
-});
+export const SearchUtils = {
+  normalizeText,
+  tokenize,
+  damerauLevenshtein,
+  prepareQuery,
+  matchPrepared,
+  fuzzyMatch,
+};
+
+export {
+  normalizeText,
+  tokenize,
+  damerauLevenshtein,
+  prepareQuery,
+  matchPrepared,
+  fuzzyMatch,
+};

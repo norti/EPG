@@ -2,11 +2,23 @@
 // i18n.js - Internationalization Module for EPG Viewer
 // ============================================================================
 
-var currentLang = "hungarian";
-var baseDict = {};     // English dictionary (universal fallback)
-var currentDict = {};  // Active dictionary merged on top of baseDict
+import { invoke, hasTauri } from "./state.js";
+
+let currentLang = "hungarian";
+let baseDict = {};     // English dictionary (universal fallback)
+let currentDict = {};  // Active dictionary merged on top of baseDict
 const loadedLanguagesCache = {};
 const languageChangeListeners = [];
+
+export function getCurrentLang() {
+  return currentLang;
+}
+
+export function setLanguageForTesting(lang, dict = {}, base = {}) {
+  currentLang = lang;
+  currentDict = { ...dict };
+  baseDict = { ...base };
+}
 
 // Emergency minimal fallback dictionary in case of complete disk/db/network failure
 const EMERGENCY_FALLBACK = {
@@ -28,13 +40,6 @@ const EMERGENCY_FALLBACK = {
   no_channels_match_filter: "No channels match the filter."
 };
 
-function getTauriInvoke() {
-  if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === "function") {
-    return window.__TAURI__.core.invoke;
-  }
-  return null;
-}
-
 /**
  * Fetch a language dictionary by code.
  * Multi-tier fallback strategy:
@@ -48,7 +53,7 @@ async function fetchLanguageDictionary(lang) {
     return loadedLanguagesCache[lang];
   }
 
-  const invoke = getTauriInvoke();
+  const tauriAvailable = hasTauri();
 
   // Tier 1: Try local asset fetch
   try {
@@ -58,7 +63,7 @@ async function fetchLanguageDictionary(lang) {
       loadedLanguagesCache[lang] = data;
 
       // Asynchronously cache into SQLite app_languages
-      if (invoke) {
+      if (tauriAvailable) {
         invoke("save_language_content", {
           lang,
           content: JSON.stringify(data),
@@ -71,7 +76,7 @@ async function fetchLanguageDictionary(lang) {
   }
 
   // Tier 2: Try SQLite database cache / embedded Rust fallback
-  if (invoke) {
+  if (tauriAvailable) {
     try {
       const content = await invoke("get_language_content", { lang });
       if (content && typeof content === "string") {
@@ -85,7 +90,7 @@ async function fetchLanguageDictionary(lang) {
   }
 
   // Tier 3: Try downloading from GitHub repository
-  if (invoke) {
+  if (tauriAvailable) {
     try {
       const downloaded = await invoke("download_languages_from_github");
       if (downloaded && downloaded[lang]) {
@@ -107,14 +112,12 @@ async function fetchLanguageDictionary(lang) {
  * Translates a given key with optional {param} replacements.
  * Falls back to baseDict (English), then raw key.
  */
-function t(key, params = {}) {
-  const dict = (typeof window !== "undefined" && window.currentDict) || currentDict;
-  const base = (typeof window !== "undefined" && window.baseDict) || baseDict;
+export function t(key, params = {}) {
   let val =
-    dict && dict[key] !== undefined
-      ? dict[key]
-      : base && base[key] !== undefined
-        ? base[key]
+    currentDict && currentDict[key] !== undefined
+      ? currentDict[key]
+      : baseDict && baseDict[key] !== undefined
+        ? baseDict[key]
         : key;
 
   if (typeof val === "string" && params && typeof params === "object") {
@@ -128,7 +131,7 @@ function t(key, params = {}) {
 /**
  * Apply all translations to current DOM elements with data-i18n attributes.
  */
-function applyTranslations() {
+export function applyTranslations() {
   document.title = t("app_title");
 
   document.querySelectorAll("[data-i18n]").forEach((el) => {
@@ -145,19 +148,12 @@ function applyTranslations() {
     const key = el.getAttribute("data-i18n-title");
     el.title = t(key);
   });
-
-  if (typeof updateLayoutButtonUi === "function") {
-    updateLayoutButtonUi();
-  }
-  if (typeof updateGridCornerButton === "function") {
-    updateGridCornerButton();
-  }
 }
 
 /**
  * Register a callback invoked whenever the active language changes.
  */
-function addLanguageChangeListener(fn) {
+export function addLanguageChangeListener(fn) {
   if (typeof fn === "function") {
     languageChangeListeners.push(fn);
   }
@@ -166,7 +162,7 @@ function addLanguageChangeListener(fn) {
 /**
  * Switch active language, load dictionaries, persist setting, and apply translations.
  */
-async function setLanguage(lang) {
+export async function setLanguage(lang) {
   currentLang = lang;
   const select = document.getElementById("languageSelect");
   if (select && select.value !== lang) {
@@ -187,8 +183,7 @@ async function setLanguage(lang) {
   }
 
   // 3. Save setting in SQLite
-  const invoke = getTauriInvoke();
-  if (invoke) {
+  if (hasTauri()) {
     try {
       await invoke("set_setting", { key: "language", value: lang });
     } catch (e) {
@@ -197,11 +192,6 @@ async function setLanguage(lang) {
   }
 
   // 4. Update UI
-  if (typeof window !== "undefined") {
-    window.currentLang = currentLang;
-    window.currentDict = currentDict;
-    window.baseDict = baseDict;
-  }
   applyTranslations();
 
   // 5. Notify listeners
@@ -217,9 +207,8 @@ async function setLanguage(lang) {
 /**
  * Restore language files from embedded defaults / GitHub and reload active language.
  */
-async function restoreLanguageFiles() {
-  const invoke = getTauriInvoke();
-  if (!invoke) return { success: false, message: "Tauri not available" };
+export async function restoreLanguageFiles() {
+  if (!hasTauri()) return { success: false, message: "Tauri not available" };
 
   try {
     // Attempt download from GitHub first, fallback to embedded disk restore
@@ -246,15 +235,4 @@ async function restoreLanguageFiles() {
   }
 
   return { success: false, message: t("status_languages_restore_error") };
-}
-
-if (typeof window !== "undefined") {
-  window.currentLang = currentLang;
-  window.baseDict = baseDict;
-  window.currentDict = currentDict;
-  window.t = t;
-  window.setLanguage = setLanguage;
-  window.applyTranslations = applyTranslations;
-  window.restoreLanguageFiles = restoreLanguageFiles;
-  window.addLanguageChangeListener = addLanguageChangeListener;
 }

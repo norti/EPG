@@ -1,7 +1,11 @@
-const assert = require("assert");
-const fs = require("fs");
-const path = require("path");
-const vm = require("vm");
+import assert from "node:assert";
+import { state, setInvokeForTesting } from "../application/state.js";
+import { setLanguageForTesting } from "../application/i18n.js";
+import {
+  getModalTitleVariants,
+  renderTmdbDetailsInModal,
+  openFixOverlay,
+} from "../tmdb/tmdb.js";
 
 function makeMockElement(id) {
   const classes = new Set();
@@ -48,7 +52,7 @@ function makeMockElement(id) {
   };
 }
 
-function loadTmdbModule(initialLang = "hungarian") {
+function setupTmdbTestEnv(initialLang = "hungarian") {
   const elements = new Map();
   const getEl = (id) => {
     if (!elements.has(id)) elements.set(id, makeMockElement(id));
@@ -56,57 +60,48 @@ function loadTmdbModule(initialLang = "hungarian") {
   };
 
   const invokeCalls = [];
-  const sandbox = {
-    currentLang: initialLang,
-    currentModalTitle: "MacGyver",
-    currentModalDesc: "",
-    currentSourceId: "src1",
-    sources: [{ id: "src1", countryCode: "AT" }],
-    window: {},
-    navigator: {},
-    document: {
-      getElementById: getEl,
-      querySelector: () => null,
-      createElement: (tag) => makeMockElement(tag),
-    },
-    t: (key) =>
-      ({
-        badge_hu: "Magyar:",
-        badge_en: "Angol:",
-        badge_orig: "Eredeti:",
-        media_type_tv: "Sorozat",
-        media_type_movie: "Film",
-        modal_no_desc: "Nincs leírás",
-      })[key] || key,
-    iconHtml: (name) => `<svg data-icon="${name}"></svg>`,
-    escapeHtml: (s) => String(s),
-    invoke: async (cmd, args) => {
-      invokeCalls.push({ cmd, args });
-      if (cmd === "get_tmdb_details_for_lang") {
-        return {
-          tmdbId: args.tmdbId,
-          mediaType: args.mediaType,
-          overview: `Overview in ${args.lang}`,
-        };
-      }
-      return null;
-    },
-    requestAnimationFrame: (fn) => fn(),
-    setTimeout,
-    clearTimeout,
-    console,
-  };
 
-  const tmdbSrc = fs.readFileSync(
-    path.join(__dirname, "../public/javascript/modules/tmdb.js"),
-    "utf8",
-  );
-  vm.runInNewContext(tmdbSrc, sandbox, { filename: "tmdb.js" });
-  return { sandbox, getEl, invokeCalls };
+  setLanguageForTesting(initialLang, {
+    badge_hu: "Magyar:",
+    badge_en: "Angol:",
+    badge_orig: "Eredeti:",
+    media_type_tv: "Sorozat",
+    media_type_movie: "Film",
+    modal_no_desc: "Nincs leírás",
+  });
+
+  state.currentModalTitle = "MacGyver";
+  state.currentModalDesc = "";
+  state.currentModalChannel = null;
+  state.currentModalFetchIndex = 0;
+  state.currentSourceId = "src1";
+  state.sources = [{ id: "src1", countryCode: "AT" }];
+
+  globalThis.window = {};
+  globalThis.document = {
+    getElementById: getEl,
+    querySelector: () => null,
+    createElement: (tag) => makeMockElement(tag),
+  };
+  globalThis.requestAnimationFrame = (fn) => fn();
+
+  setInvokeForTesting(async (cmd, args) => {
+    invokeCalls.push({ cmd, args });
+    if (cmd === "get_tmdb_details_for_lang") {
+      return {
+        tmdbId: args.tmdbId,
+        mediaType: args.mediaType,
+        overview: `Overview in ${args.lang}`,
+      };
+    }
+    return null;
+  });
+
+  return { getEl, invokeCalls };
 }
 
 function testMacGyverHungarianApp() {
-  const { sandbox, getEl } = loadTmdbModule("hungarian");
+  const { getEl } = setupTmdbTestEnv("hungarian");
   const tmdbData = {
     tmdbId: 67133,
     mediaType: "tv",
@@ -118,7 +113,7 @@ function testMacGyverHungarianApp() {
     overview: "Magyar leírás",
   };
 
-  const variants = sandbox.getModalTitleVariants(tmdbData, "hungarian");
+  const variants = getModalTitleVariants(tmdbData, "hungarian");
   assert.deepStrictEqual(
     Array.from(variants, (v) => [v.slot, v.tmdbLang, v.title]),
     [
@@ -128,7 +123,7 @@ function testMacGyverHungarianApp() {
     ],
   );
 
-  sandbox.renderTmdbDetailsInModal(tmdbData, { activeLang: "hu-HU" });
+  renderTmdbDetailsInModal(tmdbData, { activeLang: "hu-HU" });
   const row = getEl("modalTitleVariants");
   assert.strictEqual(row.classList.contains("u-hidden"), false);
   assert.deepStrictEqual(
@@ -143,7 +138,7 @@ function testMacGyverHungarianApp() {
 }
 
 async function testSameTitleDifferentOriginalLangSwitch() {
-  const { sandbox, getEl, invokeCalls } = loadTmdbModule("hungarian");
+  const { getEl, invokeCalls } = setupTmdbTestEnv("hungarian");
   const tmdbData = {
     tmdbId: 70523,
     mediaType: "tv",
@@ -155,7 +150,7 @@ async function testSameTitleDifferentOriginalLangSwitch() {
     overview: "Magyar leírás",
   };
 
-  sandbox.renderTmdbDetailsInModal(tmdbData, { activeLang: "hu-HU" });
+  renderTmdbDetailsInModal(tmdbData, { activeLang: "hu-HU" });
   await getEl("modalEnTitleBadge").onclick();
   assert.strictEqual(
     getEl("modalTmdbOverviewText").textContent,
@@ -174,10 +169,10 @@ async function testSameTitleDifferentOriginalLangSwitch() {
 }
 
 function testMissingHuTitleAndMissingOriginalTitle() {
-  const { sandbox } = loadTmdbModule("hungarian");
+  setupTmdbTestEnv("hungarian");
 
   // German-fetched show where /translations had no HU title override
-  const noHu = sandbox.getModalTitleVariants(
+  const noHu = getModalTitleVariants(
     {
       title: "Stirb langsam",
       huTitle: null,
@@ -197,7 +192,7 @@ function testMissingHuTitleAndMissingOriginalTitle() {
   );
 
   // Show without originalTitle -> only app lang + English
-  const noOrig = sandbox.getModalTitleVariants(
+  const noOrig = getModalTitleVariants(
     {
       title: "Híradó",
       huTitle: "Híradó",
@@ -217,7 +212,7 @@ function testMissingHuTitleAndMissingOriginalTitle() {
 }
 
 function testEnglishAppLanguage() {
-  const { sandbox, getEl } = loadTmdbModule("english");
+  const { getEl } = setupTmdbTestEnv("english");
   const tmdbData = {
     tmdbId: 71446,
     mediaType: "tv",
@@ -229,7 +224,7 @@ function testEnglishAppLanguage() {
     overview: "English overview",
   };
 
-  const variants = sandbox.getModalTitleVariants(tmdbData, "english");
+  const variants = getModalTitleVariants(tmdbData, "english");
   assert.deepStrictEqual(
     Array.from(variants, (v) => [v.slot, v.tmdbLang, v.title]),
     [
@@ -238,7 +233,7 @@ function testEnglishAppLanguage() {
     ],
   );
 
-  sandbox.renderTmdbDetailsInModal(tmdbData, { activeLang: "en-US" });
+  renderTmdbDetailsInModal(tmdbData, { activeLang: "en-US" });
   assert.strictEqual(getEl("modalHuTitleBadge").classList.contains("u-hidden"), true);
   assert.strictEqual(getEl("modalEnTitleBadge").classList.contains("u-hidden"), false);
   assert.strictEqual(getEl("modalOrigTitleBadge").classList.contains("u-hidden"), false);
@@ -246,11 +241,11 @@ function testEnglishAppLanguage() {
 }
 
 function testFixOverlayShowsOriginalProgramContext() {
-  const { sandbox, getEl } = loadTmdbModule("hungarian");
-  sandbox.currentModalTitle = "MacGyver";
-  sandbox.currentModalDesc = "Angus MacGyver zseniális trükkökkel old meg veszélyes küldetéseket.";
+  const { getEl } = setupTmdbTestEnv("hungarian");
+  state.currentModalTitle = "MacGyver";
+  state.currentModalDesc = "Angus MacGyver zseniális trükkökkel old meg veszélyes küldetéseket.";
 
-  sandbox.openFixOverlay();
+  openFixOverlay();
   assert.strictEqual(getEl("modalFixProgramContext").classList.contains("u-hidden"), false);
   assert.strictEqual(getEl("modalFixProgramTitle").textContent, "MacGyver");
   assert.strictEqual(
@@ -260,8 +255,8 @@ function testFixOverlayShowsOriginalProgramContext() {
   assert.strictEqual(getEl("modalFixProgramDesc").classList.contains("is-empty"), false);
 
   // Empty description falls back to localized modal_no_desc with muted style
-  sandbox.currentModalDesc = "   ";
-  sandbox.openFixOverlay();
+  state.currentModalDesc = "   ";
+  openFixOverlay();
   assert.strictEqual(getEl("modalFixProgramDesc").textContent, "Nincs leírás");
   assert.strictEqual(getEl("modalFixProgramDesc").classList.contains("is-empty"), true);
 }

@@ -1,4 +1,24 @@
-function switchSettingsTab(tabName) {
+import { state, invoke } from "./state.js";
+import { t, setLanguage, restoreLanguageFiles } from "./i18n.js";
+import {
+  showConfirm,
+  showAlert,
+  formatByteSize,
+  setExportImportStatus,
+} from "./ui.js";
+import { refreshSourcesFromDb } from "./sources.js";
+import { renderFavoritesList } from "./favorites.js";
+import { fetchEPG } from "./epg.js";
+import { loadTmdbSettings } from "../tmdb/tmdb.js";
+import {
+  loadChannelLogosTab,
+  loadChannelSortPresetsDropdown,
+  loadChannelOrderSourcesDropdown,
+  renderChannelOrderList,
+} from "./channels.js";
+import { loadSettingsTab as loadTraktSettingsTab } from "../trakt/trakt-ui.js";
+
+export function switchSettingsTab(tabName) {
   document.querySelectorAll(".settings-nav-item").forEach((btn) => {
     if (btn.dataset.tab === tabName) btn.classList.add("active");
     else btn.classList.remove("active");
@@ -25,7 +45,7 @@ function switchSettingsTab(tabName) {
     loadTmdbSettings();
   } else if (tabName === "trakt") {
     document.getElementById("tabPaneTrakt").classList.add("active");
-    if (window.TraktUI) window.TraktUI.loadSettingsTab();
+    loadTraktSettingsTab();
   } else if (tabName === "export") {
     document.getElementById("tabPaneExport").classList.add("active");
     updateCacheSectionStats();
@@ -33,82 +53,84 @@ function switchSettingsTab(tabName) {
   }
 }
 
-document.querySelectorAll(".settings-nav-item").forEach((item) => {
-  item.onclick = () => switchSettingsTab(item.dataset.tab);
-});
+function initSettingsExportHandlers() {
+  document.querySelectorAll(".settings-nav-item").forEach((item) => {
+    item.onclick = () => switchSettingsTab(item.dataset.tab);
+  });
 
-document.getElementById("exportSettingsBtn").onclick = async () => {
-  try {
-    setExportImportStatus(
-      "settingsDataStatus",
-      t("status_exporting"),
-      "loading",
-    );
-    const backup = await invoke("export_settings");
-    const json = JSON.stringify(backup, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `epg-viewer-settings-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setExportImportStatus(
-      "settingsDataStatus",
-      t("alert_export_success"),
-      "success",
-    );
-  } catch (err) {
-    setExportImportStatus(
-      "settingsDataStatus",
-      t("alert_export_error"),
-      "error",
-    );
-    await showAlert(
-      t("alert_error_title"),
-      t("alert_export_error") + ": " + err,
-    );
-  }
-};
+  document.getElementById("exportSettingsBtn").onclick = async () => {
+    try {
+      setExportImportStatus(
+        "settingsDataStatus",
+        t("status_exporting"),
+        "loading",
+      );
+      const backup = await invoke("export_settings");
+      const json = JSON.stringify(backup, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `epg-viewer-settings-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setExportImportStatus(
+        "settingsDataStatus",
+        t("alert_export_success"),
+        "success",
+      );
+    } catch (err) {
+      setExportImportStatus(
+        "settingsDataStatus",
+        t("alert_export_error"),
+        "error",
+      );
+      await showAlert(
+        t("alert_error_title"),
+        t("alert_export_error") + ": " + err,
+      );
+    }
+  };
 
-document.getElementById("importSettingsInput").onchange = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    setExportImportStatus(
-      "settingsDataStatus",
-      t("status_importing"),
-      "loading",
-    );
-    const text = await file.text();
-    const backup = JSON.parse(text);
-    await invoke("import_settings", { backup });
-    setExportImportStatus(
-      "settingsDataStatus",
-      t("alert_import_success"),
-      "success",
-    );
-    await showAlert(t("alert_success_title"), t("alert_import_success"));
-    await refreshSourcesFromDb();
-    favorites = await invoke("get_favorites");
-    await fetchEPG();
-    renderFavoritesList();
-    await renderChannelOrderList();
-  } catch (err) {
-    setExportImportStatus(
-      "settingsDataStatus",
-      t("alert_import_error"),
-      "error",
-    );
-    await showAlert(
-      t("alert_error_title"),
-      t("alert_import_error") + ": " + err,
-    );
-  }
-  e.target.value = "";
-};
+  document.getElementById("importSettingsInput").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      setExportImportStatus(
+        "settingsDataStatus",
+        t("status_importing"),
+        "loading",
+      );
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      await invoke("import_settings", { backup });
+      setExportImportStatus(
+        "settingsDataStatus",
+        t("alert_import_success"),
+        "success",
+      );
+      await showAlert(t("alert_success_title"), t("alert_import_success"));
+      await refreshSourcesFromDb();
+      state.favorites = await invoke("get_favorites");
+      await fetchEPG();
+      renderFavoritesList();
+      await renderChannelOrderList();
+    } catch (err) {
+      setExportImportStatus(
+        "settingsDataStatus",
+        t("alert_import_error"),
+        "error",
+      );
+      await showAlert(
+        t("alert_error_title"),
+        t("alert_import_error") + ": " + err,
+      );
+    }
+    e.target.value = "";
+  };
+}
 
 function parseCsvLine(line, delimiter = ",") {
   const result = [];
@@ -207,7 +229,8 @@ function escapeCsvField(val) {
   return str;
 }
 
-document.getElementById("exportChannelDataBtn").onclick = async () => {
+function initChannelExportImportHandlers() {
+  document.getElementById("exportChannelDataBtn").onclick = async () => {
   try {
     setExportImportStatus(
       "channelDataStatus",
@@ -372,12 +395,13 @@ document.getElementById("importChannelDataInput").onchange = async (e) => {
   }
   e.target.value = "";
 };
+}
 
 // ============================================================================
 // Cache Management (ZIP Export / Import, Clear Logos & Posters)
 // ============================================================================
 
-async function updateCacheSectionStats() {
+export async function updateCacheSectionStats() {
   const logosCountEl = document.getElementById("cacheStatLogosCount");
   const logosSizeEl = document.getElementById("cacheStatLogosSize");
   const postersCountEl = document.getElementById("cacheStatPostersCount");
@@ -398,6 +422,7 @@ async function updateCacheSectionStats() {
   }
 }
 
+function initCacheClearHandlers() {
 document.getElementById("clearLogoCacheBtn").onclick = async () => {
   const confirmed = await showConfirm(
     t("btn_clear_logo_cache"),
@@ -457,8 +482,9 @@ document.getElementById("clearAllCacheBtn").onclick = async () => {
     await showAlert(t("alert_error_title"), String(err));
   }
 };
+}
 
-async function updateDatabaseStats() {
+export async function updateDatabaseStats() {
   const epgEl = document.getElementById("dbStatEpgSize");
   const imgEl = document.getElementById("dbStatImagesSize");
   const recEl = document.getElementById("dbStatReclaimable");
@@ -481,73 +507,79 @@ async function updateDatabaseStats() {
   }
 }
 
-const maintainDatabaseBtn = document.getElementById("maintainDatabaseBtn");
-if (maintainDatabaseBtn) {
-  maintainDatabaseBtn.onclick = async () => {
-    const confirmed = await showConfirm(
-      t("db_maintenance_title"),
-      t("confirm_maintain_database"),
-    );
-    if (!confirmed) return;
+export function initSettings() {
+  initSettingsExportHandlers();
+  initChannelExportImportHandlers();
+  initCacheClearHandlers();
 
-    maintainDatabaseBtn.disabled = true;
-    try {
-      setExportImportStatus(
-        "dbMaintenanceStatus",
-        t("db_maintenance_running"),
-        "loading",
+  const maintainDatabaseBtn = document.getElementById("maintainDatabaseBtn");
+  if (maintainDatabaseBtn) {
+    maintainDatabaseBtn.onclick = async () => {
+      const confirmed = await showConfirm(
+        t("db_maintenance_title"),
+        t("confirm_maintain_database"),
       );
-      const res = await invoke("maintain_database");
-      const prunedCount =
-        (res.prunedHttpCache || 0) +
-        (res.prunedTmdbNegatives || 0) +
-        (res.prunedOrphanImages || 0);
-      const msg = t("db_maintenance_done")
-        .replace("{before}", formatByteSize(res.beforeBytes))
-        .replace("{after}", formatByteSize(res.afterBytes))
-        .replace("{freed}", formatByteSize(res.freedBytes))
-        .replace("{pruned}", String(prunedCount));
-      setExportImportStatus("dbMaintenanceStatus", msg, "success");
-      await showAlert(t("alert_success_title"), msg);
-      await updateDatabaseStats();
-      await updateCacheSectionStats();
-    } catch (err) {
-      setExportImportStatus("dbMaintenanceStatus", String(err), "error");
-      await showAlert(t("alert_error_title"), String(err));
-    } finally {
-      maintainDatabaseBtn.disabled = false;
-    }
+      if (!confirmed) return;
+
+      maintainDatabaseBtn.disabled = true;
+      try {
+        setExportImportStatus(
+          "dbMaintenanceStatus",
+          t("db_maintenance_running"),
+          "loading",
+        );
+        const res = await invoke("maintain_database");
+        const prunedCount =
+          (res.prunedHttpCache || 0) +
+          (res.prunedTmdbNegatives || 0) +
+          (res.prunedOrphanImages || 0);
+        const msg = t("db_maintenance_done")
+          .replace("{before}", formatByteSize(res.beforeBytes))
+          .replace("{after}", formatByteSize(res.afterBytes))
+          .replace("{freed}", formatByteSize(res.freedBytes))
+          .replace("{pruned}", String(prunedCount));
+        setExportImportStatus("dbMaintenanceStatus", msg, "success");
+        await showAlert(t("alert_success_title"), msg);
+        await updateDatabaseStats();
+        await updateCacheSectionStats();
+      } catch (err) {
+        setExportImportStatus("dbMaintenanceStatus", String(err), "error");
+        await showAlert(t("alert_error_title"), String(err));
+      } finally {
+        maintainDatabaseBtn.disabled = false;
+      }
+    };
+  }
+
+  document.getElementById("favListBtn").onclick = () => {
+    switchSettingsTab("favorites");
+    document.getElementById("settingsOverlay").classList.add("active");
   };
-}
 
-document.getElementById("favListBtn").onclick = () => {
-  switchSettingsTab("favorites");
-  document.getElementById("settingsOverlay").classList.add("active");
-};
-
-document.getElementById("settingsBtn").onclick = () => {
-  switchSettingsTab("sources");
-  document.getElementById("settingsOverlay").classList.add("active");
-};
-
-document.getElementById("settingsClose").onclick = () => {
-  document.getElementById("settingsOverlay").classList.remove("active");
-  fetchEPG();
-};
-
-document.getElementById("languageSelect").onchange = (e) => {
-  setLanguage(e.target.value);
-};
-
-const restoreLanguagesBtn = document.getElementById("restoreLanguagesBtn");
-if (restoreLanguagesBtn) {
-  restoreLanguagesBtn.onclick = async () => {
-    restoreLanguagesBtn.disabled = true;
-    const res = await restoreLanguageFiles();
-    restoreLanguagesBtn.disabled = false;
-    await showAlert(
-      res.success ? t("alert_success_title") : t("alert_error_title"),
-      res.message,
-    );
+  document.getElementById("settingsBtn").onclick = () => {
+    switchSettingsTab("sources");
+    document.getElementById("settingsOverlay").classList.add("active");
   };
+
+  document.getElementById("settingsClose").onclick = () => {
+    document.getElementById("settingsOverlay").classList.remove("active");
+    fetchEPG();
+  };
+
+  document.getElementById("languageSelect").onchange = (e) => {
+    setLanguage(e.target.value);
+  };
+
+  const restoreLanguagesBtn = document.getElementById("restoreLanguagesBtn");
+  if (restoreLanguagesBtn) {
+    restoreLanguagesBtn.onclick = async () => {
+      restoreLanguagesBtn.disabled = true;
+      const res = await restoreLanguageFiles();
+      restoreLanguagesBtn.disabled = false;
+      await showAlert(
+        res.success ? t("alert_success_title") : t("alert_error_title"),
+        res.message,
+      );
+    };
+  }
 }

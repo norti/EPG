@@ -13,10 +13,7 @@
  * Sorrend: 1. EN, 2. HU, a többi A-Z szerint rendezve.
  */
 
-(function () {
-  'use strict';
-
-  const COUNTRIES = [
+const COUNTRIES = [
   {
     "code": "EN",
     "isoCode": "en-US",
@@ -2862,5 +2859,4 @@
     }
   };
 
-  window.Countries = AppCountries;
-})();
+export const Countries = AppCountries;

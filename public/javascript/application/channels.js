@@ -1,4 +1,27 @@
-async function openMissingLogosModal(sourceId, onStatsChanged) {
+import { state, invoke, LOCALE_COMPARE_OPTIONS } from "./state.js";
+import { t, getCurrentLang } from "./i18n.js";
+import { Icons } from "../utils/icons.js";
+import { SearchUtils } from "../utils/search.js";
+import {
+  iconHtml,
+  fuzzySearchMatch,
+  showConfirm,
+  showAlert,
+  showPrompt,
+  openLogoSearchModal,
+  escapeHtml,
+  appendSafeImage,
+  formatByteSize,
+  setExportImportStatus,
+} from "./ui.js";
+import {
+  updateHeaderSortDropdown,
+  applyActiveSortToEpgChannels,
+  fetchEPG,
+  renderEPG,
+} from "./epg.js";
+
+export async function openMissingLogosModal(sourceId, onStatsChanged) {
   const modal = document.getElementById("missingLogosModal");
   const closeBtn = document.getElementById("missingLogosClose");
   const searchInput = document.getElementById("missingLogosSearchInput");
@@ -41,31 +64,31 @@ async function openMissingLogosModal(sourceId, onStatsChanged) {
     if (imgSrc) {
       appendSafeImage(previewEl, imgSrc, { onErrorMode: "errSpan" });
     } else {
-      const tvSvg = window.Icons
-        ? window.Icons.get("device-tv", { size: 18 })
+      const tvSvg = Icons
+        ? Icons.get("device-tv", { size: 18 })
         : "TV";
       previewEl.innerHTML = `<span class="logo-preview-placeholder">${tvSvg}</span>`;
     }
   };
 
   const syncEpgChannelLogo = (item, logoUrl, cachedData) => {
-    if (!epgData || !epgData.channels) return;
+    if (!state.epgData || !state.epgData.channels) return;
     const matchesChannel = (c) =>
       (c.sourceId
         ? c.sourceId === item.sourceId
-        : currentSourceId === item.sourceId) &&
+        : state.currentSourceId === item.sourceId) &&
       (c.id === item.id || c.id === `${item.sourceId}::${item.id}`);
 
     let touched = false;
-    epgData.channels.forEach((liveCh) => {
+    state.epgData.channels.forEach((liveCh) => {
       if (matchesChannel(liveCh)) {
         liveCh.customIcon = logoUrl;
         liveCh.cachedIcon = cachedData || null;
         touched = true;
       }
     });
-    if (epgData.rawChannels) {
-      epgData.rawChannels.forEach((rawCh) => {
+    if (state.epgData.rawChannels) {
+      state.epgData.rawChannels.forEach((rawCh) => {
         if (matchesChannel(rawCh)) {
           rawCh.customIcon = logoUrl;
           rawCh.cachedIcon = cachedData || null;
@@ -80,14 +103,14 @@ async function openMissingLogosModal(sourceId, onStatsChanged) {
   const renderList = () => {
     const query = searchInput ? searchInput.value.trim() : "";
     const preparedQuery =
-      query && window.SearchUtils ? window.SearchUtils.prepareQuery(query) : null;
+      query && SearchUtils ? SearchUtils.prepareQuery(query) : null;
 
     const filtered = items.filter((item) => {
       if (!query) return true;
       if (preparedQuery) {
         return (
-          window.SearchUtils.matchPrepared(item.name, preparedQuery) ||
-          window.SearchUtils.matchPrepared(item.sourceName, preparedQuery)
+          SearchUtils.matchPrepared(item.name, preparedQuery) ||
+          SearchUtils.matchPrepared(item.sourceName, preparedQuery)
         );
       }
       return (
@@ -229,7 +252,7 @@ async function openMissingLogosModal(sourceId, onStatsChanged) {
     });
     if (isClosed) return;
     items = (missingChannels || []).map((ch) => {
-      const srcObj = sources.find((s) => s.id === ch.sourceId);
+      const srcObj = state.sources.find((s) => s.id === ch.sourceId);
       const sourceName = srcObj ? srcObj.name : ch.sourceName || ch.sourceId;
       const countryCode =
         ch.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
@@ -256,7 +279,7 @@ async function openMissingLogosModal(sourceId, onStatsChanged) {
 
 let isAutoMatchRunning = false;
 
-async function loadChannelLogosTab() {
+export async function loadChannelLogosTab() {
   const select = document.getElementById("logoSourceSelect");
   const showMissingBtn = document.getElementById("showMissingLogosBtn");
   const autoMatchBtn = document.getElementById("autoMatchLogosBtn");
@@ -280,7 +303,7 @@ async function loadChannelLogosTab() {
   allOpt.textContent = t("logo_source_all");
   select.appendChild(allOpt);
 
-  sources.forEach((s) => {
+  state.sources.forEach((s) => {
     const opt = document.createElement("option");
     opt.value = s.id;
     opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
@@ -289,8 +312,8 @@ async function loadChannelLogosTab() {
 
   if (prevVal && Array.from(select.options).some((o) => o.value === prevVal)) {
     select.value = prevVal;
-  } else if (currentSourceId && currentSourceId !== "__ALL_FAVORITES__") {
-    select.value = currentSourceId;
+  } else if (state.currentSourceId && state.currentSourceId !== "__ALL_FAVORITES__") {
+    select.value = state.currentSourceId;
   } else {
     select.value = "__ALL_SOURCES__";
   }
@@ -594,17 +617,17 @@ async function loadChannelLogosTab() {
     });
 
     // Frissítjük a memóriában lévő EPG adatokat és újrarajzoljuk az EPG-t
-    if (epgData && epgData.channels && matchedList.length > 0) {
+    if (state.epgData && state.epgData.channels && matchedList.length > 0) {
       matchedList.forEach((m) => {
-        const liveCh = epgData.channels.find(
+        const liveCh = state.epgData.channels.find(
           (c) => c.id === m.channelId || c.id.endsWith("::" + m.channelId),
         );
         if (liveCh) {
           liveCh.customIcon = m.logoUrl;
           liveCh.cachedIcon = m.cachedData || m.logoUrl;
         }
-        if (epgData.rawChannels) {
-          const rawCh = epgData.rawChannels.find(
+        if (state.epgData.rawChannels) {
+          const rawCh = state.epgData.rawChannels.find(
             (c) => c.id === m.channelId || c.id.endsWith("::" + m.channelId),
           );
           if (rawCh) {
@@ -781,9 +804,9 @@ function setupLogoDeduplicationHandlers() {
 
 let currentSettingsPresets = [];
 
-function updateSortUiForSource() {
+export function updateSortUiForSource() {
   const select = document.getElementById("channelOrderSourceSelect");
-  const targetSourceId = select ? select.value : currentSourceId;
+  const targetSourceId = select ? select.value : state.currentSourceId;
   const sourceAzBtn = document.getElementById("sortChannelsSourceAzBtn");
   if (sourceAzBtn) {
     sourceAzBtn.classList.toggle(
@@ -793,9 +816,9 @@ function updateSortUiForSource() {
   }
 }
 
-async function loadChannelSortPresetsDropdown() {
+export async function loadChannelSortPresetsDropdown() {
   const sourceSelect = document.getElementById("channelOrderSourceSelect");
-  const targetSourceId = sourceSelect ? sourceSelect.value : currentSourceId;
+  const targetSourceId = sourceSelect ? sourceSelect.value : state.currentSourceId;
   const presetSelect = document.getElementById("channelSortPresetSelect");
   const renameBtn = document.getElementById("renameChannelSortPresetBtn");
   const deleteBtn = document.getElementById("deleteChannelSortPresetBtn");
@@ -822,18 +845,18 @@ async function loadChannelSortPresetsDropdown() {
   }
 }
 
-function loadChannelOrderSourcesDropdown() {
+export function loadChannelOrderSourcesDropdown() {
   const select = document.getElementById("channelOrderSourceSelect");
   if (!select) return;
   const prevVal = select.value;
   select.innerHTML = "";
-  if (sources.length > 0) {
+  if (state.sources.length > 0) {
     const allFavOpt = document.createElement("option");
     allFavOpt.value = "__ALL_FAVORITES__";
     allFavOpt.textContent = t("all_favorites_source");
     select.appendChild(allFavOpt);
   }
-  sources.forEach((s) => {
+  state.sources.forEach((s) => {
     const opt = document.createElement("option");
     opt.value = s.id;
     opt.textContent = `${s.name} [${s.countryCode || "HU"}]`;
@@ -841,9 +864,9 @@ function loadChannelOrderSourcesDropdown() {
   });
   if (prevVal && Array.from(select.options).some((o) => o.value === prevVal)) {
     select.value = prevVal;
-  } else if (currentSourceId) {
-    select.value = currentSourceId;
-  } else if (sources.length > 0) {
+  } else if (state.currentSourceId) {
+    select.value = state.currentSourceId;
+  } else if (state.sources.length > 0) {
     select.value = "__ALL_FAVORITES__";
   }
   select.onchange = () => {
@@ -854,6 +877,7 @@ function loadChannelOrderSourcesDropdown() {
   updateSortUiForSource();
 }
 
+function initChannelSortHandlers() {
 const presetSelectEl = document.getElementById("channelSortPresetSelect");
 if (presetSelectEl) {
   presetSelectEl.onchange = async () => {
@@ -890,7 +914,7 @@ if (presetSelectEl) {
     });
 
     const select = document.getElementById("channelOrderSourceSelect");
-    const targetSourceId = select ? select.value : currentSourceId;
+    const targetSourceId = select ? select.value : state.currentSourceId;
     const newOrder = items.map((el) => el.dataset.channelId);
 
     await invoke("save_channel_order", {
@@ -898,11 +922,11 @@ if (presetSelectEl) {
       order: newOrder,
     });
 
-    if (targetSourceId === currentSourceId) {
-      if (epgData.rawChannels) {
-        epgData.rawChannels.sort((a, b) => {
+    if (targetSourceId === state.currentSourceId) {
+      if (state.epgData.rawChannels) {
+        state.epgData.rawChannels.sort((a, b) => {
           if (
-            currentSourceId !== "__ALL_FAVORITES__" &&
+            state.currentSourceId !== "__ALL_FAVORITES__" &&
             a.isFavorite !== b.isFavorite
           ) {
             return a.isFavorite ? -1 : 1;
@@ -920,7 +944,7 @@ const savePresetBtn = document.getElementById("saveChannelSortPresetBtn");
 if (savePresetBtn) {
   savePresetBtn.onclick = async () => {
     const sourceSelect = document.getElementById("channelOrderSourceSelect");
-    const targetSourceId = sourceSelect ? sourceSelect.value : currentSourceId;
+    const targetSourceId = sourceSelect ? sourceSelect.value : state.currentSourceId;
     if (!targetSourceId) return;
 
     const container = document.getElementById("channelOrderList");
@@ -951,7 +975,7 @@ if (savePresetBtn) {
         if (renameBtn) renameBtn.disabled = false;
         if (deleteBtn) deleteBtn.disabled = false;
       }
-      if (targetSourceId === currentSourceId) {
+      if (targetSourceId === state.currentSourceId) {
         await updateHeaderSortDropdown();
       }
     } catch (err) {
@@ -987,7 +1011,7 @@ if (renamePresetBtn) {
       const targetSourceId = document.getElementById(
         "channelOrderSourceSelect",
       ).value;
-      if (targetSourceId === currentSourceId) {
+      if (targetSourceId === state.currentSourceId) {
         await updateHeaderSortDropdown();
       }
     } catch (err) {
@@ -1017,7 +1041,7 @@ if (deletePresetBtn) {
       const targetSourceId = document.getElementById(
         "channelOrderSourceSelect",
       ).value;
-      if (targetSourceId === currentSourceId) {
+      if (targetSourceId === state.currentSourceId) {
         await updateHeaderSortDropdown();
       }
     } catch (err) {
@@ -1039,7 +1063,7 @@ if (sortAzBtn) {
       const nameB = b.querySelector(".channel-order-name")?.textContent || "";
       return nameA.localeCompare(
         nameB,
-        currentLang === "hungarian" ? "hu" : "en",
+        getCurrentLang() === "hungarian" ? "hu" : "en",
         LOCALE_COMPARE_OPTIONS,
       );
     });
@@ -1051,7 +1075,7 @@ if (sortAzBtn) {
     });
 
     const select = document.getElementById("channelOrderSourceSelect");
-    const targetSourceId = select ? select.value : currentSourceId;
+    const targetSourceId = select ? select.value : state.currentSourceId;
     const newOrder = items.map((el) => el.dataset.channelId);
 
     await invoke("save_channel_order", {
@@ -1059,11 +1083,11 @@ if (sortAzBtn) {
       order: newOrder,
     });
 
-    if (targetSourceId === currentSourceId) {
-      if (epgData.rawChannels) {
-        epgData.rawChannels.sort((a, b) => {
+    if (targetSourceId === state.currentSourceId) {
+      if (state.epgData.rawChannels) {
+        state.epgData.rawChannels.sort((a, b) => {
           if (
-            currentSourceId !== "__ALL_FAVORITES__" &&
+            state.currentSourceId !== "__ALL_FAVORITES__" &&
             a.isFavorite !== b.isFavorite
           ) {
             return a.isFavorite ? -1 : 1;
@@ -1090,7 +1114,7 @@ if (sortSourceAzBtn) {
       const srcB = b.dataset.sourceName || "";
       const srcCmp = srcA.localeCompare(
         srcB,
-        currentLang === "hungarian" ? "hu" : "en",
+        getCurrentLang() === "hungarian" ? "hu" : "en",
         LOCALE_COMPARE_OPTIONS,
       );
       if (srcCmp !== 0) return srcCmp;
@@ -1099,7 +1123,7 @@ if (sortSourceAzBtn) {
       const nameB = b.querySelector(".channel-order-name")?.textContent || "";
       return nameA.localeCompare(
         nameB,
-        currentLang === "hungarian" ? "hu" : "en",
+        getCurrentLang() === "hungarian" ? "hu" : "en",
         LOCALE_COMPARE_OPTIONS,
       );
     });
@@ -1111,7 +1135,7 @@ if (sortSourceAzBtn) {
     });
 
     const select = document.getElementById("channelOrderSourceSelect");
-    const targetSourceId = select ? select.value : currentSourceId;
+    const targetSourceId = select ? select.value : state.currentSourceId;
     const newOrder = items.map((el) => el.dataset.channelId);
 
     await invoke("save_channel_order", {
@@ -1119,11 +1143,11 @@ if (sortSourceAzBtn) {
       order: newOrder,
     });
 
-    if (targetSourceId === currentSourceId) {
-      if (epgData.rawChannels) {
-        epgData.rawChannels.sort((a, b) => {
+    if (targetSourceId === state.currentSourceId) {
+      if (state.epgData.rawChannels) {
+        state.epgData.rawChannels.sort((a, b) => {
           if (
-            currentSourceId !== "__ALL_FAVORITES__" &&
+            state.currentSourceId !== "__ALL_FAVORITES__" &&
             a.isFavorite !== b.isFavorite
           ) {
             return a.isFavorite ? -1 : 1;
@@ -1135,6 +1159,7 @@ if (sortSourceAzBtn) {
       renderEPG();
     }
   };
+}
 }
 
 function setupChannelOrderPointerDrag(item, handle, container, updateAndSave) {
@@ -1186,6 +1211,7 @@ function setupChannelOrderPointerDrag(item, handle, container, updateAndSave) {
 let channelFilterMode = "all";
 let channelSearchQuery = "";
 
+function initChannelFilterHandlers() {
 const channelSearchInput = document.getElementById("channelOrderSearchInput");
 if (channelSearchInput) {
   channelSearchInput.oninput = (e) => {
@@ -1215,15 +1241,16 @@ if (channelSearchInput) {
     };
   }
 });
+}
 
-async function renderChannelOrderList() {
+export async function renderChannelOrderList() {
   const select = document.getElementById("channelOrderSourceSelect");
   const targetSourceId =
     select?.value ||
-    (currentSourceId && currentSourceId !== "__ALL_FAVORITES__"
-      ? currentSourceId
-      : sources.length > 0
-        ? sources[0].id
+    (state.currentSourceId && state.currentSourceId !== "__ALL_FAVORITES__"
+      ? state.currentSourceId
+      : state.sources.length > 0
+        ? state.sources[0].id
         : "");
   const container = document.getElementById("channelOrderList");
   const contentArea = document.querySelector(".settings-content-area");
@@ -1236,12 +1263,12 @@ async function renderChannelOrderList() {
 
   let sourceChannels = [];
   if (
-    targetSourceId === currentSourceId &&
-    epgData &&
-    epgData.channels &&
-    epgData.channels.length > 0
+    targetSourceId === state.currentSourceId &&
+    state.epgData &&
+    state.epgData.channels &&
+    state.epgData.channels.length > 0
   ) {
-    sourceChannels = epgData.rawChannels || epgData.channels;
+    sourceChannels = state.epgData.rawChannels || state.epgData.channels;
   } else {
     try {
       const res = await invoke("get_epg_data", {
@@ -1264,8 +1291,8 @@ async function renderChannelOrderList() {
   }
 
   const channelOrderQuery =
-    channelSearchQuery && window.SearchUtils
-      ? window.SearchUtils.prepareQuery(channelSearchQuery)
+    channelSearchQuery && SearchUtils
+      ? SearchUtils.prepareQuery(channelSearchQuery)
       : null;
 
   const filteredChannels = sourceChannels.filter((ch) => {
@@ -1274,7 +1301,7 @@ async function renderChannelOrderList() {
     if (channelFilterMode === "hidden" && !ch.isHidden) return false;
     if (channelSearchQuery) {
       const nameMatch = channelOrderQuery
-        ? window.SearchUtils.matchPrepared(ch.name, channelOrderQuery)
+        ? SearchUtils.matchPrepared(ch.name, channelOrderQuery)
         : fuzzySearchMatch(ch.name, channelSearchQuery);
       const idMatch = String(ch.id || "")
         .toLowerCase()
@@ -1309,11 +1336,11 @@ async function renderChannelOrderList() {
       order: newOrder,
     });
 
-    if (targetSourceId === currentSourceId) {
-      if (epgData.rawChannels) {
-        epgData.rawChannels.sort((a, b) => {
+    if (targetSourceId === state.currentSourceId) {
+      if (state.epgData.rawChannels) {
+        state.epgData.rawChannels.sort((a, b) => {
           if (
-            currentSourceId !== "__ALL_FAVORITES__" &&
+            state.currentSourceId !== "__ALL_FAVORITES__" &&
             a.isFavorite !== b.isFavorite
           ) {
             return a.isFavorite ? -1 : 1;
@@ -1349,8 +1376,8 @@ async function renderChannelOrderList() {
         ? `<span class="channel-order-source-badge" title="${escapeHtml(sourceBadgeText)}">${escapeHtml(sourceBadgeText)}</span>`
         : "";
 
-    const tvPlaceholderSvg = window.Icons
-      ? window.Icons.get("device-tv", { size: 18 })
+    const tvPlaceholderSvg = Icons
+      ? Icons.get("device-tv", { size: 18 })
       : "TV";
     item.innerHTML = `
             <div class="channel-item-main">
@@ -1408,19 +1435,19 @@ async function renderChannelOrderList() {
       if (targetSourceId === "__ALL_FAVORITES__" && !newFav) {
         sourceChannels = sourceChannels.filter((c) => c.id !== ch.id);
       }
-      if (currentSourceId === targetSourceId) {
-        if (currentSourceId === "__ALL_FAVORITES__" && !newFav) {
-          if (epgData.rawChannels) {
-            epgData.rawChannels = epgData.rawChannels.filter(
+      if (state.currentSourceId === targetSourceId) {
+        if (state.currentSourceId === "__ALL_FAVORITES__" && !newFav) {
+          if (state.epgData.rawChannels) {
+            state.epgData.rawChannels = state.epgData.rawChannels.filter(
               (c) => c.id !== ch.id,
             );
           }
-          epgData.channels = epgData.channels.filter((c) => c.id !== ch.id);
+          state.epgData.channels = state.epgData.channels.filter((c) => c.id !== ch.id);
         } else {
-          const liveCh = epgData.channels.find((c) => c.id === ch.id);
+          const liveCh = state.epgData.channels.find((c) => c.id === ch.id);
           if (liveCh) liveCh.isFavorite = newFav;
-          if (epgData.rawChannels) {
-            const rawCh = epgData.rawChannels.find((c) => c.id === ch.id);
+          if (state.epgData.rawChannels) {
+            const rawCh = state.epgData.rawChannels.find((c) => c.id === ch.id);
             if (rawCh) rawCh.isFavorite = newFav;
           }
         }
@@ -1438,11 +1465,11 @@ async function renderChannelOrderList() {
         channelId: actualChannelId,
       });
       ch.isHidden = newHidden;
-      if (targetSourceId === currentSourceId) {
-        const liveCh = epgData.channels.find((c) => c.id === ch.id);
+      if (targetSourceId === state.currentSourceId) {
+        const liveCh = state.epgData.channels.find((c) => c.id === ch.id);
         if (liveCh) liveCh.isHidden = newHidden;
-        if (epgData.rawChannels) {
-          const rawCh = epgData.rawChannels.find((c) => c.id === ch.id);
+        if (state.epgData.rawChannels) {
+          const rawCh = state.epgData.rawChannels.find((c) => c.id === ch.id);
           if (rawCh) rawCh.isHidden = newHidden;
         }
         applyActiveSortToEpgChannels();
@@ -1464,7 +1491,7 @@ async function renderChannelOrderList() {
           ch.customName ||
           ch.originalName ||
           ch.name;
-        const srcObj = sources.find((s) => s.id === actualSourceId);
+        const srcObj = state.sources.find((s) => s.id === actualSourceId);
         const country =
           ch.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
         const selectedUrl = await openLogoSearchModal(queryName, country);
@@ -1493,8 +1520,8 @@ async function renderChannelOrderList() {
       ch.customName = newName || null;
       ch.customIcon = newLogo || null;
 
-      if (targetSourceId === currentSourceId) {
-        const liveCh = epgData.channels.find((c) => c.id === ch.id);
+      if (targetSourceId === state.currentSourceId) {
+        const liveCh = state.epgData.channels.find((c) => c.id === ch.id);
         if (liveCh) {
           liveCh.customName = ch.customName;
           liveCh.name = ch.customName || liveCh.originalName || liveCh.name;
@@ -1509,8 +1536,8 @@ async function renderChannelOrderList() {
               .catch(() => {});
           }
         }
-        if (epgData.rawChannels) {
-          const rawCh = epgData.rawChannels.find((c) => c.id === ch.id);
+        if (state.epgData.rawChannels) {
+          const rawCh = state.epgData.rawChannels.find((c) => c.id === ch.id);
           if (rawCh) {
             rawCh.customName = ch.customName;
             rawCh.name = ch.customName || rawCh.originalName || rawCh.name;
@@ -1531,8 +1558,8 @@ async function renderChannelOrderList() {
       const logoPreview = item.querySelector(".channel-order-logo-preview");
       const effectiveLogo = ch.customIcon || ch.icon || "";
       if (logoPreview) {
-        const tvPlaceholderSvg = window.Icons
-          ? window.Icons.get("device-tv", { size: 18 })
+        const tvPlaceholderSvg = Icons
+          ? Icons.get("device-tv", { size: 18 })
           : "TV";
         logoPreview.innerHTML = "";
         if (effectiveLogo) {
@@ -1579,16 +1606,16 @@ async function renderChannelOrderList() {
       ch.customName = null;
       ch.customIcon = null;
 
-      if (targetSourceId === currentSourceId) {
-        const liveCh = epgData.channels.find((c) => c.id === ch.id);
+      if (targetSourceId === state.currentSourceId) {
+        const liveCh = state.epgData.channels.find((c) => c.id === ch.id);
         if (liveCh) {
           liveCh.customName = null;
           liveCh.name = liveCh.originalName || liveCh.name;
           liveCh.customIcon = null;
           liveCh.cachedIcon = null;
         }
-        if (epgData.rawChannels) {
-          const rawCh = epgData.rawChannels.find((c) => c.id === ch.id);
+        if (state.epgData.rawChannels) {
+          const rawCh = state.epgData.rawChannels.find((c) => c.id === ch.id);
           if (rawCh) {
             rawCh.customName = null;
             rawCh.name = rawCh.originalName || rawCh.name;
@@ -1610,8 +1637,8 @@ async function renderChannelOrderList() {
       const logoPreview = item.querySelector(".channel-order-logo-preview");
       const effectiveLogo = ch.icon || "";
       if (logoPreview) {
-        const tvPlaceholderSvg = window.Icons
-          ? window.Icons.get("device-tv", { size: 18 })
+        const tvPlaceholderSvg = Icons
+          ? Icons.get("device-tv", { size: 18 })
           : "TV";
         logoPreview.innerHTML = "";
         if (effectiveLogo) {
@@ -1695,17 +1722,22 @@ async function renderChannelOrderList() {
   }
 }
 
-document.getElementById("resetChannelOrderBtn").onclick = async () => {
-  const select = document.getElementById("channelOrderSourceSelect");
-  const targetSourceId = select.value || currentSourceId;
-  if (!targetSourceId) return;
+export function initChannels() {
+  initChannelSortHandlers();
+  initChannelFilterHandlers();
 
-  await invoke("save_channel_order", {
-    sourceId: targetSourceId,
-    order: [],
-  });
-  if (targetSourceId === currentSourceId) {
-    await fetchEPG();
-  }
-  await renderChannelOrderList();
-};
+  document.getElementById("resetChannelOrderBtn").onclick = async () => {
+    const select = document.getElementById("channelOrderSourceSelect");
+    const targetSourceId = select.value || state.currentSourceId;
+    if (!targetSourceId) return;
+
+    await invoke("save_channel_order", {
+      sourceId: targetSourceId,
+      order: [],
+    });
+    if (targetSourceId === state.currentSourceId) {
+      await fetchEPG();
+    }
+    await renderChannelOrderList();
+  };
+}

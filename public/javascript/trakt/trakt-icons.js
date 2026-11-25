@@ -2,10 +2,9 @@
  * Trakt.tv műveleti ikonok – Tabler Icons alapú (MIT licenc)
  * Forrás: TODO/tabler-icons/outline/ és TODO/tabler-icons/filled/
  */
-(function () {
-  'use strict';
+import { Icons } from '../utils/icons.js';
 
-  const TRAKT_ICONS = {
+const TRAKT_ICONS = {
     'trakt-watched': {
       paths: '<path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M7 12l5 5l10 -10" /><path d="M2 12l5 5m5 -5l5 -5" />',
       filled: false
@@ -100,9 +99,8 @@
     }
   };
 
-  if (window.Icons && typeof window.Icons.register === 'function') {
-    Object.entries(TRAKT_ICONS).forEach(([name, def]) => {
-      window.Icons.register(name, def.paths, def.filled);
-    });
-  }
-})();
+export function registerTraktIcons() {
+  Object.entries(TRAKT_ICONS).forEach(([name, def]) => {
+    Icons.register(name, def.paths, def.filled);
+  });
+}

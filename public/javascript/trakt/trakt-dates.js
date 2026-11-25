@@ -1,15 +1,6 @@
 /**
  * Pure date/timezone helpers for Trakt dashboard & calendars.
- * Works in both browser (window.TraktDates) and Node.js (CommonJS require).
  */
-(function (root, factory) {
-  if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
-  } else {
-    root.TraktDates = factory();
-  }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  'use strict';
 
   function pad2(n) {
     return String(n).padStart(2, '0');
@@ -309,21 +300,38 @@
     updateActiveDay();
   }
 
-  return {
-    toLocalYmd,
-    addLocalDays,
-    getLocalYesterdayYmd,
-    getWeekRange,
-    getFurtherWeekRanges,
-    filterEpisodesByDateRange,
-    compareEpisodesByStartTime,
-    splitDashboardEpisodes,
-    groupByLocalDay,
-    formatLocalTime,
-    formatDashboardReleaseMeta,
-    formatShortDateRange,
-    formatDayHeading,
-    formatRelativeTime,
-    attachStickyDayHeader,
-  };
-});
+export const TraktDates = {
+  toLocalYmd,
+  addLocalDays,
+  getLocalYesterdayYmd,
+  getWeekRange,
+  getFurtherWeekRanges,
+  filterEpisodesByDateRange,
+  compareEpisodesByStartTime,
+  splitDashboardEpisodes,
+  groupByLocalDay,
+  formatLocalTime,
+  formatDashboardReleaseMeta,
+  formatShortDateRange,
+  formatDayHeading,
+  formatRelativeTime,
+  attachStickyDayHeader,
+};
+
+export {
+  toLocalYmd,
+  addLocalDays,
+  getLocalYesterdayYmd,
+  getWeekRange,
+  getFurtherWeekRanges,
+  filterEpisodesByDateRange,
+  compareEpisodesByStartTime,
+  splitDashboardEpisodes,
+  groupByLocalDay,
+  formatLocalTime,
+  formatDashboardReleaseMeta,
+  formatShortDateRange,
+  formatDayHeading,
+  formatRelativeTime,
+  attachStickyDayHeader,
+};

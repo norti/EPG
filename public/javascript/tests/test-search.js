@@ -1,5 +1,5 @@
-const assert = require('assert');
-const SearchUtils = require('../public/javascript/search.js');
+import assert from 'node:assert';
+import { SearchUtils } from '../utils/search.js';
 
 function testSzuperzsaruRegression() {
   // Must match actual Szuperzsaru variants and typos
