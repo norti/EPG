@@ -113,11 +113,7 @@ function showPosterZoom(e) {
   if (img.dataset.forPosterPath !== currentModalPosterPath) {
     img.dataset.forPosterPath = currentModalPosterPath;
     img.src = previewSrc;
-    if (currentModalLargePosterSrc) {
-      loader.style.display = "none";
-    } else {
-      loader.style.display = "flex";
-    }
+    loader.classList.toggle("u-hidden", !!currentModalLargePosterSrc);
   }
 
   // Ha a maximális méretű poszter még nincs a memóriában, lekérjük és zökkenőmentesen frissítjük
@@ -130,7 +126,7 @@ function showPosterZoom(e) {
             if (img.src !== cached) {
               img.src = cached;
             }
-            loader.style.display = "none";
+            loader.classList.add("u-hidden");
           }
         } else {
           invoke("cache_logo", { url: largeUrl })
@@ -140,22 +136,22 @@ function showPosterZoom(e) {
                 if (img.src !== data) {
                   img.src = data;
                 }
-                loader.style.display = "none";
+                loader.classList.add("u-hidden");
               }
             })
             .catch(() => {
-              loader.style.display = "none";
+              loader.classList.add("u-hidden");
             });
         }
       })
       .catch(() => {
-        loader.style.display = "none";
+        loader.classList.add("u-hidden");
       });
   } else {
-    loader.style.display = "none";
+    loader.classList.add("u-hidden");
   }
 
-  popup.style.display = "block";
+  popup.classList.remove("u-hidden");
   requestAnimationFrame(() => {
     popup.classList.add("visible");
   });
@@ -168,20 +164,20 @@ function hidePosterZoom() {
   const loader = document.getElementById("posterZoomLoader");
   if (popup) {
     popup.classList.remove("visible");
-    popup.style.display = "none";
+    popup.classList.add("u-hidden");
   }
   if (img) {
     img.src = "";
     img.dataset.forPosterPath = "";
   }
   if (loader) {
-    loader.style.display = "none";
+    loader.classList.add("u-hidden");
   }
 }
 
 function positionPosterZoom(e) {
   const popup = document.getElementById("posterZoomPopup");
-  if (!popup || popup.style.display === "none") return;
+  if (!popup || popup.classList.contains("u-hidden")) return;
 
   const pad = 16;
   const popW = popup.offsetWidth || 380;
@@ -212,10 +208,10 @@ function updateModalLeftColVisibility() {
   const posterCol = document.getElementById("modalPosterCol");
   const posterTraktMeta = document.getElementById("modalPosterTraktMeta");
   if (!leftCol) return;
-  const hasPoster = posterCol && posterCol.style.display !== "none";
+  const hasPoster = posterCol && !posterCol.classList.contains("u-hidden");
   const hasTraktMeta =
-    posterTraktMeta && posterTraktMeta.style.display !== "none";
-  leftCol.style.display = hasPoster || hasTraktMeta ? "flex" : "none";
+    posterTraktMeta && !posterTraktMeta.classList.contains("u-hidden");
+  leftCol.classList.toggle("u-hidden", !(hasPoster || hasTraktMeta));
 }
 
 function resetModalTmdbUi(preserveTrakt = false) {
@@ -236,23 +232,23 @@ function resetModalTmdbUi(preserveTrakt = false) {
   const tmdbOverview = document.getElementById("modalTmdbOverview");
   const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
 
-  posterCol.style.display = "none";
+  posterCol.classList.add("u-hidden");
   posterImg.src = "";
-  backdrop.style.display = "none";
+  backdrop.classList.add("u-hidden");
   backdrop.style.backgroundImage = "";
-  mediaBadge.style.display = "none";
-  ratingBadge.style.display = "none";
-  yearBadge.style.display = "none";
-  variantsRow.style.display = "none";
-  huBadge.style.display = "none";
+  mediaBadge.classList.add("u-hidden");
+  ratingBadge.classList.add("u-hidden");
+  yearBadge.classList.add("u-hidden");
+  variantsRow.classList.add("u-hidden");
+  huBadge.classList.add("u-hidden");
   huBadge.classList.remove("active");
-  enBadge.style.display = "none";
+  enBadge.classList.add("u-hidden");
   enBadge.classList.remove("active");
-  origBadge.style.display = "none";
+  origBadge.classList.add("u-hidden");
   origBadge.classList.remove("active");
-  tmdbOverview.style.display = "none";
+  tmdbOverview.classList.add("u-hidden");
   tmdbOverviewText.textContent = "";
-  tmdbLoading.style.display = "none";
+  tmdbLoading.classList.add("u-hidden");
   if (!preserveTrakt && window.TraktUI) {
     window.TraktUI.detachFromModal();
   }
@@ -357,7 +353,7 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
     currentModalPosterPath = tmdbData.posterPath;
     currentModalTmdbData = tmdbData;
     const posterUrl = `https://image.tmdb.org/t/p/w500${tmdbData.posterPath}`;
-    posterCol.style.display = "block";
+    posterCol.classList.remove("u-hidden");
     updateModalLeftColVisibility();
     loadCachedTmdbImage(posterUrl, isCurrentRender, (src) => {
       posterImg.src = src;
@@ -371,7 +367,7 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
   // Backdrop (served through images.db cache)
   if (tmdbData.backdropPath) {
     const backdropUrl = `https://image.tmdb.org/t/p/w780${tmdbData.backdropPath}`;
-    backdrop.style.display = "block";
+    backdrop.classList.remove("u-hidden");
     loadCachedTmdbImage(backdropUrl, isCurrentRender, (src) => {
       backdrop.style.backgroundImage = `url('${src}')`;
     });
@@ -381,19 +377,19 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
   if (tmdbData.mediaType) {
     mediaBadge.textContent =
       tmdbData.mediaType === "tv" ? t("media_type_tv") : t("media_type_movie");
-    mediaBadge.style.display = "inline-flex";
+    mediaBadge.classList.remove("u-hidden");
   }
 
   // Rating badge
   if (tmdbData.voteAverage && tmdbData.voteAverage > 0) {
     ratingBadge.innerHTML = `${iconHtml("star-filled", 12)} ${tmdbData.voteAverage.toFixed(1)} / 10`;
-    ratingBadge.style.display = "inline-flex";
+    ratingBadge.classList.remove("u-hidden");
   }
 
   // Release year badge
   if (tmdbData.releaseDate && tmdbData.releaseDate.length >= 4) {
     yearBadge.textContent = tmdbData.releaseDate.substring(0, 4);
-    yearBadge.style.display = "inline-flex";
+    yearBadge.classList.remove("u-hidden");
   }
 
   // Title variants badges: 1. app language, 2. English, 3. Original (if present)
@@ -419,7 +415,7 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
       badgeEl.innerHTML = `${iconHtml("world", 13)} ${escapeHtml(t("badge_orig"))} ${escapeHtml(variant.title)}`;
     }
 
-    badgeEl.style.display = "inline-flex";
+    badgeEl.classList.remove("u-hidden");
     badgeEl.onclick = () => switchTmdbLang(tmdbData, variant.tmdbLang, badgeEl);
     variantsRow.appendChild(badgeEl);
 
@@ -432,14 +428,14 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
   });
 
   if (variants.length > 0) {
-    variantsRow.style.display = "flex";
+    variantsRow.classList.remove("u-hidden");
     setActiveTitleVariantBadge(initialActiveBadge);
   }
 
   // TMDB Overview
   if (tmdbData.overview && tmdbData.overview.trim().length > 0) {
     tmdbOverviewText.textContent = tmdbData.overview;
-    tmdbOverview.style.display = "block";
+    tmdbOverview.classList.remove("u-hidden");
   }
 }
 
@@ -494,7 +490,7 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
   const fetchIndex = currentModalFetchIndex;
   const switchIndex = ++currentModalLangSwitchIndex;
 
-  tmdbLoading.style.display = "flex";
+  tmdbLoading.classList.remove("u-hidden");
   try {
     const details = await invoke("get_tmdb_details_for_lang", {
       tmdbId: tmdbData.tmdbId,
@@ -510,7 +506,7 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
       return;
     }
 
-    tmdbLoading.style.display = "none";
+    tmdbLoading.classList.add("u-hidden");
 
     if (clickedBadgeEl) {
       setActiveTitleVariantBadge(clickedBadgeEl);
@@ -524,7 +520,7 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
       currentModalPosterPath = details.posterPath;
       currentModalLargePosterSrc = "";
       const posterUrl = `https://image.tmdb.org/t/p/w500${details.posterPath}`;
-      posterCol.style.display = "block";
+      posterCol.classList.remove("u-hidden");
       updateModalLeftColVisibility();
       loadCachedTmdbImage(posterUrl, isCurrentSwitch, (src) => {
         posterImg.src = src;
@@ -534,7 +530,7 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
 
     if (details.backdropPath) {
       const backdropUrl = `https://image.tmdb.org/t/p/w780${details.backdropPath}`;
-      backdrop.style.display = "block";
+      backdrop.classList.remove("u-hidden");
       loadCachedTmdbImage(backdropUrl, isCurrentSwitch, (src) => {
         backdrop.style.backgroundImage = `url('${src}')`;
       });
@@ -542,9 +538,9 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
 
     if (details.overview && details.overview.trim().length > 0) {
       tmdbOverviewText.textContent = details.overview;
-      tmdbOverview.style.display = "block";
+      tmdbOverview.classList.remove("u-hidden");
     } else {
-      tmdbOverview.style.display = "none";
+      tmdbOverview.classList.add("u-hidden");
       tmdbOverviewText.textContent = "";
     }
   } catch (e) {
@@ -552,7 +548,7 @@ async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
       fetchIndex === currentModalFetchIndex &&
       switchIndex === currentModalLangSwitchIndex
     ) {
-      tmdbLoading.style.display = "none";
+      tmdbLoading.classList.add("u-hidden");
     }
     console.warn("TMDB lang switch error:", e);
   }
@@ -581,13 +577,13 @@ function openFixOverlay() {
       programDescEl.textContent = t("modal_no_desc");
       programDescEl.classList.add("is-empty");
     }
-    programContext.style.display = "block";
+    programContext.classList.remove("u-hidden");
   }
 
-  overlay.style.display = "flex";
+  overlay.classList.remove("u-hidden");
   searchInput.value = currentModalTitle;
-  clearBtn.style.display = searchInput.value ? "block" : "none";
-  statusEl.style.display = "none";
+  clearBtn.classList.toggle("u-hidden", !searchInput.value);
+  statusEl.classList.add("u-hidden");
   resultsEl.innerHTML = "";
 
   setTimeout(() => {
@@ -600,7 +596,7 @@ function openFixOverlay() {
 
 function closeFixOverlay() {
   const overlay = document.getElementById("modalFixOverlay");
-  if (overlay) overlay.style.display = "none";
+  if (overlay) overlay.classList.add("u-hidden");
   const modalContent = document.querySelector("#modalOverlay .modal-content");
   if (modalContent) modalContent.classList.remove("has-fix-open");
   if (fixSearchDebounce) {
@@ -618,38 +614,38 @@ async function triggerFixSearch(query) {
   if (!q) {
     resultsEl.innerHTML = "";
     statusEl.textContent = t("tmdb_fix_no_results");
-    statusEl.style.display = "block";
+    statusEl.classList.remove("u-hidden");
     return;
   }
 
-  spinner.style.display = "inline-block";
+  spinner.classList.remove("u-hidden");
   statusEl.textContent = t("tmdb_fix_searching");
-  statusEl.style.display = "block";
+  statusEl.classList.remove("u-hidden");
   resultsEl.innerHTML = "";
 
   const lang = getCurrentModalLang();
 
   try {
     const results = await invoke("search_tmdb", { query: q, lang });
-    spinner.style.display = "none";
+    spinner.classList.add("u-hidden");
 
     if (!results || results.length === 0) {
       statusEl.textContent = t("tmdb_fix_no_results");
-      statusEl.style.display = "block";
+      statusEl.classList.remove("u-hidden");
       return;
     }
 
-    statusEl.style.display = "none";
+    statusEl.classList.add("u-hidden");
     renderFixResults(results);
   } catch (e) {
-    spinner.style.display = "none";
+    spinner.classList.add("u-hidden");
     const errStr = String(e);
     if (errStr.includes("TMDB API")) {
       statusEl.textContent = t("tmdb_fix_api_key_missing");
     } else {
       statusEl.textContent = errStr;
     }
-    statusEl.style.display = "block";
+    statusEl.classList.remove("u-hidden");
   }
 }
 
@@ -784,6 +780,19 @@ async function removeTmdbMatch() {
   }
 }
 
+function setTmdbKeyStatusState(statusBadge, state) {
+  if (!statusBadge) return;
+  statusBadge.classList.remove(
+    "tmdb-status--configured",
+    "tmdb-status--unconfigured",
+    "tmdb-status--valid",
+    "tmdb-status--invalid",
+  );
+  if (state) {
+    statusBadge.classList.add(`tmdb-status--${state}`);
+  }
+}
+
 async function loadTmdbSettings() {
   const statusBadge = document.getElementById("tmdbKeyStatusBadge");
   const keyInput = document.getElementById("tmdbApiKeyInput");
@@ -796,11 +805,11 @@ async function loadTmdbSettings() {
     if (key && key.trim()) {
       keyInput.value = key;
       statusBadge.textContent = t("tmdb_status_configured");
-      statusBadge.style.background = "#2b6cb0";
+      setTmdbKeyStatusState(statusBadge, "configured");
     } else {
       keyInput.value = "";
       statusBadge.textContent = t("tmdb_status_not_configured");
-      statusBadge.style.background = "#4a5568";
+      setTmdbKeyStatusState(statusBadge, "unconfigured");
     }
   } catch (e) {
     console.error("Hiba a TMDB kulcs lekérésekor:", e);
@@ -814,11 +823,11 @@ async function saveTmdbKey() {
     await invoke("set_tmdb_api_key", { apiKey: key });
     if (key) {
       statusBadge.textContent = t("tmdb_status_configured");
-      statusBadge.style.background = "#2b6cb0";
+      setTmdbKeyStatusState(statusBadge, "configured");
       await showAlert(t("alert_success_title"), t("tmdb_saved_success"));
     } else {
       statusBadge.textContent = t("tmdb_status_not_configured");
-      statusBadge.style.background = "#4a5568";
+      setTmdbKeyStatusState(statusBadge, "unconfigured");
     }
   } catch (e) {
     await showAlert(t("alert_error_title"), String(e));
@@ -835,7 +844,7 @@ async function testTmdbKey() {
   const statusBadge = document.getElementById("tmdbKeyStatusBadge");
   if (!key) {
     statusBadge.textContent = t("tmdb_status_not_configured");
-    statusBadge.style.background = "#4a5568";
+    setTmdbKeyStatusState(statusBadge, "unconfigured");
     return;
   }
   statusBadge.textContent = "...";
@@ -843,15 +852,15 @@ async function testTmdbKey() {
     const isValid = await invoke("test_tmdb_api_key", { apiKey: key });
     if (isValid) {
       statusBadge.textContent = t("tmdb_status_valid");
-      statusBadge.style.background = "#28a745";
+      setTmdbKeyStatusState(statusBadge, "valid");
     } else {
       statusBadge.textContent = t("tmdb_status_invalid");
-      statusBadge.style.background = "#e53e3e";
+      setTmdbKeyStatusState(statusBadge, "invalid");
     }
   } catch (e) {
     console.error("Hiba a TMDB kulcs tesztelésekor:", e);
     statusBadge.textContent = t("tmdb_status_invalid");
-    statusBadge.style.background = "#e53e3e";
+    setTmdbKeyStatusState(statusBadge, "invalid");
   }
 }
 
@@ -904,9 +913,9 @@ document.getElementById("modalFixSearchBtn").onclick = () => {
 
 document.getElementById("modalFixSearchInput").oninput = (e) => {
   const val = e.target.value;
-  document.getElementById("modalFixClearBtn").style.display = val
-    ? "block"
-    : "none";
+  document
+    .getElementById("modalFixClearBtn")
+    .classList.toggle("u-hidden", !val);
   if (fixSearchDebounce) clearTimeout(fixSearchDebounce);
   fixSearchDebounce = setTimeout(() => {
     triggerFixSearch(val.trim());
@@ -925,7 +934,7 @@ document.getElementById("modalFixSearchInput").onkeydown = (e) => {
 document.getElementById("modalFixClearBtn").onclick = () => {
   const input = document.getElementById("modalFixSearchInput");
   input.value = "";
-  document.getElementById("modalFixClearBtn").style.display = "none";
+  document.getElementById("modalFixClearBtn").classList.add("u-hidden");
   input.focus();
   triggerFixSearch("");
 };

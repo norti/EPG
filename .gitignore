@@ -21,6 +21,7 @@ src-tauri/gen/
 TODO/
 .addons/
 .antigravityignore
+eslint.config.mjs
 
 # OS által generált fájlok
 .DS_Store

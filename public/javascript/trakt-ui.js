@@ -116,9 +116,9 @@
     const count = watchlistTitleSet.size;
     if (count > 0 && authStatus.loggedIn && authStatus.enabled) {
       badge.textContent = count > 99 ? '99+' : String(count);
-      badge.style.display = 'inline-block';
+      badge.classList.remove('u-hidden');
     } else {
-      badge.style.display = 'none';
+      badge.classList.add('u-hidden');
     }
   }
 
@@ -126,10 +126,10 @@
     const traktBtn = document.getElementById('traktBtn');
     if (!traktBtn) return;
     if (!authStatus.enabled) {
-      traktBtn.style.display = 'none';
+      traktBtn.classList.add('u-hidden');
       if (isTraktMode) exitTraktMode();
     } else {
-      traktBtn.style.display = isTraktMode ? 'none' : 'inline-flex';
+      traktBtn.classList.toggle('u-hidden', isTraktMode);
     }
     updateWatchlistCountBadge();
   }
@@ -241,18 +241,18 @@
       settingsLiveEl.classList.remove('is-syncing', 'is-stopped', 'is-offline');
       if (isBusy) {
         settingsLiveEl.classList.add('is-syncing');
-        settingsLiveEl.style.display = 'flex';
+        settingsLiveEl.classList.remove('u-hidden');
         settingsLiveEl.innerHTML = `<span class="spinner-small"></span> <span>${esc(formatSyncProgressText())}</span>`;
       } else if (syncStatus.status === 'cancelled') {
         settingsLiveEl.classList.add('is-stopped');
-        settingsLiveEl.style.display = 'flex';
+        settingsLiveEl.classList.remove('u-hidden');
         settingsLiveEl.textContent = t('trakt_sync_stopped');
       } else if (syncStatus.offline || syncStatus.status === 'offline') {
         settingsLiveEl.classList.add('is-offline');
-        settingsLiveEl.style.display = 'flex';
+        settingsLiveEl.classList.remove('u-hidden');
         settingsLiveEl.textContent = t('trakt_status_offline');
       } else {
-        settingsLiveEl.style.display = 'none';
+        settingsLiveEl.classList.add('u-hidden');
         settingsLiveEl.textContent = '';
       }
     }
@@ -307,7 +307,7 @@
               ${iconHtml('trakt-login', 18)} <span>${esc(t('trakt_btn_login'))}</span>
             </button>
           </div>
-          <div id="traktLoginError" class="trakt-login-error" style="display:none;"></div>
+          <div id="traktLoginError" class="trakt-login-error u-hidden"></div>
         </div>
       </div>
     `;
@@ -373,14 +373,14 @@
     if (startBtn) {
       startBtn.onclick = async () => {
         startBtn.disabled = true;
-        errEl.style.display = 'none';
+        errEl.classList.add('u-hidden');
         try {
           const data = await invoke('trakt_start_login');
           showCodeUi(data);
         } catch (err) {
           startBtn.disabled = false;
           errEl.textContent = formatTraktError(err);
-          errEl.style.display = 'block';
+          errEl.classList.remove('u-hidden');
         }
       };
     }
@@ -464,9 +464,9 @@
     isTraktMode = true;
     currentSubView = subView;
     document.body.classList.add('trakt-mode');
-    document.getElementById('epgViewport').style.display = 'none';
-    document.getElementById('traktViewport').style.display = 'block';
-    document.getElementById('traktHeaderControls').style.display = 'flex';
+    document.getElementById('epgViewport').classList.add('u-hidden');
+    document.getElementById('traktViewport').classList.remove('u-hidden');
+    document.getElementById('traktHeaderControls').classList.remove('u-hidden');
     updateHeaderVisibility();
     updateSyncStatusUi();
     await loadActiveTraktView();
@@ -475,9 +475,9 @@
   function exitTraktMode(options = {}) {
     isTraktMode = false;
     document.body.classList.remove('trakt-mode');
-    document.getElementById('traktViewport').style.display = 'none';
-    document.getElementById('epgViewport').style.display = '';
-    document.getElementById('traktHeaderControls').style.display = 'none';
+    document.getElementById('traktViewport').classList.add('u-hidden');
+    document.getElementById('epgViewport').classList.remove('u-hidden');
+    document.getElementById('traktHeaderControls').classList.add('u-hidden');
     updateHeaderVisibility();
     if (activeDeviceFlow) {
       stopLoginFallbackTimer();
@@ -600,23 +600,23 @@
     const wlStatus = document.getElementById('modalTraktWatchlistStatus');
     const netBadge = document.getElementById('modalTraktNetworkBadge');
     const drawer = document.getElementById('modalTraktDrawerSection');
-    if (sec) sec.style.display = 'none';
+    if (sec) sec.classList.add('u-hidden');
     if (badges) badges.innerHTML = '';
-    if (posterMeta) posterMeta.style.display = 'none';
+    if (posterMeta) posterMeta.classList.add('u-hidden');
     if (wlBtn) {
-      wlBtn.style.display = 'none';
+      wlBtn.classList.add('u-hidden');
       wlBtn.onclick = null;
     }
     if (wlStatus) {
-      wlStatus.style.display = 'none';
+      wlStatus.classList.add('u-hidden');
       wlStatus.textContent = '';
     }
     if (netBadge) {
-      netBadge.style.display = 'none';
+      netBadge.classList.add('u-hidden');
       netBadge.textContent = '';
     }
     if (drawer) {
-      drawer.style.display = 'none';
+      drawer.classList.add('u-hidden');
       drawer.innerHTML = '';
     }
     if (typeof updateModalLeftColVisibility === 'function') {
@@ -634,10 +634,10 @@
     if (!sec || !badges || !wlBtn) return;
 
     if (!data) {
-      sec.style.display = 'none';
-      if (posterMeta) posterMeta.style.display = 'none';
+      sec.classList.add('u-hidden');
+      if (posterMeta) posterMeta.classList.add('u-hidden');
       if (netBadge) {
-        netBadge.style.display = 'none';
+        netBadge.classList.add('u-hidden');
         netBadge.textContent = '';
       }
       if (typeof updateModalLeftColVisibility === 'function') {
@@ -658,10 +658,10 @@
       badgesHtml += `<span class="trakt-modal-badge trakt-badge-status">${esc(data.status)}</span>`;
     }
     badges.innerHTML = badgesHtml;
-    sec.style.display = badgesHtml ? 'flex' : 'none';
+    sec.classList.toggle('u-hidden', !badgesHtml);
 
     if (data.loggedIn) {
-      wlBtn.style.display = 'inline-flex';
+      wlBtn.classList.remove('u-hidden');
       const updateWlBtn = (onWl) => {
         data.onWatchlist = onWl;
         if (onWl) {
@@ -676,7 +676,7 @@
 
       wlBtn.onclick = async () => {
         wlBtn.disabled = true;
-        if (wlStatus) wlStatus.style.display = 'none';
+        if (wlStatus) wlStatus.classList.add('u-hidden');
         try {
           if (data.onWatchlist) {
             const queued = await invoke('trakt_watchlist_remove', {
@@ -686,7 +686,7 @@
             updateWlBtn(false);
             if (queued && wlStatus) {
               wlStatus.textContent = t('trakt_error_offline');
-              wlStatus.style.display = 'inline';
+              wlStatus.classList.remove('u-hidden');
             }
           } else {
             const queued = await invoke('trakt_watchlist_add', {
@@ -701,13 +701,13 @@
             updateWlBtn(true);
             if (queued && wlStatus) {
               wlStatus.textContent = t('trakt_error_offline');
-              wlStatus.style.display = 'inline';
+              wlStatus.classList.remove('u-hidden');
             }
           }
         } catch (err) {
           if (wlStatus) {
             wlStatus.textContent = formatTraktError(err);
-            wlStatus.style.display = 'inline';
+            wlStatus.classList.remove('u-hidden');
           } else {
             showTraktError(err);
           }
@@ -716,7 +716,7 @@
         }
       };
     } else {
-      wlBtn.style.display = 'none';
+      wlBtn.classList.add('u-hidden');
     }
 
     const hasNetwork = !!(data.network && String(data.network).trim());
@@ -724,15 +724,15 @@
       if (hasNetwork) {
         netBadge.textContent = data.network;
         netBadge.title = data.network;
-        netBadge.style.display = 'inline-flex';
+        netBadge.classList.remove('u-hidden');
       } else {
         netBadge.textContent = '';
-        netBadge.style.display = 'none';
+        netBadge.classList.add('u-hidden');
       }
     }
 
     if (posterMeta) {
-      posterMeta.style.display = data.loggedIn || hasNetwork ? 'flex' : 'none';
+      posterMeta.classList.toggle('u-hidden', !(data.loggedIn || hasNetwork));
     }
     if (typeof updateModalLeftColVisibility === 'function') {
       updateModalLeftColVisibility();
@@ -799,7 +799,7 @@
     if (typeof updateModalFavStar === 'function') updateModalFavStar();
 
     const tmdbLoading = document.getElementById('modalTmdbLoading');
-    if (tmdbLoading) tmdbLoading.style.display = item.tmdbId ? 'flex' : 'none';
+    if (tmdbLoading) tmdbLoading.classList.toggle('u-hidden', !item.tmdbId);
     document.getElementById('modalOverlay').classList.add('active');
 
     let tmdbData = null;
@@ -812,12 +812,12 @@
           lang,
         });
         if (seq !== modalAttachSeq) return;
-        if (tmdbLoading) tmdbLoading.style.display = 'none';
+        if (tmdbLoading) tmdbLoading.classList.add('u-hidden');
         if (tmdbData && typeof renderTmdbDetailsInModal === 'function') {
           renderTmdbDetailsInModal(tmdbData, { preserveTrakt: true, activeLang: lang });
         }
       } catch (_) {
-        if (tmdbLoading) tmdbLoading.style.display = 'none';
+        if (tmdbLoading) tmdbLoading.classList.add('u-hidden');
       }
     }
 
@@ -920,7 +920,7 @@
     const customSecretInput = document.getElementById('traktCustomClientSecretInput');
 
     if (tmdbWarn) {
-      tmdbWarn.style.display = tmdbKey && tmdbKey.trim() ? 'none' : 'flex';
+      tmdbWarn.classList.toggle('u-hidden', !!(tmdbKey && tmdbKey.trim()));
     }
     if (masterCheck) {
       masterCheck.checked = !!authStatus.enabled;
@@ -963,7 +963,7 @@
               <div class="trakt-profile-sync ${overdueClass}" id="traktSettingsSyncStatus">
                 ${esc(t('trakt_sync_last_ok'))} ${esc(syncStr)}
               </div>
-              <div class="trakt-settings-sync-live" id="traktSettingsSyncLive" style="display:none;"></div>
+              <div class="trakt-settings-sync-live u-hidden" id="traktSettingsSyncLive"></div>
             </div>
             <div class="trakt-profile-actions">
               <button type="button" class="btn btn-blue" id="traktSettingsSyncBtn" title="${esc(t('trakt_btn_full_sync_hint'))}">
@@ -1008,7 +1008,7 @@
 
     if (statsCard) {
       if (authStatus.loggedIn && stats) {
-        statsCard.style.display = 'block';
+        statsCard.classList.remove('u-hidden');
         statsCard.innerHTML = `
           <div class="trakt-cache-row">
             <span class="trakt-cache-info">
@@ -1030,7 +1030,7 @@
           };
         }
       } else {
-        statsCard.style.display = 'none';
+        statsCard.classList.add('u-hidden');
       }
     }
 
@@ -1126,7 +1126,7 @@
           activeDeviceFlow = null;
           document.querySelectorAll('.trakt-login-error').forEach((errEl) => {
             errEl.textContent = payload.message || t('status_error');
-            errEl.style.display = 'block';
+            errEl.classList.remove('u-hidden');
           });
         }
       }).catch((e) => console.warn('[Trakt] listen trakt-login-state failed:', e));

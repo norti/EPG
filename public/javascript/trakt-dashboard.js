@@ -48,16 +48,16 @@
     if (!task) return;
     if (task.url && memoryImageCache.has(task.url)) {
       task.imgEl.src = memoryImageCache.get(task.url);
-      task.imgEl.style.display = 'block';
-      if (task.placeholderEl) task.placeholderEl.style.display = 'none';
+      task.imgEl.classList.remove('u-hidden');
+      if (task.placeholderEl) task.placeholderEl.classList.add('u-hidden');
       return;
     }
     if (!task.url && task.tmdbId) {
       const key = `${task.tmdbMediaType}:${task.tmdbId}:${task.size}`;
       if (memoryTmdbPosterCache.has(key)) {
         task.imgEl.src = memoryTmdbPosterCache.get(key);
-        task.imgEl.style.display = 'block';
-        if (task.placeholderEl) task.placeholderEl.style.display = 'none';
+        task.imgEl.classList.remove('u-hidden');
+        if (task.placeholderEl) task.placeholderEl.classList.add('u-hidden');
         return;
       }
     }
@@ -94,8 +94,8 @@
 
           if (dataUri && task.imgEl.isConnected) {
             task.imgEl.src = dataUri;
-            task.imgEl.style.display = 'block';
-            if (task.placeholderEl) task.placeholderEl.style.display = 'none';
+            task.imgEl.classList.remove('u-hidden');
+            if (task.placeholderEl) task.placeholderEl.classList.add('u-hidden');
           }
         } catch (_) {
           // Keep placeholder on failure
@@ -143,8 +143,8 @@
         const phEl = thumbEl.querySelector('.trakt-thumb-placeholder');
         if (imgEl) {
           imgEl.src = memoryImageCache.get(url);
-          imgEl.style.display = 'block';
-          if (phEl) phEl.style.display = 'none';
+          imgEl.classList.remove('u-hidden');
+          if (phEl) phEl.classList.add('u-hidden');
         }
         return;
       }
@@ -164,8 +164,8 @@
         const phEl = thumbEl.querySelector('.trakt-thumb-placeholder');
         if (imgEl) {
           imgEl.src = memoryTmdbPosterCache.get(key);
-          imgEl.style.display = 'block';
-          if (phEl) phEl.style.display = 'none';
+          imgEl.classList.remove('u-hidden');
+          if (phEl) phEl.classList.add('u-hidden');
         }
         return;
       }
@@ -197,7 +197,7 @@
     const thumb = document.createElement('div');
     thumb.className = 'trakt-card-thumb';
     thumb.innerHTML = `
-      <img alt="" style="display:none;" />
+      <img alt="" class="u-hidden" />
       <span class="trakt-thumb-placeholder">${iconHtml(fallbackIcon, 24)}</span>
     `;
     observeThumb(thumb, posterPath, size, tmdbId, tmdbMediaType);
@@ -964,7 +964,7 @@
       <div class="trakt-subview">
         <div class="trakt-subview-toolbar">
           <h2 class="trakt-subview-title">${iconHtml(iconName, 20)} ${esc(t(titleKey))}</h2>
-          <span class="trakt-cal-active-day" id="traktCalActiveDay" style="display:none;"></span>
+          <span class="trakt-cal-active-day u-hidden" id="traktCalActiveDay"></span>
           ${globalFilterHtml}
           <span class="trakt-panel-count">${filtered.length}</span>
         </div>
@@ -1043,11 +1043,11 @@
 
   async function renderProgressAndAiringsInto(containerEl, item, isStale) {
     if (!containerEl) return;
-    containerEl.style.display = 'flex';
+    containerEl.classList.remove('u-hidden');
     containerEl.innerHTML = `<div class="trakt-drawer-loading"><span class="spinner-small"></span> ${esc(t('trakt_loading'))}</div>`;
 
     if (!item.traktId && !item.showTraktId) {
-      containerEl.style.display = 'none';
+      containerEl.classList.add('u-hidden');
       containerEl.innerHTML = '';
       return;
     }
@@ -1124,7 +1124,7 @@
           const row = document.createElement('div');
           row.className = `trakt-ep-row ${ep.watched ? 'is-watched' : ''}`;
           const code = formatEpisodeCode(ep.season, ep.episode);
-          const placeholderHtml = `<span class="trakt-thumb-placeholder" ${ep.stillPath ? 'style="display:none;"' : ''}>${iconHtml('photo', 20)}</span>`;
+          const placeholderHtml = `<span class="trakt-thumb-placeholder${ep.stillPath ? ' u-hidden' : ''}">${iconHtml('photo', 20)}</span>`;
           const stillHtml = `<div class="trakt-ep-still-wrap">${
             ep.stillPath
               ? `<img class="trakt-ep-still" src="https://image.tmdb.org/t/p/w300${esc(ep.stillPath)}" alt="" loading="lazy" />`
@@ -1141,9 +1141,9 @@
           const stillImg = row.querySelector('.trakt-ep-still');
           if (stillImg) {
             stillImg.onerror = () => {
-              stillImg.style.display = 'none';
+              stillImg.classList.add('u-hidden');
               const ph = row.querySelector('.trakt-ep-still-wrap .trakt-thumb-placeholder');
-              if (ph) ph.style.display = 'inline-flex';
+              if (ph) ph.classList.remove('u-hidden');
             };
           }
           episodesEl.appendChild(row);

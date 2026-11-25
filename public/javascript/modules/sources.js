@@ -57,7 +57,7 @@ function loadSourcesDropdown() {
 
     const isDownloading = downloadingSources.has(s.id);
     const lastDateHtml = isDownloading
-      ? `<span style="color: #ecc94b; font-weight: bold;">${escapeHtml(t("status_updating"))}</span>`
+      ? `<span class="source-updating-status">${escapeHtml(t("status_updating"))}</span>`
       : escapeHtml(
           s.lastDownloaded
             ? new Date(s.lastDownloaded).toLocaleString(
@@ -94,9 +94,9 @@ function loadSourcesDropdown() {
                                 <button class="btn-order-arrow btn-down" title="Lejjebb">${iconHtml("caret-down-filled", 13)}</button>
                             </div>
                             <div class="source-actions">
-                                <button class="btn btn-green btn-source-update" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6; cursor: wait;"' : ""}>${escapeHtml(isDownloading ? t("status_updating") : t("btn_update"))}</button>
-                                <button class="btn btn-blue btn-source-edit" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${escapeHtml(t("btn_edit"))}</button>
-                                <button class="btn btn-red btn-source-delete" ${isDownloading || isUpdatingAll ? 'disabled style="opacity: 0.6;"' : ""}>${escapeHtml(t("btn_delete"))}</button>
+                                <button class="btn btn-green btn-source-update"${isDownloading || isUpdatingAll ? " disabled" : ""}>${escapeHtml(isDownloading ? t("status_updating") : t("btn_update"))}</button>
+                                <button class="btn btn-blue btn-source-edit"${isDownloading || isUpdatingAll ? " disabled" : ""}>${escapeHtml(t("btn_edit"))}</button>
+                                <button class="btn btn-red btn-source-delete"${isDownloading || isUpdatingAll ? " disabled" : ""}>${escapeHtml(t("btn_delete"))}</button>
                             </div>
                         </div>
                     </div>

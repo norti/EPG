@@ -617,10 +617,8 @@ function renderEPG() {
   }
 
   const dateNavGroup = document.querySelector(".date-nav-group");
-  if (activeSingleChannelId) {
-    if (dateNavGroup) dateNavGroup.style.display = "none";
-  } else {
-    if (dateNavGroup) dateNavGroup.style.display = "";
+  if (dateNavGroup) {
+    dateNavGroup.classList.toggle("u-hidden", !!activeSingleChannelId);
   }
   updateGridCornerButton();
 
@@ -639,15 +637,15 @@ function renderEPG() {
         if (activeLogo) {
           if (effectiveLogo) {
             activeLogo.src = effectiveLogo;
-            activeLogo.style.display = "inline-block";
+            activeLogo.classList.remove("u-hidden");
           } else {
-            activeLogo.style.display = "none";
+            activeLogo.classList.add("u-hidden");
           }
         }
         if (activeName) {
           activeName.textContent = channel.name;
         }
-        activeBadge.style.display = "inline-flex";
+        activeBadge.classList.remove("u-hidden");
         activeBadge.title = t("grid_back_btn_title");
         activeBadge.onclick = () => {
           activeSingleChannelId = null;
@@ -655,10 +653,10 @@ function renderEPG() {
           scrollToNow();
         };
       } else {
-        activeBadge.style.display = "none";
+        activeBadge.classList.add("u-hidden");
       }
     } else {
-      activeBadge.style.display = "none";
+      activeBadge.classList.add("u-hidden");
     }
   }
 
@@ -672,7 +670,7 @@ function renderEPG() {
     }
     activeSingleChannelId = null;
     const activeBadge = document.getElementById("activeChannelBadge");
-    if (activeBadge) activeBadge.style.display = "none";
+    if (activeBadge) activeBadge.classList.add("u-hidden");
   }
 
   const dayStart = new Date(`${selectedDateStr}T00:00:00`);
@@ -975,7 +973,7 @@ async function jumpToEpgAiring(airing) {
       : t("trakt_jumping_to_epg");
   }
   if (jumpOverlay) {
-    jumpOverlay.style.display = "flex";
+    jumpOverlay.classList.remove("u-hidden");
   }
 
   // Yield a frame so the progress layer paints immediately before heavy DOM/IPC work
@@ -1115,7 +1113,7 @@ async function jumpToEpgAiring(airing) {
     );
   } finally {
     if (jumpOverlay) {
-      jumpOverlay.style.display = "none";
+      jumpOverlay.classList.add("u-hidden");
     }
   }
 }
@@ -1379,8 +1377,7 @@ if (epgViewportEl) {
       try {
         viewport.setPointerCapture(panPointerId);
       } catch (err) {}
-      viewport.style.cursor = "grabbing";
-      viewport.style.userSelect = "none";
+      viewport.classList.add("is-panning");
     }
 
     if (isPanning) {
@@ -1401,8 +1398,7 @@ if (epgViewportEl) {
       try {
         viewport.releasePointerCapture(panPointerId);
       } catch (err) {}
-      viewport.style.cursor = "";
-      viewport.style.userSelect = "";
+      viewport.classList.remove("is-panning");
     }
 
     isPanning = false;

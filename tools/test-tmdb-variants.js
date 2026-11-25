@@ -23,6 +23,19 @@ function makeMockElement(id) {
     classList: {
       add: (...cls) => cls.forEach((c) => classes.add(c)),
       remove: (...cls) => cls.forEach((c) => classes.delete(c)),
+      toggle: (c, force) => {
+        if (force === undefined) {
+          if (classes.has(c)) {
+            classes.delete(c);
+            return false;
+          }
+          classes.add(c);
+          return true;
+        }
+        if (force) classes.add(c);
+        else classes.delete(c);
+        return !!force;
+      },
       contains: (c) => classes.has(c),
     },
     addEventListener: () => {},
@@ -117,14 +130,14 @@ function testMacGyverHungarianApp() {
 
   sandbox.renderTmdbDetailsInModal(tmdbData, { activeLang: "hu-HU" });
   const row = getEl("modalTitleVariants");
-  assert.strictEqual(row.style.display, "flex");
+  assert.strictEqual(row.classList.contains("u-hidden"), false);
   assert.deepStrictEqual(
     row.children.map((el) => el.id),
     ["modalHuTitleBadge", "modalEnTitleBadge", "modalOrigTitleBadge"],
   );
-  assert.strictEqual(getEl("modalHuTitleBadge").style.display, "inline-flex");
-  assert.strictEqual(getEl("modalEnTitleBadge").style.display, "inline-flex");
-  assert.strictEqual(getEl("modalOrigTitleBadge").style.display, "inline-flex");
+  assert.strictEqual(getEl("modalHuTitleBadge").classList.contains("u-hidden"), false);
+  assert.strictEqual(getEl("modalEnTitleBadge").classList.contains("u-hidden"), false);
+  assert.strictEqual(getEl("modalOrigTitleBadge").classList.contains("u-hidden"), false);
   assert.strictEqual(getEl("modalHuTitleBadge").classList.contains("active"), true);
   assert.strictEqual(getEl("modalEnTitleBadge").classList.contains("active"), false);
 }
@@ -226,9 +239,9 @@ function testEnglishAppLanguage() {
   );
 
   sandbox.renderTmdbDetailsInModal(tmdbData, { activeLang: "en-US" });
-  assert.strictEqual(getEl("modalHuTitleBadge").style.display, "none");
-  assert.strictEqual(getEl("modalEnTitleBadge").style.display, "inline-flex");
-  assert.strictEqual(getEl("modalOrigTitleBadge").style.display, "inline-flex");
+  assert.strictEqual(getEl("modalHuTitleBadge").classList.contains("u-hidden"), true);
+  assert.strictEqual(getEl("modalEnTitleBadge").classList.contains("u-hidden"), false);
+  assert.strictEqual(getEl("modalOrigTitleBadge").classList.contains("u-hidden"), false);
   assert.strictEqual(getEl("modalEnTitleBadge").classList.contains("active"), true);
 }
 
@@ -238,7 +251,7 @@ function testFixOverlayShowsOriginalProgramContext() {
   sandbox.currentModalDesc = "Angus MacGyver zseniális trükkökkel old meg veszélyes küldetéseket.";
 
   sandbox.openFixOverlay();
-  assert.strictEqual(getEl("modalFixProgramContext").style.display, "block");
+  assert.strictEqual(getEl("modalFixProgramContext").classList.contains("u-hidden"), false);
   assert.strictEqual(getEl("modalFixProgramTitle").textContent, "MacGyver");
   assert.strictEqual(
     getEl("modalFixProgramDesc").textContent,

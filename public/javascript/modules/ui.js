@@ -37,11 +37,11 @@ function showDialog({ title, message, isConfirm = false }) {
 
     if (isConfirm) {
       if (cancelBtn) {
-        cancelBtn.style.display = "inline-block";
+        cancelBtn.classList.remove("u-hidden");
         cancelBtn.textContent = t("btn_cancel");
       }
     } else {
-      if (cancelBtn) cancelBtn.style.display = "none";
+      if (cancelBtn) cancelBtn.classList.add("u-hidden");
     }
     if (okBtn) okBtn.textContent = t("btn_ok");
 
@@ -117,7 +117,7 @@ async function openLogoSearchModal(channelName, countryCode = "HU") {
   const statusEl = document.getElementById("logoSearchStatus");
   const gridEl = document.getElementById("logoSearchResultsGrid");
 
-  modal.style.display = "flex";
+  modal.classList.remove("u-hidden");
   modal.classList.add("active");
 
   let initialQuery = channelName || "";
@@ -142,7 +142,7 @@ async function openLogoSearchModal(channelName, countryCode = "HU") {
       const c = countrySelect.value;
       if (!q) return;
 
-      statusEl.style.display = "block";
+      statusEl.classList.remove("u-hidden");
       statusEl.textContent = t("logo_search_searching");
       gridEl.innerHTML = "";
       execBtn.disabled = true;
@@ -153,11 +153,11 @@ async function openLogoSearchModal(channelName, countryCode = "HU") {
           countryCode: c,
         });
 
-        statusEl.style.display = "none";
+        statusEl.classList.add("u-hidden");
         execBtn.disabled = false;
 
         if (!results || results.length === 0) {
-          statusEl.style.display = "block";
+          statusEl.classList.remove("u-hidden");
           statusEl.textContent = t("logo_search_no_results");
           return;
         }
@@ -192,7 +192,7 @@ async function openLogoSearchModal(channelName, countryCode = "HU") {
           gridEl.appendChild(card);
         });
       } catch (err) {
-        statusEl.style.display = "block";
+        statusEl.classList.remove("u-hidden");
         statusEl.textContent = t("logo_search_error") + " " + err;
         execBtn.disabled = false;
       }
@@ -208,7 +208,7 @@ async function openLogoSearchModal(channelName, countryCode = "HU") {
 
     const closeModal = (url) => {
       modal.removeEventListener("click", onBackdropClick);
-      modal.style.display = "none";
+      modal.classList.add("u-hidden");
       modal.classList.remove("active");
       closeBtn.onclick = null;
       execBtn.onclick = null;
@@ -346,10 +346,10 @@ function updateGridCornerButton() {
     if (labelEl) {
       if (currentLayout === "horizontal") {
         labelEl.textContent = t("grid_back_btn_label");
-        labelEl.style.display = "inline";
+        labelEl.classList.remove("u-hidden");
       } else {
         labelEl.textContent = "";
-        labelEl.style.display = "none";
+        labelEl.classList.add("u-hidden");
       }
     }
   } else {
@@ -362,10 +362,10 @@ function updateGridCornerButton() {
     if (labelEl) {
       if (currentLayout === "horizontal") {
         labelEl.textContent = t("grid_home_btn_label");
-        labelEl.style.display = "inline";
+        labelEl.classList.remove("u-hidden");
       } else {
         labelEl.textContent = "";
-        labelEl.style.display = "none";
+        labelEl.classList.add("u-hidden");
       }
     }
   }
@@ -449,13 +449,13 @@ function updateLayoutButtonUi() {
 
 function renderEmptySourcesState() {
   const activeBadge = document.getElementById("activeChannelBadge");
-  if (activeBadge) activeBadge.style.display = "none";
+  if (activeBadge) activeBadge.classList.add("u-hidden");
   const container = document.getElementById("channelsContainer");
   container.innerHTML = `
                 <div class="empty-grid-notice">
                     <h2>${t("empty_sources_title")}</h2>
                     <p>${t("empty_sources_desc", { btn: t("settings_btn") })}</p>
-                    <button id="emptySourcesOpenSettingsBtn" class="btn btn-green" style="padding: 10px 20px; font-size: 14px;">${t("empty_sources_btn")}</button>
+                    <button id="emptySourcesOpenSettingsBtn" class="btn btn-green">${t("empty_sources_btn")}</button>
                 </div>
             `;
   const openBtn = document.getElementById("emptySourcesOpenSettingsBtn");
@@ -468,7 +468,7 @@ function renderEmptySourcesState() {
 
 function renderEmptyFavoritesState() {
   const activeBadge = document.getElementById("activeChannelBadge");
-  if (activeBadge) activeBadge.style.display = "none";
+  if (activeBadge) activeBadge.classList.add("u-hidden");
   document.getElementById("channelsContainer").innerHTML = `
                 <div class="empty-grid-notice">
                     <h2>${t("no_favorite_channels_title")}</h2>
@@ -516,14 +516,13 @@ function appendSafeImage(container, src, options = {}) {
     img.onerror = null;
     if (options.onErrorMode === "errSpan") {
       const span = document.createElement("span");
-      span.style.fontSize = "10px";
-      span.style.color = "#555";
+      span.className = "img-error-fallback";
       span.textContent = "ERR";
       container.replaceChildren(span);
     } else if (options.onErrorMode === "errText") {
       container.textContent = "ERR";
     } else {
-      img.style.display = "none";
+      img.classList.add("u-hidden");
     }
   };
   if (options.prepend) {
@@ -546,11 +545,11 @@ function setExportImportStatus(elementId, text, type = "loading") {
   if (!el) return;
   el.className = `export-import-status status-${type}`;
   el.textContent = text;
-  el.style.display = "inline-block";
+  el.classList.remove("u-hidden");
   if (type !== "loading") {
     setTimeout(() => {
       if (el.textContent === text) {
-        el.style.display = "none";
+        el.classList.add("u-hidden");
       }
     }, 6000);
   }

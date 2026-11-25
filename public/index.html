@@ -4,12 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EPG/XML TV műsor megjelenítő</title>
-    <link rel="stylesheet" href="themes/dark_theme.css" />
+    <link rel="stylesheet" href="styles/base.css" />
+    <link rel="stylesheet" id="themeStylesheet" href="themes/dark_theme.css" />
   </head>
   <body>
     <header>
-      <div class="active-channel-badge epg-only" id="activeChannelBadge" style="display: none">
-        <img class="active-channel-logo" id="activeChannelLogo" src="" alt="" style="display: none" />
+      <div class="active-channel-badge epg-only u-hidden" id="activeChannelBadge">
+        <img class="active-channel-logo u-hidden" id="activeChannelLogo" src="" alt="" />
         <span class="active-channel-name" id="activeChannelName"></span>
       </div>
       <button
@@ -87,7 +88,7 @@
         </button>
       </div>
 
-      <div id="traktHeaderControls" class="trakt-header-controls" style="display: none">
+      <div id="traktHeaderControls" class="trakt-header-controls u-hidden">
         <button class="btn trakt-nav-btn" id="traktBackBtn">
           <span data-icon="arrow-left" data-icon-size="16"></span>
           <span data-i18n="trakt_btn_back_epg">Vissza az EPG-hez</span>
@@ -112,10 +113,10 @@
       </div>
 
       <span id="status" data-i18n="status_starting">Indítás...</span>
-      <button class="btn trakt-header-btn" id="traktBtn" title="Trakt.tv" style="display: none">
+      <button class="btn trakt-header-btn u-hidden" id="traktBtn" title="Trakt.tv">
         <img src="images/trakt/logo.svg" alt="Trakt" class="trakt-logo-btn-img" />
         <span>Trakt</span>
-        <span id="traktWatchlistCountBadge" class="trakt-wl-count-badge" style="display: none"></span>
+        <span id="traktWatchlistCountBadge" class="trakt-wl-count-badge u-hidden"></span>
       </button>
       <button class="btn" id="settingsBtn">
         <span data-icon="settings" data-icon-size="15"></span>
@@ -133,7 +134,7 @@
             data-i18n-title="grid_home_btn_title"
           >
             <span class="grid-home-icon" data-icon="home" data-icon-size="18"></span>
-            <span class="grid-home-label" style="display: none"></span>
+            <span class="grid-home-label u-hidden"></span>
           </button>
         </div>
         <div class="time-column" id="timeColumn"></div>
@@ -141,15 +142,14 @@
       </div>
     </div>
 
-    <div class="trakt-viewport custom-scroll" id="traktViewport" style="display: none"></div>
+    <div class="trakt-viewport custom-scroll u-hidden" id="traktViewport"></div>
 
     <!-- MŰSOR RÉSZLETEI MODAL -->
     <div class="modal-overlay" id="modalOverlay">
       <div class="modal-content" id="modalContent">
         <div
-          class="modal-backdrop-img"
+          class="modal-backdrop-img u-hidden"
           id="modalBackdrop"
-          style="display: none"
         ></div>
         <div class="modal-top-actions">
           <button class="modal-close" id="modalClose"><span data-icon="x" data-icon-size="18"></span></button>
@@ -157,9 +157,8 @@
 
         <!-- TMDB FIX OVERLAY -->
         <div
-          class="modal-fix-overlay"
+          class="modal-fix-overlay u-hidden"
           id="modalFixOverlay"
-          style="display: none"
         >
           <div class="fix-overlay-header">
             <div class="fix-overlay-title-group">
@@ -182,9 +181,8 @@
           </div>
 
           <div
-            class="fix-program-context"
+            class="fix-program-context u-hidden"
             id="modalFixProgramContext"
-            style="display: none"
           >
             <div class="fix-program-title" id="modalFixProgramTitle"></div>
             <div class="fix-program-desc" id="modalFixProgramDesc"></div>
@@ -201,19 +199,17 @@
                 autocomplete="off"
               />
               <button
-                class="fix-search-clear-btn"
+                class="fix-search-clear-btn u-hidden"
                 id="modalFixClearBtn"
                 title="Törlés"
-                style="display: none"
               >
                 <span data-icon="x" data-icon-size="14"></span>
               </button>
             </div>
             <button class="fix-search-btn" id="modalFixSearchBtn">
               <span
-                class="spinner-small"
+                class="spinner-small u-hidden"
                 id="modalFixSpinner"
-                style="display: none"
               ></span>
               <span data-i18n="tmdb_fix_search_btn">Keresés</span>
             </button>
@@ -228,20 +224,18 @@
           </div>
 
           <div
-            class="fix-overlay-status"
+            class="fix-overlay-status u-hidden"
             id="modalFixStatus"
-            style="display: none"
           ></div>
 
           <div class="fix-results-list" id="modalFixResultsList"></div>
         </div>
 
         <div class="modal-inner">
-          <div class="modal-left-col" id="modalLeftCol" style="display: none">
+          <div class="modal-left-col u-hidden" id="modalLeftCol">
             <div
-              class="modal-poster-col"
+              class="modal-poster-col u-hidden"
               id="modalPosterCol"
-              style="display: none"
             >
               <img
                 class="modal-poster-img"
@@ -250,10 +244,10 @@
                 alt="Poster"
               />
             </div>
-            <div id="modalPosterTraktMeta" class="modal-poster-trakt-meta" style="display: none">
-              <button type="button" id="modalTraktWatchlistBtn" class="btn trakt-modal-wl-btn" style="display: none"></button>
-              <span id="modalTraktWatchlistStatus" class="modal-trakt-wl-status" style="display: none"></span>
-              <div id="modalTraktNetworkBadge" class="trakt-modal-badge trakt-badge-network trakt-poster-network" style="display: none"></div>
+            <div id="modalPosterTraktMeta" class="modal-poster-trakt-meta u-hidden">
+              <button type="button" id="modalTraktWatchlistBtn" class="btn trakt-modal-wl-btn u-hidden"></button>
+              <span id="modalTraktWatchlistStatus" class="modal-trakt-wl-status u-hidden"></span>
+              <div id="modalTraktNetworkBadge" class="trakt-modal-badge trakt-badge-network trakt-poster-network u-hidden"></div>
             </div>
           </div>
           <div class="modal-details-col">
@@ -273,61 +267,52 @@
             <div class="modal-badges-row">
               <div class="modal-time" id="modalTime"></div>
               <span
-                class="tmdb-badge tmdb-badge-media"
+                class="tmdb-badge tmdb-badge-media u-hidden"
                 id="modalMediaBadge"
-                style="display: none"
               ></span>
               <span
-                class="tmdb-badge tmdb-badge-rating"
+                class="tmdb-badge tmdb-badge-rating u-hidden"
                 id="modalRatingBadge"
-                style="display: none"
               ></span>
               <span
-                class="tmdb-badge tmdb-badge-year"
+                class="tmdb-badge tmdb-badge-year u-hidden"
                 id="modalYearBadge"
-                style="display: none"
               ></span>
             </div>
             <div
-              class="modal-title-variants"
+              class="modal-title-variants u-hidden"
               id="modalTitleVariants"
-              style="display: none"
             >
               <span
-                class="title-badge title-badge-hu"
+                class="title-badge title-badge-hu u-hidden"
                 id="modalHuTitleBadge"
-                style="display: none"
                 title="Kattintson a leírás nyelvének váltásához"
                 data-i18n-title="tmdb_switch_lang_title"
               ></span>
               <span
-                class="title-badge title-badge-en"
+                class="title-badge title-badge-en u-hidden"
                 id="modalEnTitleBadge"
-                style="display: none"
                 title="Kattintson a leírás nyelvének váltásához"
                 data-i18n-title="tmdb_switch_lang_title"
               ></span>
               <span
-                class="title-badge title-badge-orig"
+                class="title-badge title-badge-orig u-hidden"
                 id="modalOrigTitleBadge"
-                style="display: none"
                 title="Kattintson a leírás nyelvének váltásához"
                 data-i18n-title="tmdb_switch_lang_title"
               ></span>
             </div>
             <div
-              class="modal-tmdb-loading"
+              class="modal-tmdb-loading u-hidden"
               id="modalTmdbLoading"
-              style="display: none"
             >
               <span class="spinner-small"></span>
               <span data-i18n="tmdb_loading">TMDB adatok betöltése...</span>
             </div>
             <div class="modal-desc" id="modalDesc"></div>
             <div
-              class="modal-tmdb-overview"
+              class="modal-tmdb-overview u-hidden"
               id="modalTmdbOverview"
-              style="display: none"
             >
               <div class="tmdb-overview-header">
                 <img
@@ -343,10 +328,10 @@
               </div>
               <div class="tmdb-overview-text" id="modalTmdbOverviewText"></div>
             </div>
-            <div id="modalTraktSection" class="modal-trakt-section" style="display: none">
+            <div id="modalTraktSection" class="modal-trakt-section u-hidden">
               <div id="modalTraktBadges" class="modal-trakt-badges"></div>
             </div>
-            <div id="modalTraktDrawerSection" class="modal-trakt-drawer-section" style="display: none"></div>
+            <div id="modalTraktDrawerSection" class="modal-trakt-drawer-section u-hidden"></div>
           </div>
         </div>
       </div>
@@ -355,9 +340,8 @@
     <!-- TMDB POSTER ZOOM POPUP -->
     <div class="poster-zoom-popup" id="posterZoomPopup">
       <div
-        class="poster-zoom-loader"
+        class="poster-zoom-loader u-hidden"
         id="posterZoomLoader"
-        style="display: none"
       >
         <span class="spinner-small"></span>
       </div>
@@ -385,7 +369,6 @@
                 id="restoreLanguagesBtn"
                 data-i18n-title="btn_restore_languages"
                 title="Nyelvi fájlok visszaállítása"
-                style="padding: 4px 8px; font-size: 11px; margin-left: 6px;"
               >
                 <span data-icon="refresh" data-icon-size="14"></span>
               </button>
@@ -522,7 +505,7 @@
               <h3 class="favorites-heading-row">
                 <span data-icon="star" data-icon-size="18"></span>
                 <span data-i18n="favorites_heading">Kedvenc Műsorok</span>
-                <span class="trakt-cal-active-day" id="favActiveDay" style="display: none"></span>
+                <span class="trakt-cal-active-day u-hidden" id="favActiveDay"></span>
               </h3>
               <div
                 id="favListContent"
@@ -555,12 +538,11 @@
                     A-Z
                   </button>
                   <button
-                    class="btn btn-blue"
+                    class="btn btn-blue u-hidden"
                     id="sortChannelsSourceAzBtn"
                     title="Rendezés forrás szerint, majd A-Z"
                     data-i18n-title="btn_sort_source_az_title"
                     data-i18n="btn_sort_source_az"
-                    style="display: none;"
                   >
                     Forrás + A-Z
                   </button>
@@ -729,14 +711,14 @@
                 </div>
               </div>
 
-              <div class="logos-progress-container" id="logosProgressContainer" style="display: none;">
+              <div class="logos-progress-container u-hidden" id="logosProgressContainer">
                 <div class="logo-progress-bar">
                   <div class="logo-progress-fill" id="logosProgressFill"></div>
                 </div>
                 <div class="logo-status-text" id="logosStatusText">Keresés folyamatban...</div>
               </div>
 
-              <div class="logos-results-container" id="logosResultsContainer" style="display: none;">
+              <div class="logos-results-container u-hidden" id="logosResultsContainer">
                 <h4 id="logosResultsTitle" data-i18n="logos_results_title">Eredmények</h4>
                 <div class="logos-results-summary" id="logosResultsSummary"></div>
                 <div class="logo-matches-preview-grid custom-scroll" id="logosMatchesGrid"></div>
@@ -755,13 +737,13 @@
                     <span data-icon="search" data-icon-size="15"></span>
                     <span data-i18n="btn_find_duplicate_logos">Duplikátumok keresése</span>
                   </button>
-                  <button class="btn btn-green" id="deduplicateLogosBtn" style="display: none;">
+                  <button class="btn btn-green u-hidden" id="deduplicateLogosBtn">
                     <span data-icon="wand" data-icon-size="15"></span>
                     <span data-i18n="btn_deduplicate_logos">Duplikátumok megszüntetése</span>
                   </button>
-                  <span id="logoDedupStatus" class="export-import-status" style="display: none;"></span>
+                  <span id="logoDedupStatus" class="export-import-status u-hidden"></span>
                 </div>
-                <div id="logoDedupResults" class="logo-dedup-results" style="display: none;">
+                <div id="logoDedupResults" class="logo-dedup-results u-hidden">
                   <div class="logo-dedup-summary" id="logoDedupSummary"></div>
                   <div class="logo-dedup-list custom-scroll" id="logoDedupList"></div>
                 </div>
@@ -891,14 +873,14 @@
                 </label>
               </div>
 
-              <div id="traktTmdbMissingWarning" class="trakt-warning-banner" style="display: none">
+              <div id="traktTmdbMissingWarning" class="trakt-warning-banner u-hidden">
                 <span data-icon="alert-triangle" data-icon-size="16"></span>
                 <span data-i18n="trakt_tmdb_key_missing_warning">TMDB API kulcs nélkül a képek és a magyar szövegek nem érhetők el</span>
               </div>
 
               <div id="traktSettingsAccountCard" class="trakt-settings-card"></div>
 
-              <div id="traktSettingsStatsCard" class="trakt-settings-card" style="display: none"></div>
+              <div id="traktSettingsStatsCard" class="trakt-settings-card u-hidden"></div>
 
               <div class="trakt-settings-card trakt-advanced-card">
                 <h4 data-i18n="trakt_advanced_heading">Haladó API beállítások (opcionális)</h4>
@@ -959,17 +941,15 @@
                     data-i18n="btn_import_channel_data"
                   >
                     CSATORNAADATOK IMPORTÁLÁSA
-                    <input
+                    <input class="u-hidden"
                       type="file"
                       id="importChannelDataInput"
                       accept=".csv,text/csv"
-                      style="display: none"
                     />
                   </label>
                   <span
                     id="channelDataStatus"
-                    class="export-import-status"
-                    style="display: none"
+                    class="export-import-status u-hidden"
                   ></span>
                 </div>
               </div>
@@ -1004,17 +984,15 @@
                     data-i18n="btn_import_settings"
                   >
                     BEÁLLÍTÁSOK IMPORTÁLÁSA
-                    <input
+                    <input class="u-hidden"
                       type="file"
                       id="importSettingsInput"
                       accept=".json"
-                      style="display: none"
                     />
                   </label>
                   <span
                     id="settingsDataStatus"
-                    class="export-import-status"
-                    style="display: none"
+                    class="export-import-status u-hidden"
                   ></span>
                 </div>
               </div>
@@ -1076,8 +1054,7 @@
                   </button>
                   <span
                     id="cacheDataStatus"
-                    class="export-import-status"
-                    style="display: none"
+                    class="export-import-status u-hidden"
                   ></span>
                 </div>
               </div>
@@ -1122,8 +1099,7 @@
                   </button>
                   <span
                     id="dbMaintenanceStatus"
-                    class="export-import-status"
-                    style="display: none"
+                    class="export-import-status u-hidden"
                   ></span>
                 </div>
               </div>
@@ -1184,8 +1160,8 @@
           <button class="modal-close" id="customPromptClose"><span data-icon="x" data-icon-size="18"></span></button>
         </div>
         <div class="custom-dialog-body">
-          <p id="customPromptMessage" style="margin: 0 0 10px 0; color: var(--text-dim); font-size: 13px;"></p>
-          <input type="text" id="customPromptInput" style="width: 100%; box-sizing: border-box;" />
+          <p id="customPromptMessage"></p>
+          <input type="text" id="customPromptInput" />
         </div>
         <div class="custom-dialog-actions">
           <button class="btn btn-blue" id="customPromptCancelBtn" data-i18n="btn_cancel">
@@ -1296,7 +1272,7 @@
     </div>
 
     <!-- HIÁNYZÓ LOGÓJÚ CSATORNÁK MODAL -->
-    <div class="modal-overlay" id="missingLogosModal" style="display: none;">
+    <div class="modal-overlay u-hidden" id="missingLogosModal">
       <div class="modal-content missing-logos-modal-content">
         <div class="modal-header">
           <div class="missing-logos-header-title">
@@ -1322,7 +1298,7 @@
     </div>
 
     <!-- LOGO KERESŐ MODAL (MANUÁLIS VIZUÁLIS KERESÉS) -->
-    <div class="modal-overlay" id="logoSearchModal" style="display: none;">
+    <div class="modal-overlay u-hidden" id="logoSearchModal">
       <div class="modal-content logo-search-modal-content">
         <div class="modal-header">
           <h2 data-i18n="logo_search_modal_title">Csatornalogó Keresése</h2>
@@ -1341,14 +1317,14 @@
             <select id="logoSearchCountrySelect" class="logo-search-country-select" title="Ország"></select>
             <button class="btn btn-blue" id="logoSearchExecBtn" data-i18n="btn_search">Keresés</button>
           </div>
-          <div class="logo-search-status" id="logoSearchStatus" style="display: none;"></div>
+          <div class="logo-search-status u-hidden" id="logoSearchStatus"></div>
           <div class="logo-search-results-grid custom-scroll" id="logoSearchResultsGrid"></div>
         </div>
       </div>
     </div>
 
     <!-- UGRÁS FOLYAMATJELZŐ LAYER -->
-    <div class="jump-progress-overlay" id="epgJumpOverlay" style="display: none">
+    <div class="jump-progress-overlay u-hidden" id="epgJumpOverlay">
       <div class="jump-progress-card">
         <span class="spinner-small"></span>
         <span id="epgJumpOverlayText" data-i18n="trakt_jumping_to_epg">Ugrás a műsorhoz az EPG-ben...</span>

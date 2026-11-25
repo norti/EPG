@@ -23,7 +23,7 @@ async function openModal(title, time, desc, channel) {
   resetModalTmdbUi();
 
   const tmdbLoading = document.getElementById("modalTmdbLoading");
-  tmdbLoading.style.display = "flex";
+  tmdbLoading.classList.remove("u-hidden");
 
   document.getElementById("modalOverlay").classList.add("active");
 
@@ -44,7 +44,7 @@ async function openModal(title, time, desc, channel) {
       return;
     }
 
-    tmdbLoading.style.display = "none";
+    tmdbLoading.classList.add("u-hidden");
     renderTmdbDetailsInModal(tmdbData, { activeLang: lang });
     if (window.TraktUI) {
       window.TraktUI.attachToModal({
@@ -57,7 +57,7 @@ async function openModal(title, time, desc, channel) {
   } catch (e) {
     console.warn("TMDB betöltési hiba:", e);
     if (currentModalTitle === title) {
-      document.getElementById("modalTmdbLoading").style.display = "none";
+      document.getElementById("modalTmdbLoading").classList.add("u-hidden");
       if (window.TraktUI) {
         window.TraktUI.attachToModal({
           title,

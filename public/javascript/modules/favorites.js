@@ -16,12 +16,12 @@ function renderFavoritesList() {
   const activeDayEl = document.getElementById("favActiveDay");
   content.innerHTML = "";
   if (activeDayEl) {
-    activeDayEl.style.display = "none";
+    activeDayEl.classList.add("u-hidden");
     activeDayEl.textContent = "";
   }
 
   if (favorites.length === 0) {
-    content.innerHTML = `<p style="color:#8e94a8; font-size:13px;">${t("no_favorites")}</p>`;
+    content.innerHTML = `<p class="empty-list-message">${t("no_favorites")}</p>`;
     return;
   }
 
@@ -48,7 +48,7 @@ function renderFavoritesList() {
       row.className = "fav-item-row";
       row.innerHTML = `
                         <span class="fav-item-title">${escapeHtml(favTitle)}</span>
-                        <button class="btn btn-red btn-icon-only" style="padding: 3px 6px; margin-left: 6px;">${iconHtml("trash", 14)}</button>
+                        <button class="btn btn-red btn-icon-only fav-remove-btn">${iconHtml("trash", 14)}</button>
                     `;
       row.querySelector("button").onclick = () => toggleFavorite(favTitle);
       content.appendChild(row);
@@ -77,7 +77,7 @@ function renderFavoritesList() {
                         <span class="start-badge">${escapeHtml(startStr)}</span>
                         <span class="fav-item-title">${escapeHtml(prog.title)}</span>
                         <span class="channel-badge">${escapeHtml(chName)}</span>
-                        <button class="btn btn-red btn-icon-only" style="padding: 3px 6px; margin-left: 6px;">${iconHtml("trash", 14)}</button>
+                        <button class="btn btn-red btn-icon-only fav-remove-btn">${iconHtml("trash", 14)}</button>
                     `;
       row.querySelector("button").onclick = () => toggleFavorite(prog.title);
       groupDiv.appendChild(row);

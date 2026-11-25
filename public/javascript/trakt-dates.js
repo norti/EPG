@@ -277,7 +277,7 @@
     const updateActiveDay = () => {
       if (!activeDayEl.isConnected || !scrollContainer.isConnected) return;
       if (scrollContainer.scrollTop <= threshold) {
-        activeDayEl.style.display = 'none';
+        activeDayEl.classList.add('u-hidden');
         activeDayEl.textContent = '';
         return;
       }
@@ -297,9 +297,9 @@
       }
       if (currentHeading) {
         activeDayEl.textContent = currentHeading;
-        activeDayEl.style.display = 'inline-flex';
+        activeDayEl.classList.remove('u-hidden');
       } else {
-        activeDayEl.style.display = 'none';
+        activeDayEl.classList.add('u-hidden');
         activeDayEl.textContent = '';
       }
     };

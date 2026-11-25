@@ -7,7 +7,7 @@ async function openMissingLogosModal(sourceId, onStatsChanged) {
 
   if (!modal || !listEl) return;
 
-  modal.style.display = "flex";
+  modal.classList.remove("u-hidden");
   modal.classList.add("active");
   if (searchInput) searchInput.value = "";
   if (countBadge) countBadge.textContent = "…";
@@ -120,7 +120,7 @@ async function openMissingLogosModal(sourceId, onStatsChanged) {
             <span class="missing-logo-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
             <span class="channel-order-source-badge" title="${escapeHtml(item.sourceName)}">${escapeHtml(item.sourceName)}</span>
           </div>
-          <div class="missing-logo-url" style="${item.selectedUrl ? "" : "display: none;"}" title="${escapeHtml(item.selectedUrl || "")}">${escapeHtml(item.selectedUrl || "")}</div>
+          <div class="missing-logo-url${item.selectedUrl ? "" : " u-hidden"}" title="${escapeHtml(item.selectedUrl || "")}">${escapeHtml(item.selectedUrl || "")}</div>
         </div>
         <div class="missing-logo-actions">
           <button type="button" class="btn btn-blue btn-icon-only btn-missing-logo-search" title="${escapeHtml(t("btn_search_logo_title"))}">${iconHtml("photo-search", 15)}</button>
@@ -163,7 +163,7 @@ async function openMissingLogosModal(sourceId, onStatsChanged) {
         if (urlEl) {
           urlEl.textContent = selectedUrl;
           urlEl.title = selectedUrl;
-          urlEl.style.display = "block";
+          urlEl.classList.remove("u-hidden");
         }
         renderPreview(previewEl, item);
         updateCountBadge();
@@ -198,7 +198,7 @@ async function openMissingLogosModal(sourceId, onStatsChanged) {
   const closeModal = () => {
     if (isClosed) return;
     isClosed = true;
-    modal.style.display = "none";
+    modal.classList.add("u-hidden");
     modal.classList.remove("active");
     modal.onclick = null;
     if (closeBtn) closeBtn.onclick = null;
@@ -317,8 +317,8 @@ async function loadChannelLogosTab() {
 
   select.onchange = () => {
     if (isAutoMatchRunning) return;
-    progressContainer.style.display = "none";
-    resultsContainer.style.display = "none";
+    progressContainer.classList.add("u-hidden");
+    resultsContainer.classList.add("u-hidden");
     updateStats();
   };
 
@@ -373,14 +373,14 @@ async function loadChannelLogosTab() {
     }
 
     setButtonRunningState(true);
-    progressContainer.style.display = "block";
+    progressContainer.classList.remove("u-hidden");
     progressFill.style.width = "0%";
     statusText.textContent =
       t("logos_preloading") ||
       "Adatforrások gyorstárazása (tv-logo, iptv-org)...";
 
     // Rejtjük el az előnézeti rácsot a keresés idejére
-    resultsContainer.style.display = "none";
+    resultsContainer.classList.add("u-hidden");
     resultsSummary.textContent = "";
     matchesGrid.innerHTML = "";
 
@@ -572,7 +572,7 @@ async function loadChannelLogosTab() {
     }
 
     // 4. LÉPÉS: Csak a teljes folyamat befejezése után listázza ki a megtalált logókat
-    resultsContainer.style.display = "block";
+    resultsContainer.classList.remove("u-hidden");
     matchesGrid.innerHTML = "";
 
     matchedList.forEach((m) => {
@@ -640,7 +640,7 @@ async function loadChannelLogosTab() {
       .replace("{failed}", failedCount);
 
     if (matchedList.length === 0 && !wasStopped) {
-      matchesGrid.innerHTML = `<p style="color: var(--text-dim); font-size: 13px; grid-column: 1 / -1; padding: 10px 0;">${t("logo_search_no_results")}</p>`;
+      matchesGrid.innerHTML = `<p class="empty-list-message empty-list-message--grid">${t("logo_search_no_results")}</p>`;
     }
 
     await updateStats();
@@ -664,8 +664,8 @@ function setupLogoDeduplicationHandlers() {
 
   findBtn.onclick = async () => {
     findBtn.disabled = true;
-    dedupBtn.style.display = "none";
-    resultsEl.style.display = "none";
+    dedupBtn.classList.add("u-hidden");
+    resultsEl.classList.add("u-hidden");
     setExportImportStatus(
       "logoDedupStatus",
       t("logo_dedup_searching"),
@@ -682,7 +682,7 @@ function setupLogoDeduplicationHandlers() {
         );
         summaryEl.textContent = t("logo_dedup_no_duplicates");
         listEl.innerHTML = "";
-        resultsEl.style.display = "block";
+        resultsEl.classList.remove("u-hidden");
       } else {
         const foundMsg = t("logo_dedup_found")
           .replace("{count}", report.redundantCount)
@@ -691,7 +691,7 @@ function setupLogoDeduplicationHandlers() {
 
         setExportImportStatus("logoDedupStatus", foundMsg, "success");
         summaryEl.textContent = foundMsg;
-        dedupBtn.style.display = "inline-flex";
+        dedupBtn.classList.remove("u-hidden");
 
         listEl.innerHTML = "";
         report.duplicateGroups.forEach((g) => {
@@ -721,7 +721,7 @@ function setupLogoDeduplicationHandlers() {
           );
           listEl.appendChild(groupDiv);
         });
-        resultsEl.style.display = "block";
+        resultsEl.classList.remove("u-hidden");
       }
     } catch (err) {
       console.error(err);
@@ -759,8 +759,8 @@ function setupLogoDeduplicationHandlers() {
 
       setExportImportStatus("logoDedupStatus", successMsg, "success");
       await showAlert(t("alert_success_title"), successMsg);
-      resultsEl.style.display = "none";
-      dedupBtn.style.display = "none";
+      resultsEl.classList.add("u-hidden");
+      dedupBtn.classList.add("u-hidden");
 
       await fetchEPG();
       renderEPG();
@@ -786,8 +786,10 @@ function updateSortUiForSource() {
   const targetSourceId = select ? select.value : currentSourceId;
   const sourceAzBtn = document.getElementById("sortChannelsSourceAzBtn");
   if (sourceAzBtn) {
-    sourceAzBtn.style.display =
-      targetSourceId === "__ALL_FAVORITES__" ? "inline-block" : "none";
+    sourceAzBtn.classList.toggle(
+      "u-hidden",
+      targetSourceId !== "__ALL_FAVORITES__",
+    );
   }
 }
 
@@ -1228,7 +1230,7 @@ async function renderChannelOrderList() {
   if (!container) return;
 
   if (!targetSourceId) {
-    container.innerHTML = `<p style="color:#8e94a8; font-size:13px;">${t("no_sources_available")}</p>`;
+    container.innerHTML = `<p class="empty-list-message">${t("no_sources_available")}</p>`;
     return;
   }
 
@@ -1257,7 +1259,7 @@ async function renderChannelOrderList() {
   container.innerHTML = "";
 
   if (sourceChannels.length === 0) {
-    container.innerHTML = `<p style="color:#8e94a8; font-size:13px;">${t("no_channels_in_source")}</p>`;
+    container.innerHTML = `<p class="empty-list-message">${t("no_channels_in_source")}</p>`;
     return;
   }
 
@@ -1283,7 +1285,7 @@ async function renderChannelOrderList() {
   });
 
   if (filteredChannels.length === 0) {
-    container.innerHTML = `<p style="color:#8e94a8; font-size:13px; padding:10px 0;">${t("no_channels_match_filter")}</p>`;
+    container.innerHTML = `<p class="empty-list-message empty-list-message--padded">${t("no_channels_match_filter")}</p>`;
     return;
   }
 
@@ -1381,7 +1383,7 @@ async function renderChannelOrderList() {
               </div>
               <div class="channel-logo-row">
                 <span class="channel-logo-label">${escapeHtml(t("channel_logo_label"))}</span>
-                <div class="channel-edit-input-group" style="flex:1;">
+                <div class="channel-edit-input-group">
                   <input type="text" class="channel-logo-input" placeholder="${escapeHtml(t("channel_logo_placeholder"))}" value="${escapeHtml(ch.customIcon || "")}" />
                   <button type="button" class="btn btn-blue btn-icon-only btn-channel-logo-search" title="${escapeHtml(t("btn_search_logo_title"))}">${iconHtml("photo-search", 15)}</button>
                 </div>
