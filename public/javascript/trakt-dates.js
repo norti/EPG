@@ -58,6 +58,79 @@
     };
   }
 
+  function compareEpisodesByStartTime(a, b) {
+    const aStr = a && (a.firstAired || a.first_aired) ? (a.firstAired || a.first_aired) : '';
+    const bStr = b && (b.firstAired || b.first_aired) ? (b.firstAired || b.first_aired) : '';
+    const aMs = aStr ? new Date(aStr).getTime() : Number.POSITIVE_INFINITY;
+    const bMs = bStr ? new Date(bStr).getTime() : Number.POSITIVE_INFINITY;
+    const aValid = !isNaN(aMs);
+    const bValid = !isNaN(bMs);
+    if (aValid && bValid && aMs !== bMs) return aMs - bMs;
+    if (aValid !== bValid) return aValid ? -1 : 1;
+    const aTitle = String((a && (a.showTitle || a.title)) || '');
+    const bTitle = String((b && (b.showTitle || b.title)) || '');
+    const titleCmp = aTitle.localeCompare(bTitle);
+    if (titleCmp !== 0) return titleCmp;
+    const aSeason = (a && a.season) || 0;
+    const bSeason = (b && b.season) || 0;
+    if (aSeason !== bSeason) return aSeason - bSeason;
+    return ((a && a.number) || 0) - ((b && b.number) || 0);
+  }
+
+  function getFurtherWeekRanges(localDate, maxDays) {
+    const horizon = typeof maxDays === 'number' && maxDays > 0 ? maxDays : 30;
+    const base = getWeekRange(localDate);
+    const maxDate = addLocalDays(base.today, horizon);
+    const maxKey = toLocalYmd(maxDate);
+    const weeks = [];
+
+    if (base.furtherStartKey > maxKey) {
+      return weeks;
+    }
+
+    const firstEnd = base.furtherEnd <= maxDate ? base.furtherEnd : maxDate;
+    weeks.push({
+      start: base.furtherStart,
+      end: firstEnd,
+      startKey: base.furtherStartKey,
+      endKey: toLocalYmd(firstEnd),
+    });
+
+    let end = firstEnd;
+    while (true) {
+      const nextStart = addLocalDays(end, 1);
+      const nextStartKey = toLocalYmd(nextStart);
+      if (nextStartKey > maxKey) break;
+      const candidateEnd = addLocalDays(nextStart, 6);
+      const nextEnd = candidateEnd <= maxDate ? candidateEnd : maxDate;
+      weeks.push({
+        start: nextStart,
+        end: nextEnd,
+        startKey: nextStartKey,
+        endKey: toLocalYmd(nextEnd),
+      });
+      end = nextEnd;
+    }
+
+    return weeks;
+  }
+
+  function filterEpisodesByDateRange(episodes, startKey, endKey) {
+    const result = [];
+    for (const ep of episodes || []) {
+      const airedStr = ep.firstAired || ep.first_aired;
+      if (!airedStr) continue;
+      const airedDate = new Date(airedStr);
+      if (isNaN(airedDate.getTime())) continue;
+      const dayKey = toLocalYmd(airedDate);
+      if (dayKey >= startKey && dayKey <= endKey) {
+        result.push(ep);
+      }
+    }
+    result.sort(compareEpisodesByStartTime);
+    return result;
+  }
+
   function splitDashboardEpisodes(episodes, localDate) {
     const range = getWeekRange(localDate);
     const today = [];
@@ -79,6 +152,10 @@
         further.push(ep);
       }
     }
+
+    today.sort(compareEpisodesByStartTime);
+    tomorrow.sort(compareEpisodesByStartTime);
+    further.sort(compareEpisodesByStartTime);
 
     return { today, tomorrow, further, range };
   }
@@ -102,6 +179,34 @@
     const d = new Date(isoStr);
     if (isNaN(d.getTime())) return '';
     return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+
+  /**
+   * Formats the release day/time for a dashboard episode card:
+   * - Previous local day (< today): yesterday label ("Tegnap"/"Yesterday"), or "MM.DD." (same year),
+   *   or "YYYY.MM.DD." (earlier year).
+   * - Today or future: local HH:MM.
+   */
+  function formatDashboardReleaseMeta(isoStr, nowDate, labels) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    const now = nowDate ? new Date(nowDate) : new Date();
+    const todayKey = toLocalYmd(now);
+    const epDayKey = toLocalYmd(d);
+
+    if (epDayKey < todayKey) {
+      const yesterdayKey = toLocalYmd(addLocalDays(now, -1));
+      if (epDayKey === yesterdayKey) {
+        return labels && labels.yesterday ? labels.yesterday : 'Tegnap';
+      }
+      if (d.getFullYear() === now.getFullYear()) {
+        return `${pad2(d.getMonth() + 1)}.${pad2(d.getDate())}.`;
+      }
+      return `${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())}.`;
+    }
+
+    return formatLocalTime(isoStr);
   }
 
   function formatShortDateRange(startDate, endDate, lang) {
@@ -209,9 +314,13 @@
     addLocalDays,
     getLocalYesterdayYmd,
     getWeekRange,
+    getFurtherWeekRanges,
+    filterEpisodesByDateRange,
+    compareEpisodesByStartTime,
     splitDashboardEpisodes,
     groupByLocalDay,
     formatLocalTime,
+    formatDashboardReleaseMeta,
     formatShortDateRange,
     formatDayHeading,
     formatRelativeTime,

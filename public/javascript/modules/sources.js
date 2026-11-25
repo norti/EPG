@@ -56,13 +56,15 @@ function loadSourcesDropdown() {
     sourceSelect.appendChild(opt);
 
     const isDownloading = downloadingSources.has(s.id);
-    const lastDate = isDownloading
-      ? `<span style="color: #ecc94b; font-weight: bold;">${t("status_updating")}</span>`
-      : s.lastDownloaded
-        ? new Date(s.lastDownloaded).toLocaleString(
-            currentLang === "english" ? "en-US" : "hu-HU",
-          )
-        : t("never_updated");
+    const lastDateHtml = isDownloading
+      ? `<span style="color: #ecc94b; font-weight: bold;">${escapeHtml(t("status_updating"))}</span>`
+      : escapeHtml(
+          s.lastDownloaded
+            ? new Date(s.lastDownloaded).toLocaleString(
+                currentLang === "english" ? "en-US" : "hu-HU",
+              )
+            : t("never_updated"),
+        );
 
     const isUpdatingAll = isUpdatingAllSources;
     const allCount =
@@ -99,7 +101,7 @@ function loadSourcesDropdown() {
                         </div>
                     </div>
                     <div class="source-url" title="${escapeHtml(s.url)}">${escapeHtml(s.url)}</div>
-                    <div class="source-update-info">${escapeHtml(t("last_updated"))} ${escapeHtml(lastDate)}</div>
+                    <div class="source-update-info">${escapeHtml(t("last_updated"))} ${lastDateHtml}</div>
                     <div class="source-stats-row">
                         <span class="source-stat-badge source-stat-all">${escapeHtml(t("source_stat_all"))}: ${allCount}</span>
                         <span class="source-stat-badge source-stat-fav">${escapeHtml(t("source_stat_fav"))}: ${favCount}</span>

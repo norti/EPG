@@ -10,8 +10,9 @@ use crate::trakt::client::{trakt_get_cached, trakt_post};
 use crate::trakt::matcher::{match_titles, rebuild_title_index};
 use crate::trakt::secret::default_secret_store;
 use crate::trakt::sync::{
-    enrich_missing_history_posters, get_sync_state_val, is_sync_overdue, mark_sync_done,
-    resolve_calendar_start, resolve_force, run_manual_sync, run_sync, sync_show_progress, SyncSummary,
+    enrich_missing_history_posters, get_sync_runtime_state, get_sync_state_val, is_sync_overdue,
+    mark_sync_done, request_sync_cancel, resolve_calendar_start, resolve_force, run_manual_sync,
+    run_sync, sync_show_progress, SyncSummary,
 };
 use crate::trakt::{is_trakt_enabled, iso_utc_to_epoch, now_epoch_millis, now_epoch_secs, now_iso_utc};
 use crate::{
@@ -30,6 +31,11 @@ pub struct TraktSyncStatus {
     pub last_sync_ok_at: Option<String>,
     pub overdue: bool,
     pub pending_count: i64,
+    pub status: String,
+    pub step: String,
+    pub current: usize,
+    pub total: usize,
+    pub is_full: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -296,19 +302,36 @@ pub async fn trakt_sync(
 }
 
 #[tauri::command]
+pub async fn trakt_cancel_sync(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    Ok(request_sync_cancel(state.inner(), Some(&app)))
+}
+
+#[tauri::command]
 pub async fn trakt_get_sync_status(
     state: tauri::State<'_, AppState>,
 ) -> Result<TraktSyncStatus, String> {
-    let conn = state.db.lock().await;
-    let last_sync_ok_at = get_sync_state_val(&conn, "last_sync_ok_at");
-    let overdue = is_sync_overdue(last_sync_ok_at.as_deref());
-    let pending_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM trakt_pending_actions", [], |r| r.get(0))
-        .unwrap_or(0);
+    let (last_sync_ok_at, overdue, pending_count) = {
+        let conn = state.db.lock().await;
+        let last_sync_ok_at = get_sync_state_val(&conn, "last_sync_ok_at");
+        let overdue = is_sync_overdue(last_sync_ok_at.as_deref());
+        let pending_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM trakt_pending_actions", [], |r| r.get(0))
+            .unwrap_or(0);
+        (last_sync_ok_at, overdue, pending_count)
+    };
+    let rt = get_sync_runtime_state(state.inner());
     Ok(TraktSyncStatus {
         last_sync_ok_at,
         overdue,
         pending_count,
+        status: rt.status,
+        step: rt.step,
+        current: rt.current,
+        total: rt.total,
+        is_full: rt.is_full,
     })
 }
 
@@ -1839,7 +1862,7 @@ pub async fn trakt_on_window_focus(
     tauri::async_runtime::spawn(async move {
         use tauri::Manager;
         let st = app_clone.state::<AppState>();
-        if run_sync(st.inner(), Some(&app_clone), false).await.is_ok() {
+        if matches!(run_sync(st.inner(), Some(&app_clone), false).await, Ok(ref s) if !s.cancelled) {
             // a fresh focus sync also satisfies the header button for the next minute
             mark_sync_done(st.inner());
         }

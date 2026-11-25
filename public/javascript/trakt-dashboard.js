@@ -14,6 +14,7 @@
   const memoryTmdbPosterCache = new Map();
   const pendingTmdbPosterPromises = new Map();
   let imageObserver = null;
+  let furtherWeekIndex = 0;
 
   function resolveTmdbPosterCached(tmdbId, mediaType, size) {
     const key = `${mediaType}:${tmdbId}:${size}`;
@@ -237,6 +238,7 @@
     const epCode = formatEpisodeCode(ep.season, ep.number);
     const epName = ep.episodeTitle || '';
     const epTitleSuffix = epName ? ` – ${epName}` : '';
+    const nowDate = options.nowDate || new Date();
     const localTime = window.TraktDates ? window.TraktDates.formatLocalTime(ep.firstAired) : '';
     let datePrefix = '';
     if (options.showDate && ep.firstAired) {
@@ -247,7 +249,25 @@
     const continueLabel = isContinue
       ? (ep.aired > 0 ? `${t('trakt_continue_badge')} · ${ep.completed}/${ep.aired}` : t('trakt_continue_badge'))
       : '';
-    const rightMetaText = isContinue ? continueLabel : `${datePrefix}${localTime}`;
+    let rightMetaText = `${datePrefix}${localTime}`;
+    if (options.showDynamicPastDay || isContinue) {
+      const dynamicMeta = window.TraktDates
+        ? window.TraktDates.formatDashboardReleaseMeta(ep.firstAired, nowDate, {
+            yesterday: t('day_yesterday'),
+          })
+        : localTime;
+      rightMetaText = dynamicMeta || continueLabel;
+    }
+    const tooltipParts = [epCode];
+    if (rightMetaText) {
+      tooltipParts.push(
+        isContinue && localTime && rightMetaText !== localTime
+          ? `${rightMetaText} ${localTime}`
+          : rightMetaText
+      );
+    }
+    if (continueLabel) tooltipParts.push(continueLabel);
+    const codeTooltip = tooltipParts.join(' · ');
     const netHtml = ep.network ? `<span class="trakt-card-network">${esc(ep.network)}</span>` : '';
 
     const info = document.createElement('div');
@@ -255,7 +275,7 @@
       info.className = 'trakt-poster-card-body';
       info.innerHTML = `
         <div class="trakt-pcard-show" title="${esc(showTitle)}">${esc(showTitle)}</div>
-        <div class="trakt-pcard-code" title="${esc(epCode + (rightMetaText ? ' · ' + rightMetaText : ''))}">
+        <div class="trakt-pcard-code" title="${esc(codeTooltip)}">
           <span>${esc(epCode)}</span>
           <span class="trakt-pcard-time ${isContinue ? 'trakt-continue-pill' : ''}">${esc(rightMetaText)}</span>
         </div>
@@ -504,20 +524,24 @@
     }
   }
 
-  function renderDashboard(viewport, data) {
+  function renderDashboard(viewport, data, options = {}) {
     const lang = typeof currentLang !== 'undefined' ? currentLang : 'hungarian';
-    const split = window.TraktDates.splitDashboardEpisodes(data.calendarEpisodes || [], new Date());
-    const rangeLabel = window.TraktDates.formatShortDateRange(
-      split.range.furtherStart,
-      split.range.furtherEnd,
-      lang
-    );
+    const now = new Date();
+    const allCalendarEps = data.calendarEpisodes || [];
+    const split = window.TraktDates.splitDashboardEpisodes(allCalendarEps, now);
+    const furtherWeeks = window.TraktDates.getFurtherWeekRanges(now, 30);
+
+    if (!options.preservePage) {
+      furtherWeekIndex = 0;
+    } else if (furtherWeekIndex >= furtherWeeks.length) {
+      furtherWeekIndex = Math.max(0, furtherWeeks.length - 1);
+    }
 
     const todayEpIds = new Set(split.today.map((e) => e.episodeTraktId));
     const todayShowEpKeys = new Set(
       split.today.map((e) => `${e.showTraktId}:${e.season}:${e.number}`)
     );
-    const nowMs = Date.now();
+    const nowMs = now.getTime();
     const continueItems = (data.continueWatching || [])
       .filter((cw) => {
         if (
@@ -538,7 +562,7 @@
     const todayCombined = [
       ...split.today.map((ep) => ({ ...ep, isContinueWatching: false })),
       ...continueItems,
-    ];
+    ].sort(window.TraktDates.compareEpisodesByStartTime);
 
     viewport.innerHTML = `
       <div class="trakt-dashboard">
@@ -562,8 +586,19 @@
         <section class="trakt-dash-row trakt-dash-further">
           <div class="trakt-panel-header">
             <span class="trakt-panel-title">${esc(t('trakt_further_title'))}</span>
-            <span class="trakt-panel-range">${esc(rangeLabel)}</span>
-            <span class="trakt-panel-count">${split.further.length}</span>
+            <span class="trakt-panel-range" id="traktFurtherRange"></span>
+            <div class="trakt-panel-header-end">
+              <span class="trakt-panel-count" id="traktFurtherCount">0</span>
+              <div class="trakt-week-pager" id="traktFurtherPager">
+                <button type="button" class="trakt-pager-btn" id="traktFurtherPrevBtn" aria-label="${esc(t('trakt_pager_prev_week'))}">
+                  ${iconHtml('chevron-left', 14)}
+                </button>
+                <span class="trakt-pager-indicator" id="traktFurtherPageIndicator"></span>
+                <button type="button" class="trakt-pager-btn" id="traktFurtherNextBtn" aria-label="${esc(t('trakt_pager_next_week'))}">
+                  ${iconHtml('chevron-right', 14)}
+                </button>
+              </div>
+            </div>
           </div>
           <div class="trakt-hscroll-list custom-scroll" id="traktFurtherList"></div>
         </section>
@@ -590,6 +625,8 @@
           renderEpisodeCard(ep, {
             showWatched: true,
             posterCard: true,
+            showDynamicPastDay: true,
+            nowDate: now,
             isContinueWatching: !!ep.isContinueWatching,
           })
         )
@@ -601,20 +638,100 @@
       tomorrowList.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_no_tomorrow_premieres'))}</div>`;
     } else {
       split.tomorrow.forEach((ep) =>
-        tomorrowList.appendChild(renderEpisodeCard(ep, { showWatched: true, posterCard: true }))
+        tomorrowList.appendChild(
+          renderEpisodeCard(ep, { showWatched: true, posterCard: true, nowDate: now })
+        )
       );
     }
 
     const furtherList = document.getElementById('traktFurtherList');
-    if (split.further.length === 0) {
-      furtherList.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_no_further_premieres'))}</div>`;
-    } else {
-      split.further.forEach((ep) =>
-        furtherList.appendChild(
-          renderEpisodeCard(ep, { showWatched: true, showDate: true, compact: true, posterCard: true })
-        )
+    const furtherRangeEl = document.getElementById('traktFurtherRange');
+    const furtherCountEl = document.getElementById('traktFurtherCount');
+    const furtherPrevBtn = document.getElementById('traktFurtherPrevBtn');
+    const furtherNextBtn = document.getElementById('traktFurtherNextBtn');
+    const furtherPageIndEl = document.getElementById('traktFurtherPageIndicator');
+
+    const renderFurtherWeekPage = (idx) => {
+      if (furtherWeeks.length === 0) {
+        if (furtherRangeEl) furtherRangeEl.textContent = '';
+        if (furtherCountEl) furtherCountEl.textContent = '0';
+        if (furtherPageIndEl) furtherPageIndEl.textContent = '0 / 0';
+        if (furtherPrevBtn) furtherPrevBtn.disabled = true;
+        if (furtherNextBtn) furtherNextBtn.disabled = true;
+        furtherList.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_no_further_premieres'))}</div>`;
+        return;
+      }
+
+      furtherWeekIndex = Math.max(0, Math.min(idx, furtherWeeks.length - 1));
+      const activeWeek = furtherWeeks[furtherWeekIndex];
+      const activeRangeLabel = window.TraktDates.formatShortDateRange(
+        activeWeek.start,
+        activeWeek.end,
+        lang
       );
+      const weekEps = window.TraktDates.filterEpisodesByDateRange(
+        allCalendarEps,
+        activeWeek.startKey,
+        activeWeek.endKey
+      );
+
+      if (furtherRangeEl) furtherRangeEl.textContent = activeRangeLabel;
+      if (furtherCountEl) furtherCountEl.textContent = String(weekEps.length);
+      if (furtherPageIndEl) {
+        furtherPageIndEl.textContent = `${furtherWeekIndex + 1} / ${furtherWeeks.length}`;
+      }
+
+      if (furtherPrevBtn) {
+        const hasPrev = furtherWeekIndex > 0;
+        furtherPrevBtn.disabled = !hasPrev;
+        if (hasPrev) {
+          const prevW = furtherWeeks[furtherWeekIndex - 1];
+          const prevLbl = window.TraktDates.formatShortDateRange(prevW.start, prevW.end, lang);
+          furtherPrevBtn.title = `${t('trakt_pager_prev_week')} (${prevLbl})`;
+        } else {
+          furtherPrevBtn.title = t('trakt_pager_prev_week');
+        }
+      }
+
+      if (furtherNextBtn) {
+        const hasNext = furtherWeekIndex < furtherWeeks.length - 1;
+        furtherNextBtn.disabled = !hasNext;
+        if (hasNext) {
+          const nextW = furtherWeeks[furtherWeekIndex + 1];
+          const nextLbl = window.TraktDates.formatShortDateRange(nextW.start, nextW.end, lang);
+          furtherNextBtn.title = `${t('trakt_pager_next_week')} (${nextLbl})`;
+        } else {
+          furtherNextBtn.title = t('trakt_pager_next_week');
+        }
+      }
+
+      furtherList.innerHTML = '';
+      furtherList.scrollLeft = 0;
+      if (weekEps.length === 0) {
+        furtherList.innerHTML = `<div class="trakt-empty-msg">${esc(t('trakt_no_further_premieres'))}</div>`;
+      } else {
+        weekEps.forEach((ep) =>
+          furtherList.appendChild(
+            renderEpisodeCard(ep, {
+              showWatched: true,
+              showDate: true,
+              compact: true,
+              posterCard: true,
+              nowDate: now,
+            })
+          )
+        );
+      }
+    };
+
+    if (furtherPrevBtn) {
+      furtherPrevBtn.onclick = () => renderFurtherWeekPage(furtherWeekIndex - 1);
     }
+    if (furtherNextBtn) {
+      furtherNextBtn.onclick = () => renderFurtherWeekPage(furtherWeekIndex + 1);
+    }
+
+    renderFurtherWeekPage(furtherWeekIndex);
 
     const historyList = document.getElementById('traktHistoryRowList');
     const histItems = data.history || [];
@@ -971,9 +1088,12 @@
           const row = document.createElement('div');
           row.className = `trakt-ep-row ${ep.watched ? 'is-watched' : ''}`;
           const code = formatEpisodeCode(ep.season, ep.episode);
-          const stillHtml = ep.stillPath
-            ? `<img class="trakt-ep-still" src="https://image.tmdb.org/t/p/w300${esc(ep.stillPath)}" alt="" loading="lazy" />`
-            : '';
+          const placeholderHtml = `<span class="trakt-thumb-placeholder" ${ep.stillPath ? 'style="display:none;"' : ''}>${iconHtml('photo', 20)}</span>`;
+          const stillHtml = `<div class="trakt-ep-still-wrap">${
+            ep.stillPath
+              ? `<img class="trakt-ep-still" src="https://image.tmdb.org/t/p/w300${esc(ep.stillPath)}" alt="" loading="lazy" />`
+              : ''
+          }${placeholderHtml}</div>`;
           row.innerHTML = `
             <span class="trakt-ep-status-icon">${iconHtml(ep.watched ? 'trakt-watched-done' : 'trakt-watched', 18)}</span>
             ${stillHtml}
@@ -982,6 +1102,14 @@
               ${ep.overview ? `<div class="trakt-ep-overview">${esc(ep.overview)}</div>` : ''}
             </div>
           `;
+          const stillImg = row.querySelector('.trakt-ep-still');
+          if (stillImg) {
+            stillImg.onerror = () => {
+              stillImg.style.display = 'none';
+              const ph = row.querySelector('.trakt-ep-still-wrap .trakt-thumb-placeholder');
+              if (ph) ph.style.display = 'inline-flex';
+            };
+          }
           episodesEl.appendChild(row);
         });
       };

@@ -8,8 +8,31 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncRuntimeState {
+    pub status: String,
+    pub step: String,
+    pub current: usize,
+    pub total: usize,
+    pub is_full: bool,
+}
+
+impl Default for SyncRuntimeState {
+    fn default() -> Self {
+        Self {
+            status: "idle".to_string(),
+            step: String::new(),
+            current: 0,
+            total: 0,
+            is_full: false,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct LastActivities {
@@ -57,6 +80,9 @@ pub struct SyncSummary {
     /// `MANUAL_SYNC_DEBOUNCE_SECS` ago, so nothing was requested.
     #[serde(default)]
     pub throttled: bool,
+    /// True when the sync was stopped early by user request (`trakt_cancel_sync`).
+    #[serde(default)]
+    pub cancelled: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -194,10 +220,56 @@ struct TraktWatchedEpisode {
     last_watched_at: Option<String>,
 }
 
-fn emit_sync_state(
+pub fn is_sync_cancelled(state: &AppState) -> bool {
+    state.trakt.sync_cancel.load(Ordering::SeqCst)
+}
+
+pub fn get_sync_runtime_state(state: &AppState) -> SyncRuntimeState {
+    state
+        .trakt
+        .sync_runtime
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+pub fn request_sync_cancel(state: &AppState, app: Option<&tauri::AppHandle>) -> bool {
+    state.trakt.sync_cancel.store(true, Ordering::SeqCst);
+    let stopping_rt = {
+        let mut rt = state
+            .trakt
+            .sync_runtime
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if rt.status == "syncing" {
+            rt.status = "stopping".to_string();
+            Some(rt.clone())
+        } else {
+            None
+        }
+    };
+    if let Some(rt) = stopping_rt {
+        emit_sync_progress(app, &rt, None, None);
+        true
+    } else {
+        false
+    }
+}
+
+struct SyncRuntimeResetGuard<'a>(&'a AppState);
+
+impl Drop for SyncRuntimeResetGuard<'_> {
+    fn drop(&mut self) {
+        self.0.trakt.sync_cancel.store(false, Ordering::SeqCst);
+        if let Ok(mut rt) = self.0.trakt.sync_runtime.lock() {
+            *rt = SyncRuntimeState::default();
+        }
+    }
+}
+
+fn emit_sync_progress(
     app: Option<&tauri::AppHandle>,
-    status: &str,
-    step: &str,
+    rt: &SyncRuntimeState,
     last_sync_ok_at: Option<&str>,
     error: Option<&str>,
 ) {
@@ -205,13 +277,50 @@ fn emit_sync_state(
         let _ = handle.emit(
             "trakt-sync-state",
             json!({
-                "status": status,
-                "step": step,
+                "status": rt.status,
+                "step": rt.step,
+                "current": rt.current,
+                "total": rt.total,
+                "isFull": rt.is_full,
                 "lastSyncOkAt": last_sync_ok_at,
                 "error": error,
             }),
         );
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn update_and_emit_sync_state(
+    state: &AppState,
+    app: Option<&tauri::AppHandle>,
+    status: &str,
+    step: &str,
+    current: usize,
+    total: usize,
+    is_full: bool,
+    last_sync_ok_at: Option<&str>,
+    error: Option<&str>,
+) {
+    let effective_status = if status == "syncing" && is_sync_cancelled(state) {
+        "stopping"
+    } else {
+        status
+    };
+    let rt = SyncRuntimeState {
+        status: effective_status.to_string(),
+        step: step.to_string(),
+        current,
+        total,
+        is_full,
+    };
+    if let Ok(mut guard) = state.trakt.sync_runtime.lock() {
+        *guard = if matches!(effective_status, "syncing" | "stopping") {
+            rt.clone()
+        } else {
+            SyncRuntimeState::default()
+        };
+    }
+    emit_sync_progress(app, &rt, last_sync_ok_at, error);
 }
 
 pub fn get_sync_state_val(conn: &Connection, key: &str) -> Option<String> {
@@ -515,6 +624,7 @@ async fn throttled_summary(state: &AppState) -> SyncSummary {
         pending_flushed: 0,
         last_sync_ok_at,
         throttled: true,
+        cancelled: false,
     }
 }
 
@@ -523,7 +633,8 @@ async fn throttled_summary(state: &AppState) -> SyncSummary {
 ///  * `force = true` (Settings, full re-download): never skipped.
 ///
 /// Calls are serialized, so a double click runs the sync once; the second click then finds a fresh
-/// timestamp. Only a successful run starts the debounce window: a failed (e.g. offline) sync can be retried at once.
+/// timestamp. Only a successful, non-cancelled run starts the debounce window: a failed or cancelled
+/// sync can be retried at once.
 pub async fn manual_sync_in<F, Fut>(
     state: &AppState,
     force: bool,
@@ -539,7 +650,9 @@ where
         return Ok(throttled_summary(state).await);
     }
     let summary = run().await?;
-    mark_sync_done(state);
+    if !summary.cancelled {
+        mark_sync_done(state);
+    }
     Ok(summary)
 }
 
@@ -563,6 +676,8 @@ pub async fn run_sync(
     force: bool,
 ) -> Result<SyncSummary, String> {
     let _sync_guard = state.trakt.sync_lock.lock().await;
+    state.trakt.sync_cancel.store(false, Ordering::SeqCst);
+    let _runtime_guard = SyncRuntimeResetGuard(state);
 
     let (enabled, last_ok_prev) = {
         let conn = state.db.lock().await;
@@ -576,35 +691,86 @@ pub async fn run_sync(
         return Err("A Trakt integráció ki van kapcsolva.".to_string());
     }
 
-    emit_sync_state(app, "syncing", "pending", last_ok_prev.as_deref(), None);
+    let make_cancelled = |wl: bool, hist: bool, cal: bool, flushed: usize| {
+        update_and_emit_sync_state(
+            state,
+            app,
+            "cancelled",
+            "",
+            0,
+            0,
+            force,
+            last_ok_prev.as_deref(),
+            None,
+        );
+        Ok(SyncSummary {
+            watchlist_updated: wl,
+            history_updated: hist,
+            calendar_updated: cal,
+            pending_flushed: flushed,
+            last_sync_ok_at: last_ok_prev.clone().unwrap_or_default(),
+            throttled: false,
+            cancelled: true,
+        })
+    };
+
+    update_and_emit_sync_state(
+        state,
+        app,
+        "syncing",
+        "pending",
+        0,
+        0,
+        force,
+        last_ok_prev.as_deref(),
+        None,
+    );
 
     // 1. Flush offline pending queue
     let pending_flushed = match flush_pending_actions(state, app).await {
         Ok(n) => n,
         Err(e) => {
             if e.contains("TRAKT_OFFLINE") || e.contains("TRAKT_ERR_429") {
-                emit_sync_state(app, "offline", "", last_ok_prev.as_deref(), Some(&e));
+                update_and_emit_sync_state(state, app, "offline", "", 0, 0, force, last_ok_prev.as_deref(), Some(&e));
             } else {
-                emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
+                update_and_emit_sync_state(state, app, "error", "", 0, 0, force, last_ok_prev.as_deref(), Some(&e));
             }
             return Err(e);
         }
     };
 
+    if is_sync_cancelled(state) {
+        return make_cancelled(false, false, false, pending_flushed);
+    }
+
     // 2. Ensure valid token
     if let Err(e) = ensure_valid_token(state, app).await {
-        emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
+        update_and_emit_sync_state(state, app, "error", "", 0, 0, force, last_ok_prev.as_deref(), Some(&e));
         return Err(e);
     }
 
+    if is_sync_cancelled(state) {
+        return make_cancelled(false, false, false, pending_flushed);
+    }
+
     // 3. Fetch /sync/last_activities
-    emit_sync_state(app, "syncing", "activities", last_ok_prev.as_deref(), None);
+    update_and_emit_sync_state(
+        state,
+        app,
+        "syncing",
+        "activities",
+        0,
+        0,
+        force,
+        last_ok_prev.as_deref(),
+        None,
+    );
     let act_resp = match trakt_get_raw(state, app, "/sync/last_activities", true).await {
         Ok(r) => r,
         Err(e) => {
             let status = if e.is_transient() { "offline" } else { "error" };
             let msg = e.to_user_string();
-            emit_sync_state(app, status, "", last_ok_prev.as_deref(), Some(&msg));
+            update_and_emit_sync_state(state, app, status, "", 0, 0, force, last_ok_prev.as_deref(), Some(&msg));
             return Err(msg);
         }
     };
@@ -637,6 +803,10 @@ pub async fn run_sync(
         (stored, wl_empty, hist_empty, has_prof, dirty, ws_synced, cw_done)
     };
 
+    if is_sync_cancelled(state) {
+        return make_cancelled(false, false, false, pending_flushed);
+    }
+
     if !has_profile {
         let _ = fetch_and_save_profile(state).await;
     }
@@ -659,26 +829,44 @@ pub async fn run_sync(
                     != activities.movies.as_ref().and_then(|m| m.watched_at.as_ref())
         });
 
+    let mut wl_done = false;
     if wl_changed {
-        emit_sync_state(app, "syncing", "watchlist", last_ok_prev.as_deref(), None);
+        if is_sync_cancelled(state) {
+            return make_cancelled(false, false, false, pending_flushed);
+        }
+        update_and_emit_sync_state(state, app, "syncing", "watchlist", 0, 0, force, last_ok_prev.as_deref(), None);
         if let Err(e) = sync_watchlist(state, app).await {
-            emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
+            update_and_emit_sync_state(state, app, "error", "", 0, 0, force, last_ok_prev.as_deref(), Some(&e));
             return Err(e);
+        }
+        if is_sync_cancelled(state) {
+            return make_cancelled(false, false, false, pending_flushed);
         }
         // Saved per stage: a later failure (calendar, progress) must not make the next sync re-download this.
         let conn = state.db.lock().await;
         save_activity_stage(&conn, |cur| cur.watchlist = activities.watchlist.clone());
+        wl_done = true;
     }
 
+    let mut hist_done = false;
     if hist_changed {
-        emit_sync_state(app, "syncing", "history", last_ok_prev.as_deref(), None);
+        if is_sync_cancelled(state) {
+            return make_cancelled(wl_done, false, false, pending_flushed);
+        }
+        update_and_emit_sync_state(state, app, "syncing", "history", 0, 0, force, last_ok_prev.as_deref(), None);
         if let Err(e) = sync_history(state).await {
-            emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
+            update_and_emit_sync_state(state, app, "error", "", 0, 0, force, last_ok_prev.as_deref(), Some(&e));
             return Err(e);
         }
+        if is_sync_cancelled(state) {
+            return make_cancelled(wl_done, false, false, pending_flushed);
+        }
         if let Err(e) = sync_watched_shows(state, app).await {
-            emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
+            update_and_emit_sync_state(state, app, "error", "", 0, 0, force, last_ok_prev.as_deref(), Some(&e));
             return Err(e);
+        }
+        if is_sync_cancelled(state) {
+            return make_cancelled(wl_done, false, false, pending_flushed);
         }
         let conn = state.db.lock().await;
         let _ = set_sync_state_val(&conn, "history_dirty", "0");
@@ -690,9 +878,14 @@ pub async fn run_sync(
             cur.movies.get_or_insert_default().watched_at =
                 activities.movies.as_ref().and_then(|m| m.watched_at.clone());
         });
+        hist_done = true;
     }
 
-    emit_sync_state(app, "syncing", "calendar", last_ok_prev.as_deref(), None);
+    if is_sync_cancelled(state) {
+        return make_cancelled(wl_done, hist_done, false, pending_flushed);
+    }
+
+    update_and_emit_sync_state(state, app, "syncing", "calendar", 0, 0, force, last_ok_prev.as_deref(), None);
     let start_date = {
         let conn = state.db.lock().await;
         calendar_start_for_sync(&conn)
@@ -700,10 +893,14 @@ pub async fn run_sync(
     let calendar_updated = match fetch_and_cache_my_calendar(state, app, &start_date, force).await {
         Ok(_) => true,
         Err(e) => {
-            emit_sync_state(app, "error", "", last_ok_prev.as_deref(), Some(&e));
+            update_and_emit_sync_state(state, app, "error", "", 0, 0, force, last_ok_prev.as_deref(), Some(&e));
             return Err(e);
         }
     };
+
+    if is_sync_cancelled(state) {
+        return make_cancelled(wl_done, hist_done, calendar_updated, pending_flushed);
+    }
 
     let fresh_hidden_at = activities.shows.as_ref().and_then(|s| s.hidden_at.clone());
     let stored_hidden_at = stored_act
@@ -721,25 +918,31 @@ pub async fn run_sync(
     };
     if hidden_refresh {
         let bypass_cache = force || (fresh_hidden_at.is_some() && stored_hidden_at != fresh_hidden_at);
-        // A failed request keeps the stored flags: an incomplete list would un-hide shows.
+        // A failed or cancelled request keeps the stored flags: an incomplete list would un-hide shows.
         if let Ok(hidden_ids) = fetch_hidden_progress_show_ids(state, app, bypass_cache).await {
-            let conn = state.db.lock().await;
-            let _ = conn.execute(
-                "UPDATE trakt_show_progress SET hidden_from_progress = 0 WHERE hidden_from_progress != 0",
-                [],
-            );
-            for hid in hidden_ids {
+            if !is_sync_cancelled(state) {
+                let conn = state.db.lock().await;
                 let _ = conn.execute(
-                    "INSERT INTO trakt_show_progress (show_trakt_id, hidden_from_progress, updated_at)
-                     VALUES (?1, 1, ?2)
-                     ON CONFLICT(show_trakt_id) DO UPDATE SET hidden_from_progress = 1",
-                    params![hid, now_iso_utc()],
+                    "UPDATE trakt_show_progress SET hidden_from_progress = 0 WHERE hidden_from_progress != 0",
+                    [],
                 );
+                for hid in hidden_ids {
+                    let _ = conn.execute(
+                        "INSERT INTO trakt_show_progress (show_trakt_id, hidden_from_progress, updated_at)
+                         VALUES (?1, 1, ?2)
+                         ON CONFLICT(show_trakt_id) DO UPDATE SET hidden_from_progress = 1",
+                        params![hid, now_iso_utc()],
+                    );
+                }
+                save_activity_stage(&conn, |cur| {
+                    cur.shows.get_or_insert_default().hidden_at = fresh_hidden_at.clone();
+                });
             }
-            save_activity_stage(&conn, |cur| {
-                cur.shows.get_or_insert_default().hidden_at = fresh_hidden_at.clone();
-            });
         }
+    }
+
+    if is_sync_cancelled(state) {
+        return make_cancelled(wl_done, hist_done, calendar_updated, pending_flushed);
     }
 
     // Refresh progress & next_episode only for shows whose data can have changed (fingerprint, new airing,
@@ -749,17 +952,50 @@ pub async fn run_sync(
         select_progress_show_ids(&conn, force || !cw_synced, &now_iso_utc())?
     };
 
-    for show_id in progress_show_ids {
+    let progress_total = progress_show_ids.len();
+    for (idx, show_id) in progress_show_ids.into_iter().enumerate() {
+        if is_sync_cancelled(state) {
+            return make_cancelled(wl_done, hist_done, calendar_updated, pending_flushed);
+        }
+        update_and_emit_sync_state(
+            state,
+            app,
+            "syncing",
+            "progress",
+            idx + 1,
+            progress_total,
+            force,
+            last_ok_prev.as_deref(),
+            None,
+        );
         let _ = sync_show_progress(state, app, show_id, true).await;
     }
 
+    if is_sync_cancelled(state) {
+        return make_cancelled(wl_done, hist_done, calendar_updated, pending_flushed);
+    }
+
     if hist_changed || !cw_synced {
+        update_and_emit_sync_state(state, app, "syncing", "tmdb", 0, 0, force, last_ok_prev.as_deref(), None);
         enrich_missing_continue_watching_tmdb(state).await;
+        if is_sync_cancelled(state) {
+            return make_cancelled(wl_done, hist_done, calendar_updated, pending_flushed);
+        }
         let conn = state.db.lock().await;
         let _ = set_sync_state_val(&conn, "continue_watching_premiered_v1", "1");
     }
+
+    if is_sync_cancelled(state) {
+        return make_cancelled(wl_done, hist_done, calendar_updated, pending_flushed);
+    }
+
     // Old TMDB id rows are refreshed a few at a time, never on the read path.
+    update_and_emit_sync_state(state, app, "syncing", "tmdb", 0, 0, force, last_ok_prev.as_deref(), None);
     crate::refresh_stale_tmdb(state, 10).await;
+
+    if is_sync_cancelled(state) {
+        return make_cancelled(wl_done, hist_done, calendar_updated, pending_flushed);
+    }
 
     let now_ok = now_iso_utc();
     {
@@ -769,7 +1005,7 @@ pub async fn run_sync(
         let _ = crate::trakt::client::prune_http_cache(&conn);
     }
 
-    emit_sync_state(app, "idle", "", Some(&now_ok), None);
+    update_and_emit_sync_state(state, app, "idle", "", 0, 0, force, Some(&now_ok), None);
 
     Ok(SyncSummary {
         watchlist_updated: wl_changed,
@@ -778,6 +1014,7 @@ pub async fn run_sync(
         pending_flushed,
         last_sync_ok_at: now_ok,
         throttled: false,
+        cancelled: false,
     })
 }
 
@@ -792,6 +1029,9 @@ pub async fn sync_watchlist(
     let now = now_iso_utc();
 
     loop {
+        if is_sync_cancelled(state) {
+            return Ok(());
+        }
         let path = format!(
             "/sync/watchlist/all/added/desc?extended=full&page={}&limit=200",
             page
@@ -969,6 +1209,9 @@ pub async fn sync_watchlist(
     // TMDB enrichment for all missing watchlist items (only if TMDB API key is configured)
     if get_tmdb_api_key_from_state(state).await.is_some() {
         for (trakt_id, tmdb_media, tmdb_id) in to_enrich_tmdb {
+            if is_sync_cancelled(state) {
+                break;
+            }
             if let Ok(details) = get_tmdb_by_id(state, tmdb_id, &tmdb_media, "hu-HU", None, false).await {
                 let conn = state.db.lock().await;
                 let _ = conn.execute(
@@ -984,6 +1227,9 @@ pub async fn sync_watchlist(
 
     // Fetch aliases for up to 10 shows per sync (cached 30 days)
     for (trakt_id, _) in to_fetch_aliases.into_iter().take(10) {
+        if is_sync_cancelled(state) {
+            break;
+        }
         let alias_path = format!("/shows/{}/aliases", trakt_id);
         if let Ok(resp) = trakt_get_cached(state, app, &alias_path, false, 2_592_000, false).await {
             if let Ok(aliases) = serde_json::from_str::<Vec<TraktAlias>>(&resp.body) {
@@ -1139,6 +1385,9 @@ pub async fn enrich_missing_history_posters(state: &AppState) {
     };
 
     for (tmdb_mt, tmdb_id) in missing {
+        if is_sync_cancelled(state) {
+            break;
+        }
         if let Ok(details) = get_tmdb_by_id(state, tmdb_id, &tmdb_mt, "hu-HU", None, false).await {
             if let Some(ref poster) = details.poster_path {
                 let conn = state.db.lock().await;
@@ -1377,6 +1626,9 @@ async fn fetch_hidden_progress_show_ids(
     let mut hidden = HashSet::new();
     let mut page = 1u32;
     loop {
+        if is_sync_cancelled(state) {
+            break;
+        }
         let path = format!(
             "/users/hidden/progress_watched?type=show&page={}&limit=100",
             page
@@ -1449,6 +1701,9 @@ async fn enrich_missing_continue_watching_tmdb(state: &AppState) {
     };
 
     for tmdb_id in missing_tmdb_ids {
+        if is_sync_cancelled(state) {
+            break;
+        }
         let _ = get_tmdb_by_id(state, tmdb_id, "tv", "hu-HU", None, false).await;
     }
 }

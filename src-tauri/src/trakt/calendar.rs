@@ -58,7 +58,8 @@ pub async fn fetch_and_cache_my_calendar(
     start_date: &str,
     force_refresh: bool,
 ) -> Result<(), String> {
-    let path = format!("/calendars/my/shows/{}/31?extended=full", start_date);
+    // 32 days starting from local yesterday covers today..today+30 even across timezones (Trakt max is 33).
+    let path = format!("/calendars/my/shows/{}/32?extended=full", start_date);
     let resp = trakt_get_cached(state, app, &path, true, 7200, force_refresh)
         .await
         .map_err(|e| e.to_user_string())?;
@@ -180,6 +181,9 @@ pub async fn enrich_missing_my_calendar_posters(state: &AppState) {
     };
 
     for tmdb_id in missing_tmdb_ids {
+        if crate::trakt::sync::is_sync_cancelled(state) {
+            break;
+        }
         let _ = crate::get_tmdb_by_id(state, tmdb_id, "tv", "hu-HU", None, false).await;
     }
 }

@@ -5194,6 +5194,7 @@ fn main() {
             trakt::commands::trakt_set_enabled,
             trakt::commands::trakt_set_custom_keys,
             trakt::commands::trakt_sync,
+            trakt::commands::trakt_cancel_sync,
             trakt::commands::trakt_get_sync_status,
             trakt::commands::trakt_get_dashboard_data,
             trakt::commands::trakt_mark_watched,

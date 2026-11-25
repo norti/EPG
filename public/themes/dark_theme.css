@@ -2743,6 +2743,10 @@ input[type="text"] {
   z-index: 400 !important;
 }
 
+#missingLogosModal {
+  z-index: 300 !important;
+}
+
 #channelEditModalOverlay {
   z-index: 250;
 }
@@ -3545,6 +3549,162 @@ input[type="text"] {
   max-width: 95vw;
 }
 
+/* Missing Logos Modal */
+.missing-logos-modal-content {
+  width: 720px;
+  max-width: 95vw;
+  max-height: 84vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.missing-logos-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.missing-logos-count-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--bg-modal-card-sub);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.missing-logos-modal-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.missing-logos-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.missing-logos-toolbar .channel-edit-input {
+  flex: 1;
+}
+
+.missing-logos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 160px;
+  max-height: 60vh;
+  padding-right: 4px;
+}
+
+.missing-logos-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 16px;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+}
+
+.missing-logo-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  background: var(--bg-modal-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  transition: border-color 0.15s, background-color 0.15s;
+  flex-shrink: 0;
+}
+
+.missing-logo-item:hover {
+  border-color: var(--border-modal);
+}
+
+.missing-logo-item.is-assigned {
+  border-color: rgba(46, 204, 113, 0.45);
+  background: rgba(46, 204, 113, 0.05);
+}
+
+.missing-logo-preview {
+  width: 38px;
+  height: 38px;
+  border-radius: 5px;
+  background: var(--bg-preview-box);
+  border: 1px solid var(--border-modal-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  padding: 2px;
+  box-sizing: border-box;
+}
+
+.missing-logo-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.missing-logo-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.missing-logo-header-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.missing-logo-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.missing-logo-url {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.missing-logo-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .logo-search-modal-body {
   padding: 18px 22px;
 }
@@ -3827,18 +3987,19 @@ body.trakt-mode #epgViewport {
 }
 
 .trakt-dashboard {
+  --trakt-card-width: 175px;
+  --trakt-card-thumb-h: 260px;
+  --trakt-ep-card-h: 364px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: calc(100vh - 84px);
 }
 
 .trakt-dash-top {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  flex: 2 1 50%;
-  min-height: 420px;
+  flex: 0 0 auto;
 }
 
 .trakt-dash-panel,
@@ -3853,7 +4014,7 @@ body.trakt-mode #epgViewport {
 }
 
 .trakt-dash-row {
-  flex: 1 0 auto;
+  flex: 0 0 auto;
 }
 
 .trakt-panel-header {
@@ -3883,15 +4044,61 @@ body.trakt-mode #epgViewport {
   background: var(--bg-btn-secondary);
   color: var(--text-secondary);
 }
+.trakt-panel-header-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trakt-panel-header-end .trakt-panel-count {
+  margin-left: 0;
+}
+.trakt-week-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.trakt-pager-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid var(--border-modal-card-alt);
+  background: var(--bg-btn-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, opacity 0.12s;
+}
+.trakt-pager-btn:hover:not(:disabled) {
+  background: var(--bg-fix-card-hover);
+  border-color: var(--trakt-watchlist-active);
+}
+.trakt-pager-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.trakt-pager-indicator {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 34px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
 
 .trakt-panel-list {
-  flex: 1;
+  height: calc(var(--trakt-ep-card-h) * 2 + 10px + 20px);
+  flex: 0 0 auto;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 10px;
+  box-sizing: border-box;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
-  grid-auto-rows: max-content;
+  grid-template-columns: repeat(auto-fill, var(--trakt-card-width));
+  grid-auto-rows: var(--trakt-ep-card-h);
   gap: 10px;
   align-content: start;
 }
@@ -3942,8 +4149,8 @@ body.trakt-mode #epgViewport {
 .trakt-panel-list .trakt-poster-card-thumb,
 .trakt-hscroll-list .trakt-poster-card-thumb {
   width: 100%;
-  height: 0;
-  padding-top: 150%;
+  height: var(--trakt-card-thumb-h, 260px);
+  padding-top: 0;
   flex: 0 0 auto;
   border-radius: 0;
   border: none;
@@ -3955,10 +4162,11 @@ body.trakt-mode #epgViewport {
   inset: 0;
 }
 
+.trakt-panel-list .trakt-poster-card,
 .trakt-hscroll-list .trakt-poster-card {
-  width: 175px;
-  min-width: 175px;
-  max-width: 175px;
+  width: var(--trakt-card-width, 175px);
+  min-width: var(--trakt-card-width, 175px);
+  max-width: var(--trakt-card-width, 175px);
   flex-shrink: 0;
 }
 
@@ -3980,6 +4188,8 @@ body.trakt-mode #epgViewport {
 }
 .trakt-pcard-show {
   font-size: 12px;
+  line-height: 16px;
+  height: 16px;
   font-weight: 700;
   color: var(--text-primary);
   white-space: nowrap;
@@ -3988,6 +4198,8 @@ body.trakt-mode #epgViewport {
 }
 .trakt-pcard-code {
   font-size: 11px;
+  line-height: 16px;
+  height: 16px;
   font-weight: 600;
   color: var(--accent-green);
   display: flex;
@@ -4001,6 +4213,8 @@ body.trakt-mode #epgViewport {
   color: var(--text-dim);
   font-weight: 500;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .trakt-pcard-time.trakt-continue-pill {
   color: var(--accent-yellow-light);
@@ -4011,6 +4225,8 @@ body.trakt-mode #epgViewport {
 }
 .trakt-pcard-ep {
   font-size: 11px;
+  line-height: 16px;
+  height: 16px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -4022,6 +4238,8 @@ body.trakt-mode #epgViewport {
 }
 .trakt-pcard-actions .trakt-watched-btn {
   width: 100%;
+  height: 26px;
+  box-sizing: border-box;
   justify-content: center;
   padding: 4px 6px;
   font-size: 11px;
@@ -4636,12 +4854,24 @@ body.trakt-mode #epgViewport {
 .trakt-ep-row.is-watched .trakt-ep-status-icon {
   color: var(--trakt-watched-done);
 }
-.trakt-ep-still {
+.trakt-ep-still-wrap {
   width: 80px;
   height: 45px;
-  object-fit: cover;
   border-radius: 4px;
+  background: var(--bg-modal-poster);
+  border: 1px solid var(--border-modal-card);
+  overflow: hidden;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.trakt-ep-still {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .trakt-ep-text {
   flex: 1;
@@ -4883,6 +5113,25 @@ body.trakt-mode #epgViewport {
   font-size: 12px;
   color: var(--text-subtle);
 }
+.trakt-settings-sync-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-top: 2px;
+}
+.trakt-settings-sync-live.is-syncing {
+  color: var(--trakt-sync-spinning);
+  font-weight: 600;
+}
+.trakt-settings-sync-live.is-stopped {
+  color: var(--accent-yellow-light);
+  font-weight: 600;
+}
+.trakt-settings-sync-live.is-offline {
+  color: var(--accent-yellow);
+  font-weight: 600;
+}
 .trakt-profile-actions {
   display: flex;
   gap: 8px;
@@ -4929,7 +5178,6 @@ body.trakt-mode #epgViewport {
   }
   .trakt-dash-panel {
     min-height: 220px;
-    max-height: 340px;
   }
   .trakt-drawer-split {
     grid-template-columns: 1fr;

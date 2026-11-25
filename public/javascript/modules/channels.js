@@ -1,7 +1,264 @@
+async function openMissingLogosModal(sourceId, onStatsChanged) {
+  const modal = document.getElementById("missingLogosModal");
+  const closeBtn = document.getElementById("missingLogosClose");
+  const searchInput = document.getElementById("missingLogosSearchInput");
+  const listEl = document.getElementById("missingLogosList");
+  const countBadge = document.getElementById("missingLogosCountBadge");
+
+  if (!modal || !listEl) return;
+
+  modal.style.display = "flex";
+  modal.classList.add("active");
+  if (searchInput) searchInput.value = "";
+  if (countBadge) countBadge.textContent = "…";
+  listEl.innerHTML = `<div class="missing-logos-empty"><span class="spinner-small"></span><span>${escapeHtml(t("missing_logos_loading"))}</span></div>`;
+
+  let items = [];
+  let isClosed = false;
+
+  const updateCountBadge = () => {
+    if (!countBadge) return;
+    const total = items.length;
+    const assigned = items.filter((it) => !!it.selectedUrl).length;
+    if (assigned > 0) {
+      countBadge.textContent = t("missing_logos_assigned_count", {
+        assigned,
+        total,
+      });
+    } else {
+      countBadge.textContent = String(total);
+    }
+  };
+
+  const renderPreview = (previewEl, item) => {
+    if (!previewEl) return;
+    previewEl.innerHTML = "";
+    if (item.loadingPreview) {
+      previewEl.innerHTML = '<span class="spinner-small"></span>';
+      return;
+    }
+    const imgSrc = item.cachedData || item.selectedUrl;
+    if (imgSrc) {
+      appendSafeImage(previewEl, imgSrc, { onErrorMode: "errSpan" });
+    } else {
+      const tvSvg = window.Icons
+        ? window.Icons.get("device-tv", { size: 18 })
+        : "TV";
+      previewEl.innerHTML = `<span class="logo-preview-placeholder">${tvSvg}</span>`;
+    }
+  };
+
+  const syncEpgChannelLogo = (item, logoUrl, cachedData) => {
+    if (!epgData || !epgData.channels) return;
+    const matchesChannel = (c) =>
+      (c.sourceId
+        ? c.sourceId === item.sourceId
+        : currentSourceId === item.sourceId) &&
+      (c.id === item.id || c.id === `${item.sourceId}::${item.id}`);
+
+    let touched = false;
+    epgData.channels.forEach((liveCh) => {
+      if (matchesChannel(liveCh)) {
+        liveCh.customIcon = logoUrl;
+        liveCh.cachedIcon = cachedData || null;
+        touched = true;
+      }
+    });
+    if (epgData.rawChannels) {
+      epgData.rawChannels.forEach((rawCh) => {
+        if (matchesChannel(rawCh)) {
+          rawCh.customIcon = logoUrl;
+          rawCh.cachedIcon = cachedData || null;
+        }
+      });
+    }
+    if (touched) {
+      renderEPG();
+    }
+  };
+
+  const renderList = () => {
+    const query = searchInput ? searchInput.value.trim() : "";
+    const preparedQuery =
+      query && window.SearchUtils ? window.SearchUtils.prepareQuery(query) : null;
+
+    const filtered = items.filter((item) => {
+      if (!query) return true;
+      if (preparedQuery) {
+        return (
+          window.SearchUtils.matchPrepared(item.name, preparedQuery) ||
+          window.SearchUtils.matchPrepared(item.sourceName, preparedQuery)
+        );
+      }
+      return (
+        fuzzySearchMatch(item.name, query) ||
+        fuzzySearchMatch(item.sourceName, query)
+      );
+    });
+
+    listEl.innerHTML = "";
+
+    if (items.length === 0) {
+      listEl.innerHTML = `<div class="missing-logos-empty">${escapeHtml(t("logos_no_missing"))}</div>`;
+      return;
+    }
+
+    if (filtered.length === 0) {
+      listEl.innerHTML = `<div class="missing-logos-empty">${escapeHtml(t("no_channels_match_filter"))}</div>`;
+      return;
+    }
+
+    filtered.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = `missing-logo-item${item.selectedUrl ? " is-assigned" : ""}`;
+      row.dataset.key = item.key;
+
+      row.innerHTML = `
+        <div class="missing-logo-preview"></div>
+        <div class="missing-logo-info">
+          <div class="missing-logo-header-line">
+            <span class="missing-logo-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+            <span class="channel-order-source-badge" title="${escapeHtml(item.sourceName)}">${escapeHtml(item.sourceName)}</span>
+          </div>
+          <div class="missing-logo-url" style="${item.selectedUrl ? "" : "display: none;"}" title="${escapeHtml(item.selectedUrl || "")}">${escapeHtml(item.selectedUrl || "")}</div>
+        </div>
+        <div class="missing-logo-actions">
+          <button type="button" class="btn btn-blue btn-icon-only btn-missing-logo-search" title="${escapeHtml(t("btn_search_logo_title"))}">${iconHtml("photo-search", 15)}</button>
+        </div>
+      `;
+
+      const previewEl = row.querySelector(".missing-logo-preview");
+      const urlEl = row.querySelector(".missing-logo-url");
+      const searchBtn = row.querySelector(".btn-missing-logo-search");
+
+      renderPreview(previewEl, item);
+
+      searchBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const selectedUrl = await openLogoSearchModal(
+          item.name,
+          item.countryCode || "HU",
+        );
+        if (!selectedUrl || isClosed) return;
+
+        searchBtn.disabled = true;
+        try {
+          await invoke("set_channel_logo", {
+            sourceId: item.sourceId,
+            channelId: item.id,
+            logoUrl: selectedUrl,
+          });
+        } catch (err) {
+          searchBtn.disabled = false;
+          await showAlert(t("alert_error_title"), String(err));
+          return;
+        }
+        searchBtn.disabled = false;
+
+        item.selectedUrl = selectedUrl;
+        item.cachedData = null;
+        item.loadingPreview = true;
+
+        row.classList.add("is-assigned");
+        if (urlEl) {
+          urlEl.textContent = selectedUrl;
+          urlEl.title = selectedUrl;
+          urlEl.style.display = "block";
+        }
+        renderPreview(previewEl, item);
+        updateCountBadge();
+
+        syncEpgChannelLogo(item, selectedUrl, null);
+        if (typeof onStatsChanged === "function") {
+          onStatsChanged();
+        }
+
+        try {
+          const dataUri = await invoke("cache_logo", { url: selectedUrl });
+          if (item.selectedUrl !== selectedUrl) return;
+          item.cachedData = dataUri || null;
+          item.loadingPreview = false;
+          if (!isClosed && previewEl.isConnected) {
+            renderPreview(previewEl, item);
+          }
+          syncEpgChannelLogo(item, selectedUrl, item.cachedData);
+        } catch (_) {
+          if (item.selectedUrl !== selectedUrl) return;
+          item.loadingPreview = false;
+          if (!isClosed && previewEl.isConnected) {
+            renderPreview(previewEl, item);
+          }
+        }
+      };
+
+      listEl.appendChild(row);
+    });
+  };
+
+  const closeModal = () => {
+    if (isClosed) return;
+    isClosed = true;
+    modal.style.display = "none";
+    modal.classList.remove("active");
+    modal.onclick = null;
+    if (closeBtn) closeBtn.onclick = null;
+    if (searchInput) searchInput.oninput = null;
+    document.removeEventListener("keydown", onKeyDown);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key !== "Escape") return;
+    const logoSearchModal = document.getElementById("logoSearchModal");
+    if (logoSearchModal && logoSearchModal.classList.contains("active")) return;
+    closeModal();
+  };
+
+  modal.onclick = (e) => {
+    if (e.target === modal) {
+      e.stopPropagation();
+      closeModal();
+    }
+  };
+  if (closeBtn) closeBtn.onclick = closeModal;
+  if (searchInput) searchInput.oninput = renderList;
+  document.addEventListener("keydown", onKeyDown);
+
+  try {
+    const missingChannels = await invoke("get_missing_logo_channels", {
+      sourceId,
+    });
+    if (isClosed) return;
+    items = (missingChannels || []).map((ch) => {
+      const srcObj = sources.find((s) => s.id === ch.sourceId);
+      const sourceName = srcObj ? srcObj.name : ch.sourceName || ch.sourceId;
+      const countryCode =
+        ch.countryCode || (srcObj ? srcObj.countryCode : null) || "HU";
+      return {
+        key: `${ch.sourceId}::${ch.id}`,
+        id: ch.id,
+        sourceId: ch.sourceId,
+        name: ch.name,
+        sourceName,
+        countryCode,
+        selectedUrl: "",
+        cachedData: null,
+        loadingPreview: false,
+      };
+    });
+    updateCountBadge();
+    renderList();
+  } catch (err) {
+    if (isClosed) return;
+    if (countBadge) countBadge.textContent = "0";
+    listEl.innerHTML = `<div class="missing-logos-empty">${escapeHtml(t("logo_search_error") + " " + err)}</div>`;
+  }
+}
+
 let isAutoMatchRunning = false;
 
 async function loadChannelLogosTab() {
   const select = document.getElementById("logoSourceSelect");
+  const showMissingBtn = document.getElementById("showMissingLogosBtn");
   const autoMatchBtn = document.getElementById("autoMatchLogosBtn");
   const statsTotal = document.getElementById("logoStatTotal");
   const statsWith = document.getElementById("logoStatWithLogo");
@@ -49,11 +306,9 @@ async function loadChannelLogosTab() {
       statsWith.textContent = stats.withLogoCount;
       statsMissing.textContent = stats.missingLogoCount;
       if (!isAutoMatchRunning) {
-        if (stats.missingLogoCount === 0) {
-          autoMatchBtn.disabled = true;
-        } else {
-          autoMatchBtn.disabled = false;
-        }
+        const noMissing = stats.missingLogoCount === 0;
+        autoMatchBtn.disabled = noMissing;
+        if (showMissingBtn) showMissingBtn.disabled = noMissing;
       }
     } catch (e) {
       console.error("Hiba a statisztika lekérésekor:", e);
@@ -67,6 +322,15 @@ async function loadChannelLogosTab() {
     updateStats();
   };
 
+  if (showMissingBtn) {
+    showMissingBtn.onclick = () => {
+      if (isAutoMatchRunning) return;
+      const targetSource =
+        select.value === "__ALL_SOURCES__" ? null : select.value;
+      openMissingLogosModal(targetSource, updateStats);
+    };
+  }
+
   const setButtonRunningState = (running) => {
     isAutoMatchRunning = running;
     if (running) {
@@ -74,6 +338,7 @@ async function loadChannelLogosTab() {
       autoMatchBtn.innerHTML = `<span data-icon="player-stop" data-icon-size="15">${iconHtml("player-stop", 15)}</span><span>${escapeHtml(t("btn_stop_auto_match") || "Leállítás")}</span>`;
       autoMatchBtn.disabled = false;
       select.disabled = true;
+      if (showMissingBtn) showMissingBtn.disabled = true;
     } else {
       autoMatchBtn.className = "btn btn-green";
       autoMatchBtn.innerHTML = `<span data-icon="bolt" data-icon-size="15">${iconHtml("bolt", 15)}</span><span data-i18n="btn_auto_match_logos">${escapeHtml(t("btn_auto_match_logos") || "Hiányzó logók automatikus keresése")}</span>`;

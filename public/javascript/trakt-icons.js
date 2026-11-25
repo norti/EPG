@@ -70,6 +70,10 @@
       paths: '<path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2" /><path d="M9 12h12l-3 -3" /><path d="M18 15l3 -3" />',
       filled: false
     },
+    'trakt-logo': {
+      paths: '<path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M20.51 14.93A9 9 0 1 1 14.03 3.23" /><path d="M7.72 11.05L13.9 16.24" /><path d="M11.97 13.55L19.82 4.2" /><path d="M20.73 8.17L16.09 13.71" /><path d="M10.98 9.52L9.83 8.55" />',
+      filled: false
+    },
     'trakt-settings': {
       paths: '<path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M12 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 6l8 0" /><path d="M16 6l4 0" /><path d="M6 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 12l2 0" /><path d="M10 12l10 0" /><path d="M15 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 18l11 0" /><path d="M19 18l1 0" />',
       filled: false

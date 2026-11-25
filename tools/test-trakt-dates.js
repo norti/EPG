@@ -77,8 +77,101 @@ function testSplitDashboardEpisodesNoDuplicates() {
   assert.deepStrictEqual(split.further.map((e) => e.episodeTraktId), [3, 4]);
 }
 
+function testCompareEpisodesByStartTime() {
+  const list = [
+    { episodeTraktId: 3, showTitle: 'Beta', firstAired: new Date('2026-11-25T21:00:00').toISOString() },
+    { episodeTraktId: 1, showTitle: 'Gamma', firstAired: new Date('2026-11-24T20:00:00').toISOString() },
+    { episodeTraktId: 2, showTitle: 'Alpha', firstAired: new Date('2026-11-25T09:00:00').toISOString() },
+    { episodeTraktId: 0, showTitle: 'Old', firstAired: new Date('2026-11-10T03:00:00').toISOString() },
+  ];
+  list.sort(TraktDates.compareEpisodesByStartTime);
+  assert.deepStrictEqual(list.map((e) => e.episodeTraktId), [0, 1, 2, 3]);
+}
+
+function testFormatDashboardReleaseMeta() {
+  const now = new Date('2026-11-25T15:00:00');
+  const labels = { yesterday: 'Tegnap' };
+
+  assert.strictEqual(
+    TraktDates.formatDashboardReleaseMeta(new Date('2026-11-25T09:30:00').toISOString(), now, labels),
+    '09:30'
+  );
+  assert.strictEqual(
+    TraktDates.formatDashboardReleaseMeta(new Date('2026-11-25T21:00:00').toISOString(), now, labels),
+    '21:00'
+  );
+  assert.strictEqual(
+    TraktDates.formatDashboardReleaseMeta(new Date('2026-11-24T20:00:00').toISOString(), now, labels),
+    'Tegnap'
+  );
+  assert.strictEqual(
+    TraktDates.formatDashboardReleaseMeta(new Date('2026-11-24T20:00:00').toISOString(), now, { yesterday: 'Yesterday' }),
+    'Yesterday'
+  );
+  assert.strictEqual(
+    TraktDates.formatDashboardReleaseMeta(new Date('2026-11-18T03:00:00').toISOString(), now, labels),
+    '11.18.'
+  );
+  assert.strictEqual(
+    TraktDates.formatDashboardReleaseMeta(new Date('2026-01-05T03:00:00').toISOString(), now, labels),
+    '01.05.'
+  );
+  assert.strictEqual(
+    TraktDates.formatDashboardReleaseMeta(new Date('2025-12-20T03:00:00').toISOString(), now, labels),
+    '2025.12.20.'
+  );
+}
+
+function testGetFurtherWeekRangesUpTo30Days() {
+  // Wed 2026-11-25 -> further starts Fri 2026-11-27, horizon 2026-12-25
+  const now = new Date('2026-11-25T12:00:00');
+  const weeks = TraktDates.getFurtherWeekRanges(now, 30);
+  assert.deepStrictEqual(
+    weeks.map((w) => [w.startKey, w.endKey]),
+    [
+      ['2026-11-27', '2026-11-29'],
+      ['2026-11-30', '2026-12-06'],
+      ['2026-12-07', '2026-12-13'],
+      ['2026-12-14', '2026-12-20'],
+      ['2026-12-21', '2026-12-25'],
+    ]
+  );
+
+  // Verify contiguous coverage (no gaps, no overlaps) across all 7 weekdays
+  for (let d = 9; d <= 15; d++) {
+    const dt = new Date(`2026-11-${String(d).padStart(2, '0')}T12:00:00`);
+    const ws = TraktDates.getFurtherWeekRanges(dt, 30);
+    assert(ws.length >= 4, `expected at least 4 weeks for day ${d}`);
+    assert.strictEqual(ws[0].startKey, TraktDates.toLocalYmd(TraktDates.addLocalDays(dt, 2)));
+    assert.strictEqual(ws[ws.length - 1].endKey, TraktDates.toLocalYmd(TraktDates.addLocalDays(dt, 30)));
+    for (let i = 1; i < ws.length; i++) {
+      const expectedStart = TraktDates.toLocalYmd(TraktDates.addLocalDays(ws[i - 1].end, 1));
+      assert.strictEqual(ws[i].startKey, expectedStart, `gap/overlap between week ${i - 1} and ${i}`);
+    }
+  }
+
+  // Filter episodes across pages and verify sorting
+  const eps = [
+    { episodeTraktId: 10, firstAired: new Date('2026-12-02T22:00:00').toISOString() },
+    { episodeTraktId: 11, firstAired: new Date('2026-11-30T03:00:00').toISOString() },
+    { episodeTraktId: 12, firstAired: new Date('2026-12-25T20:00:00').toISOString() },
+    { episodeTraktId: 13, firstAired: new Date('2026-12-26T20:00:00').toISOString() }, // beyond 30d
+  ];
+  assert.deepStrictEqual(
+    TraktDates.filterEpisodesByDateRange(eps, weeks[1].startKey, weeks[1].endKey).map((e) => e.episodeTraktId),
+    [11, 10]
+  );
+  assert.deepStrictEqual(
+    TraktDates.filterEpisodesByDateRange(eps, weeks[4].startKey, weeks[4].endKey).map((e) => e.episodeTraktId),
+    [12]
+  );
+}
+
 testAllWeekdays();
 testMonthAndYearBoundaries();
 testDstTransitions();
 testSplitDashboardEpisodesNoDuplicates();
+testCompareEpisodesByStartTime();
+testFormatDashboardReleaseMeta();
+testGetFurtherWeekRangesUpTo30Days();
 console.log('All trakt-dates tests passed!');

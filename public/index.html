@@ -405,8 +405,8 @@
               <span data-i18n="tab_tmdb">TMDB</span>
             </div>
             <div class="settings-nav-item" data-tab="trakt">
-              <span data-icon="trakt-settings" data-icon-size="16"></span>
-              <span data-i18n="tab_trakt">Trakt.tv</span>
+              <span data-icon="trakt-logo" data-icon-size="16"></span>
+              <span data-i18n="tab_trakt">Trakt</span>
             </div>
             <div class="settings-nav-item" data-tab="export">
               <span data-icon="arrows-exchange" data-icon-size="16"></span>
@@ -683,6 +683,10 @@
                     <select id="logoSourceSelect"></select>
                   </div>
                   <div class="logos-control-actions">
+                    <button class="btn btn-blue" id="showMissingLogosBtn">
+                      <span data-icon="photo-search" data-icon-size="15"></span>
+                      <span data-i18n="btn_show_missing_logos">Hiányzó csatornák listázása</span>
+                    </button>
                     <button class="btn btn-green" id="autoMatchLogosBtn">
                       <span data-icon="bolt" data-icon-size="15"></span>
                       <span data-i18n="btn_auto_match_logos">Hiányzó logók automatikus keresése</span>
@@ -1229,6 +1233,32 @@
               Mentés
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HIÁNYZÓ LOGÓJÚ CSATORNÁK MODAL -->
+    <div class="modal-overlay" id="missingLogosModal" style="display: none;">
+      <div class="modal-content missing-logos-modal-content">
+        <div class="modal-header">
+          <div class="missing-logos-header-title">
+            <h2 data-i18n="missing_logos_modal_title">Hiányzó logójú csatornák</h2>
+            <span class="missing-logos-count-badge" id="missingLogosCountBadge">0</span>
+          </div>
+          <button class="modal-close" id="missingLogosClose"><span data-icon="x" data-icon-size="18"></span></button>
+        </div>
+        <div class="modal-body missing-logos-modal-body">
+          <div class="missing-logos-toolbar">
+            <input
+              type="text"
+              id="missingLogosSearchInput"
+              class="channel-edit-input"
+              placeholder="Keresés csatorna vagy forrás neve alapján..."
+              data-i18n-placeholder="missing_logos_search_placeholder"
+              autocomplete="off"
+            />
+          </div>
+          <div class="missing-logos-list custom-scroll" id="missingLogosList"></div>
         </div>
       </div>
     </div>

@@ -9,7 +9,17 @@
   let isTraktMode = false;
   let currentSubView = 'dashboard'; // 'dashboard' | 'watchlist' | 'calendar_my' | 'calendar_global'
   let authStatus = { loggedIn: false, enabled: true, profile: null };
-  let syncStatus = { lastSyncOkAt: null, overdue: true, pendingCount: 0, status: 'idle', offline: false };
+  let syncStatus = {
+    lastSyncOkAt: null,
+    overdue: true,
+    pendingCount: 0,
+    status: 'idle',
+    step: '',
+    current: 0,
+    total: 0,
+    isFull: false,
+    offline: false,
+  };
   let watchlistTitleSet = new Set();
   let watchlistState = { filter: 'all', sort: 'added', query: '' };
   let activeDeviceFlow = null;
@@ -124,12 +134,44 @@
     updateWatchlistCountBadge();
   }
 
+  function formatSyncProgressText() {
+    if (syncStatus.status === 'stopping') {
+      return t('trakt_sync_stopping');
+    }
+    if (syncStatus.status === 'cancelled') {
+      return t('trakt_sync_stopped');
+    }
+    const base = syncStatus.isFull ? t('trakt_sync_full_in_progress') : t('trakt_sync_in_progress');
+    const stepKeyMap = {
+      pending: 'trakt_sync_step_pending',
+      activities: 'trakt_sync_step_activities',
+      watchlist: 'trakt_sync_step_watchlist',
+      history: 'trakt_sync_step_history',
+      calendar: 'trakt_sync_step_calendar',
+      progress: 'trakt_sync_step_progress',
+      tmdb: 'trakt_sync_step_tmdb',
+    };
+    const stepKey = syncStatus.step ? stepKeyMap[syncStatus.step] : null;
+    const stepLabel = stepKey ? t(stepKey) : '';
+    if (stepLabel && syncStatus.total > 0 && syncStatus.current > 0) {
+      return `${base} (${stepLabel}: ${syncStatus.current}/${syncStatus.total})`;
+    }
+    if (stepLabel) {
+      return `${base} (${stepLabel})`;
+    }
+    return base;
+  }
+
   function updateSyncStatusUi() {
     const syncBtn = document.getElementById('traktSyncBtn');
     const statusEl = document.getElementById('traktSyncStatus');
+    const isSyncing = syncStatus.status === 'syncing';
+    const isStopping = syncStatus.status === 'stopping';
+    const isBusy = isSyncing || isStopping;
+
     if (syncBtn) {
       const iconSpan = syncBtn.querySelector('[data-icon]');
-      if (syncStatus.status === 'syncing') {
+      if (isBusy) {
         syncBtn.classList.add('trakt-sync-spinning');
         syncBtn.disabled = true;
         if (iconSpan) {
@@ -146,14 +188,81 @@
       }
     }
 
-    // Settings > Trakt.tv "full sync" button
+    // Settings > Trakt.tv "full sync" / "stop" button
     const settingsSyncBtn = document.getElementById('traktSettingsSyncBtn');
-    if (settingsSyncBtn) settingsSyncBtn.disabled = syncStatus.status === 'syncing';
+    if (settingsSyncBtn) {
+      if (isSyncing) {
+        settingsSyncBtn.className = 'btn btn-red';
+        settingsSyncBtn.disabled = false;
+        settingsSyncBtn.title = t('trakt_btn_stop_sync_hint');
+        settingsSyncBtn.innerHTML = `${iconHtml('player-stop', 16)} <span>${esc(t('trakt_btn_stop_sync'))}</span>`;
+      } else if (isStopping) {
+        settingsSyncBtn.className = 'btn btn-red';
+        settingsSyncBtn.disabled = true;
+        settingsSyncBtn.title = t('trakt_sync_stopping');
+        settingsSyncBtn.innerHTML = `${iconHtml('player-stop', 16)} <span>${esc(t('trakt_sync_stopping'))}</span>`;
+      } else {
+        settingsSyncBtn.className = 'btn btn-blue';
+        settingsSyncBtn.disabled = false;
+        settingsSyncBtn.title = t('trakt_btn_full_sync_hint');
+        settingsSyncBtn.innerHTML = `${iconHtml('trakt-sync', 16)} <span>${esc(t('trakt_btn_full_sync'))}</span>`;
+      }
+    }
+
+    const clearCacheBtn = document.getElementById('traktClearCacheBtn');
+    if (clearCacheBtn) clearCacheBtn.disabled = isBusy;
+    const logoutBtn = document.getElementById('traktSettingsLogoutBtn');
+    if (logoutBtn) logoutBtn.disabled = isBusy;
+
+    const locale = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
+    let formattedLastSync = '';
+    let isOverdue = false;
+    if (syncStatus.lastSyncOkAt) {
+      const d = new Date(syncStatus.lastSyncOkAt);
+      formattedLastSync = isNaN(d.getTime()) ? syncStatus.lastSyncOkAt : d.toLocaleString(locale);
+      isOverdue = !isNaN(d.getTime()) && Date.now() - d.getTime() > 24 * 3600 * 1000;
+    }
+
+    // Settings > Trakt.tv last-sync & live progress lines
+    const settingsSyncEl = document.getElementById('traktSettingsSyncStatus');
+    if (settingsSyncEl) {
+      settingsSyncEl.classList.remove('is-overdue');
+      if (!syncStatus.lastSyncOkAt) {
+        settingsSyncEl.classList.add('is-overdue');
+        settingsSyncEl.textContent = `${t('trakt_sync_last_ok')} ${t('trakt_sync_never')}`;
+      } else {
+        if (isOverdue) settingsSyncEl.classList.add('is-overdue');
+        settingsSyncEl.textContent = `${t('trakt_sync_last_ok')} ${formattedLastSync}`;
+      }
+    }
+
+    const settingsLiveEl = document.getElementById('traktSettingsSyncLive');
+    if (settingsLiveEl) {
+      settingsLiveEl.classList.remove('is-syncing', 'is-stopped', 'is-offline');
+      if (isBusy) {
+        settingsLiveEl.classList.add('is-syncing');
+        settingsLiveEl.style.display = 'flex';
+        settingsLiveEl.innerHTML = `<span class="spinner-small"></span> <span>${esc(formatSyncProgressText())}</span>`;
+      } else if (syncStatus.status === 'cancelled') {
+        settingsLiveEl.classList.add('is-stopped');
+        settingsLiveEl.style.display = 'flex';
+        settingsLiveEl.textContent = t('trakt_sync_stopped');
+      } else if (syncStatus.offline || syncStatus.status === 'offline') {
+        settingsLiveEl.classList.add('is-offline');
+        settingsLiveEl.style.display = 'flex';
+        settingsLiveEl.textContent = t('trakt_status_offline');
+      } else {
+        settingsLiveEl.style.display = 'none';
+        settingsLiveEl.textContent = '';
+      }
+    }
 
     if (statusEl) {
       statusEl.classList.remove('is-overdue', 'is-offline');
-      if (syncStatus.status === 'syncing') {
-        statusEl.textContent = t('trakt_sync_in_progress');
+      if (isBusy) {
+        statusEl.textContent = formatSyncProgressText();
+      } else if (syncStatus.status === 'cancelled') {
+        statusEl.textContent = t('trakt_sync_stopped');
       } else if (syncStatus.offline || syncStatus.status === 'offline') {
         statusEl.classList.add('is-offline');
         statusEl.textContent = t('trakt_status_offline');
@@ -162,17 +271,11 @@
       } else if (!syncStatus.lastSyncOkAt) {
         statusEl.classList.add('is-overdue');
         statusEl.textContent = t('trakt_sync_never');
+      } else if (isOverdue) {
+        statusEl.classList.add('is-overdue');
+        statusEl.textContent = `${t('trakt_sync_overdue')} (${formattedLastSync})`;
       } else {
-        const d = new Date(syncStatus.lastSyncOkAt);
-        const locale = typeof currentLang !== 'undefined' && currentLang === 'english' ? 'en-US' : 'hu-HU';
-        const formatted = isNaN(d.getTime()) ? syncStatus.lastSyncOkAt : d.toLocaleString(locale);
-        const isOverdue = Date.now() - d.getTime() > 24 * 3600 * 1000;
-        if (isOverdue) {
-          statusEl.classList.add('is-overdue');
-          statusEl.textContent = `${t('trakt_sync_overdue')} (${formatted})`;
-        } else {
-          statusEl.textContent = `${t('trakt_sync_last_ok')} ${formatted}`;
-        }
+        statusEl.textContent = `${t('trakt_sync_last_ok')} ${formattedLastSync}`;
       }
     }
   }
@@ -366,31 +469,66 @@
     if (!authStatus.loggedIn || manualSyncInFlight) return;
     manualSyncInFlight = true;
     syncStatus.status = 'syncing';
+    syncStatus.step = '';
+    syncStatus.current = 0;
+    syncStatus.total = 0;
+    syncStatus.isFull = !!force;
+    syncStatus.offline = false;
     updateSyncStatusUi();
     try {
       const res = await invoke('trakt_sync', { force: !!force });
-      syncStatus.status = 'idle';
-      syncStatus.offline = false;
-      if (res.lastSyncOkAt) syncStatus.lastSyncOkAt = res.lastSyncOkAt;
-      updateSyncStatusUi();
-      if (res.throttled) {
-        // A sync finished less than a minute ago: nothing was requested, the local data is current.
-        showToast(t('trakt_sync_up_to_date'));
-      } else {
+      syncStatus.step = '';
+      syncStatus.current = 0;
+      syncStatus.total = 0;
+      if (res && res.cancelled) {
+        syncStatus.status = 'cancelled';
+        syncStatus.offline = false;
+        if (res.lastSyncOkAt) syncStatus.lastSyncOkAt = res.lastSyncOkAt;
+        updateSyncStatusUi();
         if (isTraktMode) {
           await loadActiveTraktView();
         }
         if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
-          await loadSettingsTab();
+          await loadSettingsTab({ preserveStatus: 'cancelled' });
+        }
+      } else {
+        syncStatus.status = 'idle';
+        syncStatus.offline = false;
+        if (res && res.lastSyncOkAt) syncStatus.lastSyncOkAt = res.lastSyncOkAt;
+        updateSyncStatusUi();
+        if (res && res.throttled) {
+          // A sync finished less than a minute ago: nothing was requested, the local data is current.
+          showToast(t('trakt_sync_up_to_date'));
+        } else {
+          if (isTraktMode) {
+            await loadActiveTraktView();
+          }
+          if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
+            await loadSettingsTab();
+          }
         }
       }
     } catch (err) {
+      syncStatus.step = '';
+      syncStatus.current = 0;
+      syncStatus.total = 0;
       syncStatus.status = String(err).includes('TRAKT_OFFLINE') ? 'offline' : 'error';
       syncStatus.offline = syncStatus.status === 'offline';
       updateSyncStatusUi();
       showTraktError(err);
     } finally {
       manualSyncInFlight = false;
+    }
+  }
+
+  async function cancelManualSync() {
+    if (syncStatus.status !== 'syncing') return;
+    syncStatus.status = 'stopping';
+    updateSyncStatusUi();
+    try {
+      await invoke('trakt_cancel_sync');
+    } catch (err) {
+      console.warn('[Trakt] trakt_cancel_sync error:', err);
     }
   }
 
@@ -721,13 +859,17 @@
   // Settings Tab
   // ==========================================================================
 
-  async function loadSettingsTab() {
+  async function loadSettingsTab(options = {}) {
     const pane = document.getElementById('tabPaneTrakt');
     if (!pane) return;
 
     try {
       authStatus = await invoke('trakt_get_auth_status');
-      syncStatus = { ...syncStatus, ...(await invoke('trakt_get_sync_status')) };
+      const freshSync = await invoke('trakt_get_sync_status');
+      syncStatus = { ...syncStatus, ...freshSync };
+      if (options.preserveStatus && syncStatus.status === 'idle') {
+        syncStatus.status = options.preserveStatus;
+      }
     } catch (e) {
       console.error('[Trakt] loadSettingsTab error:', e);
     }
@@ -792,9 +934,10 @@
                 ${prof.vip ? '<span class="trakt-vip-badge">VIP</span>' : ''}
               </div>
               <div class="trakt-profile-meta">${esc(t('trakt_member_since'))} ${esc(joinedStr)}</div>
-              <div class="trakt-profile-sync ${overdueClass}">
+              <div class="trakt-profile-sync ${overdueClass}" id="traktSettingsSyncStatus">
                 ${esc(t('trakt_sync_last_ok'))} ${esc(syncStr)}
               </div>
+              <div class="trakt-settings-sync-live" id="traktSettingsSyncLive" style="display:none;"></div>
             </div>
             <div class="trakt-profile-actions">
               <button type="button" class="btn btn-blue" id="traktSettingsSyncBtn" title="${esc(t('trakt_btn_full_sync_hint'))}">
@@ -809,8 +952,12 @@
 
         const sBtn = accountCard.querySelector('#traktSettingsSyncBtn');
         if (sBtn) {
-          sBtn.disabled = syncStatus.status === 'syncing';
           sBtn.onclick = async () => {
+            if (syncStatus.status === 'syncing') {
+              await cancelManualSync();
+              return;
+            }
+            if (syncStatus.status === 'stopping') return;
             const ok = await showConfirm(t('trakt_btn_full_sync'), t('trakt_confirm_full_sync'));
             if (!ok) return;
             triggerManualSync(true);
@@ -874,6 +1021,8 @@
         await loadSettingsTab();
       };
     }
+
+    updateSyncStatusUi();
   }
 
   // ==========================================================================
@@ -960,13 +1109,29 @@
         const payload = event.payload || {};
         const prevStatus = syncStatus.status;
         syncStatus.status = payload.status || 'idle';
+        syncStatus.step = payload.step || '';
+        syncStatus.current = Number(payload.current) || 0;
+        syncStatus.total = Number(payload.total) || 0;
+        if (typeof payload.isFull === 'boolean') {
+          syncStatus.isFull = payload.isFull;
+        }
         syncStatus.offline = payload.status === 'offline';
         if (payload.lastSyncOkAt) {
           syncStatus.lastSyncOkAt = payload.lastSyncOkAt;
         }
         updateSyncStatusUi();
-        if (prevStatus === 'syncing' && syncStatus.status === 'idle' && !manualSyncInFlight && isTraktMode) {
-          await loadActiveTraktView();
+        const finishedFromBusy =
+          (prevStatus === 'syncing' || prevStatus === 'stopping') &&
+          (syncStatus.status === 'idle' || syncStatus.status === 'cancelled');
+        if (finishedFromBusy && !manualSyncInFlight) {
+          if (isTraktMode) {
+            await loadActiveTraktView();
+          }
+          if (document.getElementById('tabPaneTrakt')?.classList.contains('active')) {
+            await loadSettingsTab(
+              syncStatus.status === 'cancelled' ? { preserveStatus: 'cancelled' } : {}
+            );
+          }
         }
       }).catch((e) => console.warn('[Trakt] listen trakt-sync-state failed:', e));
 
@@ -1019,7 +1184,7 @@
     const viewport = document.getElementById('traktViewport');
     if (!viewport) return;
     const todayList = document.getElementById('traktTodayList');
-    const prevScrollLeft = todayList ? todayList.scrollLeft : 0;
+    const prevScrollTop = todayList ? todayList.scrollTop : 0;
     try {
       const startDate = window.TraktDates.getLocalYesterdayYmd();
       const data = await invoke('trakt_get_dashboard_data', {
@@ -1027,10 +1192,10 @@
         forceRefresh: false,
       });
       if (!isTraktMode || currentSubView !== 'dashboard') return;
-      window.TraktDashboard.renderDashboard(viewport, data);
+      window.TraktDashboard.renderDashboard(viewport, data, { preservePage: true });
       const newTodayList = document.getElementById('traktTodayList');
-      if (newTodayList && prevScrollLeft > 0) {
-        newTodayList.scrollLeft = prevScrollLeft;
+      if (newTodayList && prevScrollTop > 0) {
+        newTodayList.scrollTop = prevScrollTop;
       }
     } catch (_) {}
   }

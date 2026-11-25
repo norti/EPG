@@ -18,7 +18,7 @@ pub(crate) mod tests;
 
 use rusqlite::Connection;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{watch, Mutex, RwLock};
@@ -44,6 +44,10 @@ pub struct TraktState {
     pub manual_gate: Mutex<()>,
     /// End of the last *successful* sync (manual or focus triggered); drives the button debounce.
     pub last_sync_done: std::sync::Mutex<Option<Instant>>,
+    /// Cooperative cancel flag for an active Trakt sync (set by `trakt_cancel_sync`).
+    pub sync_cancel: AtomicBool,
+    /// Live progress/state of an active Trakt sync so Settings & Header can reflect it anytime.
+    pub sync_runtime: std::sync::Mutex<sync::SyncRuntimeState>,
 }
 
 impl TraktState {
@@ -89,6 +93,8 @@ impl TraktState {
             last_focus_sync: Mutex::new(None),
             manual_gate: Mutex::new(()),
             last_sync_done: std::sync::Mutex::new(None),
+            sync_cancel: AtomicBool::new(false),
+            sync_runtime: std::sync::Mutex::new(sync::SyncRuntimeState::default()),
         }
     }
 }

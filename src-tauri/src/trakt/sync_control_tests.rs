@@ -2,7 +2,8 @@
 //! The sync itself is replaced by a counting fake, so no Trakt login or network is involved.
 
 use crate::trakt::sync::{
-    manual_sync_in, mark_sync_done, resolve_force, set_sync_state_val, SyncSummary,
+    get_sync_runtime_state, is_sync_cancelled, manual_sync_in, mark_sync_done,
+    request_sync_cancel, resolve_force, set_sync_state_val, SyncSummary,
     MANUAL_SYNC_DEBOUNCE_SECS,
 };
 use crate::trakt::tests::make_test_state;
@@ -25,6 +26,7 @@ fn ok_summary() -> SyncSummary {
         pending_flushed: 0,
         last_sync_ok_at: "2026-11-24T10:00:00Z".to_string(),
         throttled: false,
+        cancelled: false,
     }
 }
 
@@ -159,4 +161,52 @@ async fn test_debounce_window_expires() {
     let after = click(&state, false, short, &calls).await.unwrap();
     assert!(!after.throttled);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn test_cancelled_sync_does_not_start_debounce_window() {
+    let state = offline_state();
+    let calls = Arc::new(AtomicUsize::new(0));
+
+    let c = calls.clone();
+    let cancelled = manual_sync_in(&state, true, WINDOW, move || async move {
+        c.fetch_add(1, Ordering::SeqCst);
+        let mut s = ok_summary();
+        s.cancelled = true;
+        Ok(s)
+    })
+    .await
+    .unwrap();
+    assert!(cancelled.cancelled);
+
+    // A cancelled full sync must not block a subsequent sync inside the debounce window
+    let retry = click(&state, false, WINDOW, &calls).await.unwrap();
+    assert!(!retry.throttled);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn test_request_sync_cancel_marks_running_sync_stopping() {
+    let state = offline_state();
+    assert!(!is_sync_cancelled(&state));
+    // When idle, request_sync_cancel still sets the flag and reports false (no running sync)
+    assert!(!request_sync_cancel(&state, None));
+    assert!(is_sync_cancelled(&state));
+
+    // Simulate active syncing state
+    {
+        let mut rt = state.trakt.sync_runtime.lock().unwrap();
+        rt.status = "syncing".to_string();
+        rt.step = "progress".to_string();
+        rt.current = 3;
+        rt.total = 10;
+        rt.is_full = true;
+    }
+    assert!(request_sync_cancel(&state, None));
+    let rt = get_sync_runtime_state(&state);
+    assert_eq!(rt.status, "stopping");
+    assert_eq!(rt.step, "progress");
+    assert_eq!(rt.current, 3);
+    assert_eq!(rt.total, 10);
+    assert!(rt.is_full);
 }
