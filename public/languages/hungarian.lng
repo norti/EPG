@@ -185,6 +185,7 @@
   "tmdb_cache_cleared": "A TMDB gyorsítótár sikeresen kiürítve!",
   "tmdb_saved_success": "TMDB API kulcs sikeresen mentve!",
   "tmdb_copied_to_clipboard": "Cím másolva a vágólapra!",
+  "tmdb_switch_lang_title": "Kattintson a leírás nyelvének váltásához",
   "tmdb_overview_heading": "Részletes leírás",
   "badge_hu": "Magyar:",
   "badge_en": "Angol:",

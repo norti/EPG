@@ -788,7 +788,7 @@
         if (seq !== modalAttachSeq) return;
         if (tmdbLoading) tmdbLoading.style.display = 'none';
         if (tmdbData && typeof renderTmdbDetailsInModal === 'function') {
-          renderTmdbDetailsInModal(tmdbData, { preserveTrakt: true });
+          renderTmdbDetailsInModal(tmdbData, { preserveTrakt: true, activeLang: lang });
         }
       } catch (_) {
         if (tmdbLoading) tmdbLoading.style.display = 'none';

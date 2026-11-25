@@ -37,6 +37,7 @@ function copyText(text, badgeEl) {
 }
 
 let currentModalFetchIndex = 0;
+let currentModalLangSwitchIndex = 0;
 let currentModalChannel = null;
 let currentModalPosterPath = "";
 let currentModalLargePosterSrc = "";
@@ -198,6 +199,7 @@ function updateModalLeftColVisibility() {
 
 function resetModalTmdbUi(preserveTrakt = false) {
   hidePosterZoom();
+  currentModalLangSwitchIndex++;
   currentModalLargePosterSrc = "";
   const posterCol = document.getElementById("modalPosterCol");
   const posterImg = document.getElementById("modalPoster");
@@ -222,8 +224,11 @@ function resetModalTmdbUi(preserveTrakt = false) {
   yearBadge.style.display = "none";
   variantsRow.style.display = "none";
   huBadge.style.display = "none";
+  huBadge.classList.remove("active");
   enBadge.style.display = "none";
+  enBadge.classList.remove("active");
   origBadge.style.display = "none";
+  origBadge.classList.remove("active");
   tmdbOverview.style.display = "none";
   tmdbOverviewText.textContent = "";
   tmdbLoading.style.display = "none";
@@ -231,6 +236,76 @@ function resetModalTmdbUi(preserveTrakt = false) {
     window.TraktUI.detachFromModal();
   }
   updateModalLeftColVisibility();
+}
+
+function getModalTitleVariants(tmdbData, appLang) {
+  if (!tmdbData) return [];
+
+  const lang = (
+    appLang ||
+    (typeof currentLang !== "undefined" ? currentLang : "hungarian")
+  ).toLowerCase();
+  const isEnglishApp = lang === "english" || lang === "en";
+
+  const huTitle = (
+    tmdbData.huTitle ||
+    tmdbData.enTitle ||
+    tmdbData.originalTitle ||
+    tmdbData.title ||
+    ""
+  ).trim();
+  const enTitle = (
+    tmdbData.enTitle ||
+    tmdbData.originalTitle ||
+    tmdbData.title ||
+    ""
+  ).trim();
+  const origTitle = (tmdbData.originalTitle || "").trim();
+
+  const variants = [];
+
+  // 1. App-configured language first (when not English, English follows in 2nd place)
+  if (!isEnglishApp && huTitle) {
+    variants.push({
+      slot: "hu",
+      tmdbLang: "hu-HU",
+      title: huTitle,
+    });
+  }
+
+  // 2. English title in all cases (1st when the app itself is set to English)
+  if (enTitle) {
+    variants.push({
+      slot: "en",
+      tmdbLang: "en-US",
+      title: enTitle,
+    });
+  }
+
+  // 3. Original title (if present), even when identical to the other titles
+  if (origTitle) {
+    const origLang = tmdbData.originalLanguage
+      ? langCodeToTmdbLang(tmdbData.originalLanguage)
+      : "en-US";
+    variants.push({
+      slot: "orig",
+      tmdbLang: origLang,
+      title: origTitle,
+    });
+  }
+
+  return variants;
+}
+
+function setActiveTitleVariantBadge(activeBadge) {
+  ["modalHuTitleBadge", "modalEnTitleBadge", "modalOrigTitleBadge"].forEach(
+    (id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el === activeBadge) el.classList.add("active");
+      else el.classList.remove("active");
+    },
+  );
 }
 
 function renderTmdbDetailsInModal(tmdbData, options = {}) {
@@ -288,39 +363,44 @@ function renderTmdbDetailsInModal(tmdbData, options = {}) {
     yearBadge.style.display = "inline-flex";
   }
 
-  // Title variants badges
-  let hasVariant = false;
+  // Title variants badges: 1. app language, 2. English, 3. Original (if present)
+  const variants = getModalTitleVariants(tmdbData, currentLang);
+  const badgeMap = {
+    hu: huBadge,
+    en: enBadge,
+    orig: origBadge,
+  };
+  const activeLang = (options.activeLang || getCurrentModalLang() || "").toLowerCase();
+  const activeLangPrefix = activeLang.split("-")[0];
+  let initialActiveBadge = null;
 
-  if (tmdbData.huTitle) {
-    huBadge.textContent = `🇭🇺 ${t("badge_hu")} ${tmdbData.huTitle}`;
-    huBadge.style.display = "inline-flex";
-    huBadge.onclick = () => switchTmdbLang(tmdbData, "hu-HU");
-    hasVariant = true;
-  }
+  variants.forEach((variant) => {
+    const badgeEl = badgeMap[variant.slot];
+    if (!badgeEl) return;
 
-  if (tmdbData.enTitle && tmdbData.enTitle !== tmdbData.huTitle) {
-    enBadge.textContent = `🇬🇧 ${t("badge_en")} ${tmdbData.enTitle}`;
-    enBadge.style.display = "inline-flex";
-    enBadge.onclick = () => switchTmdbLang(tmdbData, "en-US");
-    hasVariant = true;
-  }
+    if (variant.slot === "hu") {
+      badgeEl.textContent = `🇭🇺 ${t("badge_hu")} ${variant.title}`;
+    } else if (variant.slot === "en") {
+      badgeEl.textContent = `🇬🇧 ${t("badge_en")} ${variant.title}`;
+    } else if (variant.slot === "orig") {
+      badgeEl.innerHTML = `${iconHtml("world", 13)} ${escapeHtml(t("badge_orig"))} ${escapeHtml(variant.title)}`;
+    }
 
-  if (
-    tmdbData.originalTitle &&
-    tmdbData.originalTitle !== tmdbData.huTitle &&
-    tmdbData.originalTitle !== tmdbData.enTitle
-  ) {
-    origBadge.innerHTML = `${iconHtml("world", 13)} ${escapeHtml(t("badge_orig"))} ${escapeHtml(tmdbData.originalTitle)}`;
-    origBadge.style.display = "inline-flex";
-    const origLang = tmdbData.originalLanguage
-      ? langCodeToTmdbLang(tmdbData.originalLanguage)
-      : "en-US";
-    origBadge.onclick = () => switchTmdbLang(tmdbData, origLang);
-    hasVariant = true;
-  }
+    badgeEl.style.display = "inline-flex";
+    badgeEl.onclick = () => switchTmdbLang(tmdbData, variant.tmdbLang, badgeEl);
+    variantsRow.appendChild(badgeEl);
 
-  if (hasVariant) {
+    if (!initialActiveBadge) {
+      const variantPrefix = variant.tmdbLang.toLowerCase().split("-")[0];
+      if (variantPrefix === activeLangPrefix) {
+        initialActiveBadge = badgeEl;
+      }
+    }
+  });
+
+  if (variants.length > 0) {
     variantsRow.style.display = "flex";
+    setActiveTitleVariantBadge(initialActiveBadge);
   }
 
   // TMDB Overview
@@ -369,7 +449,7 @@ function langCodeToTmdbLang(iso639) {
   );
 }
 
-async function switchTmdbLang(tmdbData, targetLang) {
+async function switchTmdbLang(tmdbData, targetLang, clickedBadgeEl) {
   if (!tmdbData || !tmdbData.tmdbId || !tmdbData.mediaType) return;
   const posterImg = document.getElementById("modalPoster");
   const posterCol = document.getElementById("modalPosterCol");
@@ -377,6 +457,9 @@ async function switchTmdbLang(tmdbData, targetLang) {
   const tmdbOverview = document.getElementById("modalTmdbOverview");
   const tmdbOverviewText = document.getElementById("modalTmdbOverviewText");
   const tmdbLoading = document.getElementById("modalTmdbLoading");
+
+  const fetchIndex = currentModalFetchIndex;
+  const switchIndex = ++currentModalLangSwitchIndex;
 
   tmdbLoading.style.display = "flex";
   try {
@@ -387,13 +470,25 @@ async function switchTmdbLang(tmdbData, targetLang) {
       queryTitle: currentModalTitle,
     });
 
+    if (
+      fetchIndex !== currentModalFetchIndex ||
+      switchIndex !== currentModalLangSwitchIndex
+    ) {
+      return;
+    }
+
     tmdbLoading.style.display = "none";
+
+    if (clickedBadgeEl) {
+      setActiveTitleVariantBadge(clickedBadgeEl);
+    }
 
     if (details.posterPath) {
       currentModalPosterPath = details.posterPath;
       currentModalLargePosterSrc = "";
       posterImg.src = `https://image.tmdb.org/t/p/w500${details.posterPath}`;
       posterCol.style.display = "block";
+      updateModalLeftColVisibility();
       preloadAndCacheLargePoster(details.posterPath);
     }
 
@@ -410,7 +505,12 @@ async function switchTmdbLang(tmdbData, targetLang) {
       tmdbOverviewText.textContent = "";
     }
   } catch (e) {
-    tmdbLoading.style.display = "none";
+    if (
+      fetchIndex === currentModalFetchIndex &&
+      switchIndex === currentModalLangSwitchIndex
+    ) {
+      tmdbLoading.style.display = "none";
+    }
     console.warn("TMDB lang switch error:", e);
   }
 }
@@ -581,7 +681,7 @@ function renderFixResults(items) {
           mediaType: item.mediaType,
           lang,
         });
-        renderTmdbDetailsInModal(updatedDetails);
+        renderTmdbDetailsInModal(updatedDetails, { activeLang: lang });
         closeFixOverlay();
         if (window.TraktUI) {
           window.TraktUI.attachToModal({

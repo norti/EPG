@@ -43,7 +43,7 @@ async function openModal(title, time, desc, channel) {
     }
 
     tmdbLoading.style.display = "none";
-    renderTmdbDetailsInModal(tmdbData);
+    renderTmdbDetailsInModal(tmdbData, { activeLang: lang });
     if (window.TraktUI) {
       window.TraktUI.attachToModal({
         title,

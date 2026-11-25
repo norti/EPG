@@ -617,3 +617,51 @@ async fn test_tmdb_single_flight_coalesces_concurrent_details_and_search() {
     assert_eq!(q2.len(), 1);
     assert_eq!(search_hits.load(Ordering::SeqCst), 1, "Concurrent uncached search_tmdb calls must share 1 HTTP request");
 }
+
+#[tokio::test]
+async fn test_lang_switch_ignores_stale_id_and_does_not_leak_hu_overview() {
+    let base = spawn_mock_server(move |_method, path, _body| {
+        if path.starts_with("/tv/2691") && path.contains("language=en-US") {
+            return (
+                200,
+                vec![],
+                r#"{"id":2691,"name":"MacGyver","original_name":"MacGyver","original_language":"en","poster_path":"/m85.jpg","first_air_date":"1985-09-29","overview":"1985 English overview","vote_average":7.6,"translations":{"translations":[{"iso_639_1":"hu","data":{"name":"MacGyver","overview":"1985 magyar leírás"}},{"iso_639_1":"en","data":{"name":"MacGyver","overview":"1985 English overview"}}]}}"#.to_string(),
+            );
+        }
+        if path.starts_with("/tv/2691") && path.contains("language=de-DE") {
+            return (
+                200,
+                vec![],
+                r#"{"id":2691,"name":"MacGyver","original_name":"MacGyver","original_language":"en","poster_path":"/m85.jpg","first_air_date":"1985-09-29","overview":"","vote_average":7.6,"translations":{"translations":[{"iso_639_1":"hu","data":{"name":"MacGyver","overview":"1985 magyar leírás"}}]}}"#.to_string(),
+            );
+        }
+        (404, vec![], "{}".to_string())
+    })
+    .await;
+    let state = tmdb_state(base).await;
+
+    // Seed a stale en-US cache row for a DIFFERENT TMDB id (e.g. before a manual Fix changed 67133 -> 2691)
+    {
+        let conn = state.db.lock().await;
+        conn.execute(
+            "INSERT INTO tmdb_cache (query_title, lang, tmdb_id, media_type, title, hu_title, en_title, original_title, overview, is_manual, updated_at)
+             VALUES ('macgyver', 'en-US', 67133, 'tv', 'MacGyver', 'MacGyver', 'MacGyver', 'MacGyver', 'Wrong 2016 overview', 0, datetime('now','localtime'))",
+            [],
+        )
+        .unwrap();
+    }
+
+    // Requesting en-US for 2691 under key 'macgyver' must NOT return the stale 67133 row
+    let en = get_tmdb_by_id(&state, 2691, "tv", "en-US", Some("macgyver"), false)
+        .await
+        .unwrap();
+    assert_eq!(en.tmdb_id, 2691);
+    assert_eq!(en.overview.as_deref(), Some("1985 English overview"));
+
+    // Requesting de-DE when TMDB has no German overview must NOT leak the Hungarian overview
+    let de = get_tmdb_by_id(&state, 2691, "tv", "de-DE", Some("macgyver"), false)
+        .await
+        .unwrap();
+    assert_eq!(de.tmdb_id, 2691);
+    assert_eq!(de.overview, None);
+}

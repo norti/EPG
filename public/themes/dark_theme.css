@@ -1313,6 +1313,9 @@ input[type="text"] {
 .title-badge:active {
   transform: translateY(1px);
 }
+.title-badge.active {
+  box-shadow: 0 0 0 1.5px currentColor;
+}
 .title-badge-hu {
   background: var(--badge-hu-bg);
   color: var(--badge-hu-text);
@@ -2161,7 +2164,9 @@ input[type="text"] {
   border-radius: 5px;
   border: 1px solid var(--border-modal-card);
 }
-.channel-logo-box { margin-top: 2px; }
+.channel-logo-box {
+  margin-top: 2px;
+}
 .channel-logo-label,
 .channel-rename-label {
   font-size: 12px;
@@ -2190,7 +2195,9 @@ input[type="text"] {
   font-size: 11px !important;
   border-radius: 4px !important;
 }
-.channel-rename-box { margin-top: 4px; }
+.channel-rename-box {
+  margin-top: 4px;
+}
 .channel-edit-fields-container {
   display: flex;
   flex-direction: column;
@@ -2473,7 +2480,10 @@ input[type="text"] {
   padding-right: 6px;
 }
 
-.epg-grid.layout-horizontal .channel-row-header .channel-name-badge .channel-header-logo {
+.epg-grid.layout-horizontal
+  .channel-row-header
+  .channel-name-badge
+  .channel-header-logo {
   flex-shrink: 0;
 }
 
@@ -2789,7 +2799,7 @@ input[type="text"] {
 }
 
 #sourceCountrySelect {
-  width: 210px;
+  width: 300px;
 }
 
 #sourceOffsetInput {
@@ -3091,11 +3101,26 @@ input[type="text"] {
   flex-shrink: 0;
 }
 
-.icon-xs { width: 14px; height: 14px; }
-.icon-sm { width: 16px; height: 16px; }
-.icon-md { width: 20px; height: 20px; }
-.icon-lg { width: 24px; height: 24px; }
-.icon-xl { width: 32px; height: 32px; }
+.icon-xs {
+  width: 14px;
+  height: 14px;
+}
+.icon-sm {
+  width: 16px;
+  height: 16px;
+}
+.icon-md {
+  width: 20px;
+  height: 20px;
+}
+.icon-lg {
+  width: 24px;
+  height: 24px;
+}
+.icon-xl {
+  width: 32px;
+  height: 32px;
+}
 
 .btn .tabler-icon {
   margin-right: 4px;
@@ -3629,7 +3654,9 @@ input[type="text"] {
   background: var(--bg-modal-card);
   border: 1px solid var(--border-subtle);
   border-radius: 7px;
-  transition: border-color 0.15s, background-color 0.15s;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
   flex-shrink: 0;
 }
 
@@ -3756,7 +3783,10 @@ input[type="text"] {
   flex-direction: column;
   align-items: center;
   cursor: pointer;
-  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition:
+    transform 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .logo-card:hover {
@@ -3930,8 +3960,12 @@ body.trakt-mode #epgViewport {
 }
 
 @keyframes trakt-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 .trakt-sync-spinning [data-icon="trakt-sync-active"] svg,
 .trakt-sync-spinning svg {
@@ -4070,7 +4104,10 @@ body.trakt-mode #epgViewport {
   background: var(--bg-btn-secondary);
   color: var(--text-primary);
   cursor: pointer;
-  transition: background-color 0.12s, border-color 0.12s, opacity 0.12s;
+  transition:
+    background-color 0.12s,
+    border-color 0.12s,
+    opacity 0.12s;
 }
 .trakt-pager-btn:hover:not(:disabled) {
   background: var(--bg-fix-card-hover);
@@ -4134,7 +4171,10 @@ body.trakt-mode #epgViewport {
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s, transform 0.12s;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    transform 0.12s;
   box-sizing: border-box;
 }
 .trakt-poster-card:hover {
@@ -4255,7 +4295,10 @@ body.trakt-mode #epgViewport {
   align-items: stretch;
   gap: 12px;
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s, transform 0.12s;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    transform 0.12s;
   box-sizing: border-box;
 }
 .trakt-card:hover {
@@ -4509,7 +4552,9 @@ body.trakt-mode #epgViewport {
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.12s;
+  transition:
+    border-color 0.15s,
+    transform 0.12s;
 }
 .trakt-wl-card:hover {
   border-color: var(--trakt-watchlist-active);
@@ -4898,7 +4943,10 @@ body.trakt-mode #epgViewport {
 }
 .trakt-airing-row {
   display: grid;
-  grid-template-columns: 26px 26px 142px 92px 54px minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-columns: 26px 26px 142px 92px 54px minmax(0, 1.2fr) minmax(
+      0,
+      1fr
+    );
   align-items: center;
   gap: 6px;
   padding: 6px 8px;
@@ -4919,7 +4967,10 @@ body.trakt-mode #epgViewport {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
 }
 .trakt-airing-jump-btn:hover {
   background: rgba(33, 150, 243, 0.2);
@@ -4994,11 +5045,16 @@ body.trakt-mode #epgViewport {
   box-sizing: border-box;
 }
 @keyframes trakt-jump-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 2px var(--trakt-watchlist-active), 0 0 14px rgba(33, 150, 243, 0.75);
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px var(--trakt-watchlist-active),
+      0 0 14px rgba(33, 150, 243, 0.75);
   }
   50% {
-    box-shadow: 0 0 0 4px var(--accent-yellow), 0 0 20px rgba(241, 196, 15, 0.85);
+    box-shadow:
+      0 0 0 4px var(--accent-yellow),
+      0 0 20px rgba(241, 196, 15, 0.85);
   }
 }
 .programme.trakt-jump-flash {
@@ -5195,8 +5251,10 @@ body.trakt-mode #epgViewport {
     max-height: 260px;
   }
   .trakt-airing-row {
-    grid-template-columns: 26px 26px 118px 76px 48px minmax(0, 1fr) minmax(0, 0.9fr);
+    grid-template-columns: 26px 26px 118px 76px 48px minmax(0, 1fr) minmax(
+        0,
+        0.9fr
+      );
     gap: 4px;
   }
 }
-

@@ -4005,12 +4005,14 @@ async fn fetch_tmdb_item_details(
         .or_else(|| search_overview.clone().filter(|_| target_lang.starts_with("hu")));
     let en_overview_col = en_overview
         .clone()
-        .or_else(|| search_overview.filter(|_| target_lang.starts_with("en")));
+        .or_else(|| search_overview.clone().filter(|_| target_lang.starts_with("en")));
 
-    let final_overview = if target_lang.starts_with("hu") && hu_overview.is_some() {
-        hu_overview
+    let final_overview = if target_lang.starts_with("hu") {
+        hu_overview.or(search_overview)
+    } else if target_lang.starts_with("en") {
+        search_overview.or(en_overview)
     } else {
-        item.overview.or(hu_overview)
+        search_overview
     };
 
     let details = TmdbDetails {
@@ -4249,7 +4251,7 @@ async fn get_tmdb_by_id_inner(
             };
 
             if let Some((Some(cached_id), media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
-                if media.as_deref() != Some("none") {
+                if media.as_deref() == Some(media_type) && cached_id == tmdb_id {
                     return Ok(TmdbDetails {
                         tmdb_id: cached_id,
                         title: title.unwrap_or_default(),
@@ -4337,8 +4339,9 @@ async fn get_tmdb_details_for_lang(state: tauri::State<'_, AppState>,
         let clean = clean_title(&query_title);
         if clean.is_empty() { query_title.trim().to_string() } else { clean }
     };
+    let key_opt = if cache_key.is_empty() { None } else { Some(cache_key.as_str()) };
 
-    get_tmdb_by_id(state.inner(), tmdb_id, &media_type, &lang, Some(&cache_key), false).await
+    get_tmdb_by_id(state.inner(), tmdb_id, &media_type, &lang, key_opt, false).await
 }
 
 pub(crate) async fn search_tmdb_inner(
