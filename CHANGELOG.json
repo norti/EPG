@@ -3,10 +3,10 @@
   "releases": [
     {
       "version": "1.0.0",
-      "pubDate": "2026-11-25T00:00:00Z",
+      "pubDate": "2026-11-25T20:02:40Z",
       "installerFile": "epg-viewer_1.0.0_x64-setup.exe",
-      "sizeBytes": 0,
-      "sha256": "",
+      "sizeBytes": 6012762,
+      "sha256": "f0d46a25272dcc1034aacf645801b4173f028a4d60d87d2db3f1baff69420c3d",
       "changelog": {
         "hu": [
           "Első stabil kiadás: XML/GZ EPG műsorújság megjelenítő függőleges és vízszintes nézettel",
