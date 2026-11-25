@@ -3022,7 +3022,6 @@ input[type="text"].channel-edit-input:focus {
 #saveChannelSortPresetBtn,
 #renameChannelSortPresetBtn,
 #deleteChannelSortPresetBtn,
-#restoreLanguagesBtn,
 #autoMatchLogosBtn,
 #findDuplicateLogosBtn,
 #deduplicateLogosBtn,
@@ -5151,12 +5150,6 @@ body.trakt-mode #epgViewport {
 }
 
 /* Header & Settings inline-style migrations */
-#restoreLanguagesBtn {
-  padding: 4px 8px;
-  font-size: 11px;
-  margin-left: 6px;
-}
-
 #sortChannelsSourceAzBtn {
   display: inline-block;
 }

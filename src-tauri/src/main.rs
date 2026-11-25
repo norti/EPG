@@ -3741,9 +3741,7 @@ async fn set_setting(state: tauri::State<'_, AppState>, key: String, value: Stri
     set_setting_in_conn(&conn, &key, &value)
 }
 
-#[tauri::command]
-async fn get_language_content(state: tauri::State<'_, AppState>, lang: String) -> Result<String, String> {
-    let conn = state.db.lock().await;
+fn load_language_content_from_conn(conn: &Connection, lang: &str) -> Result<String, String> {
     let normalized = lang.to_lowercase();
     let mut stmt = conn
         .prepare("SELECT content FROM app_languages WHERE lang = ?1")
@@ -3764,6 +3762,44 @@ async fn get_language_content(state: tauri::State<'_, AppState>, lang: String) -
     }
 
     Ok(EMBEDDED_ENGLISH_LNG.to_string())
+}
+
+fn extract_app_title(lang_json: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(lang_json).ok()?;
+    let title = parsed.get("app_title")?.as_str()?.trim();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title.to_string())
+    }
+}
+
+fn resolve_initial_window_title(conn: &Connection) -> String {
+    let lang = conn
+        .query_row("SELECT value FROM settings WHERE key = 'language'", [], |r| {
+            r.get::<_, String>(0)
+        })
+        .ok()
+        .map(|v| v.trim().to_lowercase())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "hungarian".to_string());
+
+    if let Ok(content) = load_language_content_from_conn(conn, &lang) {
+        if let Some(title) = extract_app_title(&content) {
+            return title;
+        }
+    }
+
+    get_embedded_language(&lang)
+        .and_then(extract_app_title)
+        .or_else(|| extract_app_title(EMBEDDED_ENGLISH_LNG))
+        .unwrap_or_else(|| "EPG Viewer".to_string())
+}
+
+#[tauri::command]
+async fn get_language_content(state: tauri::State<'_, AppState>, lang: String) -> Result<String, String> {
+    let conn = state.db.lock().await;
+    load_language_content_from_conn(&conn, &lang)
 }
 
 #[tauri::command]
@@ -3798,44 +3834,6 @@ fn write_language_files_to_disk(files: &[(&str, &str)]) {
             }
         }
     }
-}
-
-#[tauri::command]
-async fn restore_languages_to_disk(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    {
-        let conn = state.db.lock().await;
-
-        conn.execute(
-            "INSERT INTO app_languages (lang, content, updated_at) VALUES ('english', ?1, datetime('now', 'localtime'))
-             ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-            params![EMBEDDED_ENGLISH_LNG],
-        ).map_err(|e| e.to_string())?;
-
-        conn.execute(
-            "INSERT INTO app_languages (lang, content, updated_at) VALUES ('hungarian', ?1, datetime('now', 'localtime'))
-             ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
-            params![EMBEDDED_HUNGARIAN_LNG],
-        ).map_err(|e| e.to_string())?;
-
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('lng_hash_english', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![migrations::canonical_json_sha256(EMBEDDED_ENGLISH_LNG)],
-        ).map_err(|e| e.to_string())?;
-
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('lng_hash_hungarian', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![migrations::canonical_json_sha256(EMBEDDED_HUNGARIAN_LNG)],
-        ).map_err(|e| e.to_string())?;
-    }
-
-    write_language_files_to_disk(&[
-        ("english", EMBEDDED_ENGLISH_LNG),
-        ("hungarian", EMBEDDED_HUNGARIAN_LNG),
-    ]);
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -6030,6 +6028,7 @@ fn main() {
         .expect("EPG HTTP kliens létrehozási hiba");
 
     let db_conn = open_and_init_db().expect("Adatbázis inicializálási hiba");
+    let initial_window_title = resolve_initial_window_title(&db_conn);
     // Drop Trakt HTTP cache rows that expired long ago (they otherwise pile up, e.g. one calendar body per day).
     let _ = trakt::client::prune_http_cache(&db_conn);
     let trakt_state = trakt::TraktState::new(&db_conn);
@@ -6096,11 +6095,12 @@ fn main() {
             image_inflight: std::sync::Mutex::new(HashMap::new()),
             updater: updater::UpdaterState::default(),
         })
-        .setup(|app| {
-            #[cfg(target_os = "windows")]
+        .setup(move |app| {
             {
                 use tauri::Manager;
                 for window in app.webview_windows().values() {
+                    let _ = window.set_title(&initial_window_title);
+                    #[cfg(target_os = "windows")]
                     if let Ok(hwnd) = window.hwnd() {
                         apply_windows_dark_titlebar(hwnd.0 as isize);
                     }
@@ -6174,7 +6174,6 @@ fn main() {
             set_setting,
             get_language_content,
             save_language_content,
-            restore_languages_to_disk,
             download_languages_from_github,
             get_tmdb_details,
             get_tmdb_details_for_lang,
@@ -7714,6 +7713,44 @@ mod tests {
     fn test_update_setting_key_is_protected() {
         assert!(is_internal_or_protected_setting_key(updater::SETTING_LAST_CHECKED_AT));
         assert!(!is_internal_or_protected_setting_key("language"));
+    }
+
+    #[test]
+    fn test_resolve_initial_window_title_follows_saved_language_and_falls_back() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+
+        // No saved language -> defaults to Hungarian
+        assert_eq!(
+            resolve_initial_window_title(&conn),
+            extract_app_title(EMBEDDED_HUNGARIAN_LNG).unwrap()
+        );
+
+        // Saved English language -> English title
+        set_setting_in_conn(&conn, "language", "english").unwrap();
+        assert_eq!(
+            resolve_initial_window_title(&conn),
+            extract_app_title(EMBEDDED_ENGLISH_LNG).unwrap()
+        );
+
+        // Custom app_title in DB is respected
+        conn.execute(
+            "UPDATE app_languages SET content = ?1 WHERE lang = 'english'",
+            params![r#"{"app_title": "Custom Guide Title"}"#],
+        )
+        .unwrap();
+        assert_eq!(resolve_initial_window_title(&conn), "Custom Guide Title");
+
+        // Corrupted JSON in DB falls back to embedded language title
+        conn.execute(
+            "UPDATE app_languages SET content = 'not-json' WHERE lang = 'english'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_initial_window_title(&conn),
+            extract_app_title(EMBEDDED_ENGLISH_LNG).unwrap()
+        );
     }
 }
 

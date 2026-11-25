@@ -1,5 +1,5 @@
 import { state, invoke, setFavoritesList } from "./state.js";
-import { t, setLanguage, restoreLanguageFiles } from "./i18n.js";
+import { t, setLanguage } from "./i18n.js";
 import {
   showConfirm,
   showAlert,
@@ -600,17 +600,4 @@ export function initSettings() {
   document.getElementById("languageSelect").onchange = (e) => {
     setLanguage(e.target.value);
   };
-
-  const restoreLanguagesBtn = document.getElementById("restoreLanguagesBtn");
-  if (restoreLanguagesBtn) {
-    restoreLanguagesBtn.onclick = async () => {
-      restoreLanguagesBtn.disabled = true;
-      const res = await restoreLanguageFiles();
-      restoreLanguagesBtn.disabled = false;
-      await showAlert(
-        res.success ? t("alert_success_title") : t("alert_error_title"),
-        res.message,
-      );
-    };
-  }
 }

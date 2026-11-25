@@ -2,7 +2,7 @@
 // i18n.js - Internationalization Module for EPG Viewer
 // ============================================================================
 
-import { invoke, hasTauri } from "./state.js";
+import { invoke, hasTauri, setWindowTitle } from "./state.js";
 
 let currentLang = "hungarian";
 let baseDict = {};     // English dictionary (universal fallback)
@@ -124,7 +124,9 @@ export function t(key, params = {}) {
  * Apply all translations to current DOM elements with data-i18n attributes.
  */
 export function applyTranslations() {
-  document.title = t("app_title");
+  const title = t("app_title");
+  document.title = title;
+  setWindowTitle(title).catch(() => {});
 
   document.querySelectorAll("[data-i18n]").forEach((el) => {
     const key = el.getAttribute("data-i18n");
@@ -197,37 +199,4 @@ export async function setLanguage(lang, options = {}) {
       }
     }
   }
-}
-
-/**
- * Restore language files from embedded defaults / GitHub and reload active language.
- */
-export async function restoreLanguageFiles() {
-  if (!hasTauri()) return { success: false, message: "Tauri not available" };
-
-  try {
-    // Attempt download from GitHub first, fallback to embedded disk restore
-    let success = false;
-    try {
-      await invoke("download_languages_from_github");
-      success = true;
-    } catch (e) {
-      console.warn("[i18n] GitHub download failed, restoring embedded defaults to disk:", e);
-      await invoke("restore_languages_to_disk");
-      success = true;
-    }
-
-    if (success) {
-      // Clear memory cache so fresh files are loaded
-      Object.keys(loadedLanguagesCache).forEach((k) => delete loadedLanguagesCache[k]);
-      baseDict = {};
-      await setLanguage(currentLang);
-      return { success: true, message: t("status_languages_restored") };
-    }
-  } catch (err) {
-    console.error("[i18n] Failed to restore language files:", err);
-    return { success: false, message: `${t("status_languages_restore_error")}: ${err}` };
-  }
-
-  return { success: false, message: t("status_languages_restore_error") };
 }

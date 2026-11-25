@@ -21,6 +21,20 @@ export function hasTauri() {
   return typeof globalThis.window?.__TAURI__?.core?.invoke === "function";
 }
 
+export function setWindowTitle(title) {
+  const getCurrentWindow = globalThis.window?.__TAURI__?.window?.getCurrentWindow;
+  if (typeof getCurrentWindow !== "function") return Promise.resolve();
+  try {
+    const win = getCurrentWindow();
+    if (win && typeof win.setTitle === "function") {
+      return Promise.resolve(win.setTitle(title));
+    }
+  } catch {
+    // Ignore when running outside a Tauri webview window
+  }
+  return Promise.resolve();
+}
+
 export function setInvokeForTesting(fn) {
   customInvokeForTesting = fn;
 }
