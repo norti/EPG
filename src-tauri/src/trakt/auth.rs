@@ -614,6 +614,7 @@ pub async fn ensure_valid_token(
 pub async fn force_refresh_token(
     state: &AppState,
     app: Option<&tauri::AppHandle>,
+    failed_access_token: &str,
 ) -> Result<Zeroizing<String>, String> {
     let mut guard = state.trakt.token.lock().await;
     if guard.is_none() {
@@ -621,8 +622,11 @@ pub async fn force_refresh_token(
         let conn = state.db.lock().await;
         *guard = load_tokens_from_db(&conn, store.as_ref())?;
     }
-    if guard.is_none() {
+    let Some(ref current) = *guard else {
         return Err("TRAKT_NOT_LOGGED_IN".to_string());
+    };
+    if !failed_access_token.is_empty() && current.access_token.as_str() != failed_access_token {
+        return Ok(current.access_token.clone());
     }
     refresh_token_locked(state, &mut guard, app).await
 }

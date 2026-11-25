@@ -31,6 +31,10 @@ pub struct TmdbRuntime {
     pub sem: tokio::sync::Semaphore,
     /// Pause before retrying a 5xx / network error.
     pub retry_delay: std::time::Duration,
+    /// Serializes concurrent cache-backed TMDB lookups (`search:{lang}:{query}`, `id:{type}:{id}:{lang}`).
+    pub cache_inflight: trakt::client::InflightMap,
+    /// Coalesces concurrent raw HTTP TMDB calls sharing the same flight key.
+    pub(crate) http_inflight: trakt::client::SharedInflightMap<Result<String, TmdbError>>,
 }
 
 impl TmdbRuntime {
@@ -46,6 +50,8 @@ impl TmdbRuntime {
             base: base.into(),
             sem: tokio::sync::Semaphore::new(Self::MAX_CONCURRENT),
             retry_delay,
+            cache_inflight: std::sync::Mutex::new(HashMap::new()),
+            http_inflight: std::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -144,7 +150,7 @@ fn get_images_db_path() -> PathBuf {
 
 fn open_and_init_db() -> Result<Connection, String> {
     let db_path = get_db_path();
-    let conn = Connection::open(&db_path)
+    let mut conn = Connection::open(&db_path)
         .map_err(|e| format!("DB megnyitási hiba: {}", e))?;
 
     let _ = conn.execute("PRAGMA foreign_keys = ON;", []);
@@ -274,6 +280,11 @@ fn open_and_init_db() -> Result<Connection, String> {
             let _ = fs::copy(&bak_path, &db_path);
         }
         return Err(err);
+    }
+
+    let secret_store = trakt::secret::default_secret_store();
+    if let Err(err) = migrate_plaintext_tmdb_api_key(&mut conn, secret_store.as_ref()) {
+        eprintln!("[TMDB] API kulcs DPAPI migráció sikertelen: {}", err);
     }
 
     Ok(conn)
@@ -2133,12 +2144,12 @@ async fn get_missing_logo_channels_inner(state: &AppState, source_id: Option<Str
 
 async fn ensure_tv_logo_tree_loaded(state: &AppState) -> Result<(), String> {
     let already_have = {
-        let r = TV_LOGO_TREE_CACHE.read().unwrap();
+        let r = TV_LOGO_TREE_CACHE.read().unwrap_or_else(|e| e.into_inner());
         r.is_some()
     };
     if !already_have {
         if let Ok(paths) = fetch_tv_logo_full_tree(state).await {
-            let mut w = TV_LOGO_TREE_CACHE.write().unwrap();
+            let mut w = TV_LOGO_TREE_CACHE.write().unwrap_or_else(|e| e.into_inner());
             *w = Some(paths);
         }
     }
@@ -2147,12 +2158,12 @@ async fn ensure_tv_logo_tree_loaded(state: &AppState) -> Result<(), String> {
 
 async fn ensure_iptv_logos_loaded(state: &AppState) -> Result<(), String> {
     let already_have = {
-        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
+        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap_or_else(|e| e.into_inner());
         r.is_some()
     };
     if !already_have {
         if let Ok(logos) = fetch_iptv_org_logos(state).await {
-            let mut w = IPTV_LOGOS_MEM_CACHE.write().unwrap();
+            let mut w = IPTV_LOGOS_MEM_CACHE.write().unwrap_or_else(|e| e.into_inner());
             *w = Some(logos);
         }
     }
@@ -2181,7 +2192,7 @@ async fn find_channel_logo_github_inner(state: &AppState,
     // 1. Forrás A: tv-logo full tree
     let _ = ensure_tv_logo_tree_loaded(state).await;
     {
-        let r = TV_LOGO_TREE_CACHE.read().unwrap();
+        let r = TV_LOGO_TREE_CACHE.read().unwrap_or_else(|e| e.into_inner());
         if let Some(ref tree) = *r {
             if let Some(res) = match_tv_logo_from_tree(tree, country_dir, &c_code, &slug) {
                 candidate = Some((res.url, res.source_name));
@@ -2192,7 +2203,7 @@ async fn find_channel_logo_github_inner(state: &AppState,
     // 2. Forrás B: iptv-org logos
     if candidate.is_none() {
         let _ = ensure_iptv_logos_loaded(state).await;
-        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
+        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap_or_else(|e| e.into_inner());
         if let Some(ref iptv_logos) = *r {
             if !c_code.is_empty() {
                 if let Some(res) = match_iptv_org_logos(iptv_logos, &slug, &c_code) {
@@ -2397,14 +2408,14 @@ async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, 
 
     // Ensure tv-logo tree is loaded
     let tv_tree = {
-        let r = TV_LOGO_TREE_CACHE.read().unwrap();
+        let r = TV_LOGO_TREE_CACHE.read().unwrap_or_else(|e| e.into_inner());
         r.clone()
     };
     let tv_tree = match tv_tree {
         Some(t) => t,
         None => {
             let t = fetch_tv_logo_full_tree(state.inner()).await.unwrap_or_default();
-            let mut w = TV_LOGO_TREE_CACHE.write().unwrap();
+            let mut w = TV_LOGO_TREE_CACHE.write().unwrap_or_else(|e| e.into_inner());
             *w = Some(t.clone());
             t
         }
@@ -2420,14 +2431,14 @@ async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, 
 
     // 2. Forrás B: iptv-org (Logos database)
     let iptv_logos = {
-        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap();
+        let r = IPTV_LOGOS_MEM_CACHE.read().unwrap_or_else(|e| e.into_inner());
         r.clone()
     };
     let iptv_logos = match iptv_logos {
         Some(l) => l,
         None => {
             let l = fetch_iptv_org_logos(state.inner()).await.unwrap_or_default();
-            let mut w = IPTV_LOGOS_MEM_CACHE.write().unwrap();
+            let mut w = IPTV_LOGOS_MEM_CACHE.write().unwrap_or_else(|e| e.into_inner());
             *w = Some(l.clone());
             l
         }
@@ -2731,10 +2742,21 @@ async fn import_channel_data(state: tauri::State<'_, AppState>, data: ChannelDat
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[tauri::command]
-async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData, String> {
-    let conn = state.db.lock().await;
+const TMDB_SECURE_KEY: &str = "tmdb_secure_key";
+const LEGACY_TMDB_API_KEY: &str = "tmdb_api_key";
 
+/// Keys that hold secrets or internal bookkeeping and must never be exposed via `get_settings` /
+/// `export_settings` or written via `set_setting` / `import_settings`.
+pub(crate) fn is_internal_or_protected_setting_key(key: &str) -> bool {
+    key == LEGACY_TMDB_API_KEY
+        || key.starts_with("trakt_secure_")
+        || key.starts_with("tmdb_secure_")
+        || key.starts_with("google_secure_")
+        || key.starts_with("lng_hash_")
+        || key.starts_with("migration_")
+}
+
+pub(crate) fn export_settings_from_conn(conn: &Connection) -> Result<BackupData, String> {
     // Sources
     let mut stmt = conn.prepare(
         "SELECT s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset, s.sort_position,
@@ -2811,13 +2833,17 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
     let mut channel_sort_presets = Vec::new();
     for p in csp_iter.flatten() { channel_sort_presets.push(p); }
 
-    // Settings
-    let mut stmt = conn.prepare("SELECT key, value FROM settings WHERE key NOT LIKE 'trakt_secure_%'").map_err(|e| e.to_string())?;
+    // Settings (excluding sensitive and internal keys)
+    let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
     let s_iter = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     }).map_err(|e| e.to_string())?;
     let mut settings = HashMap::new();
-    for (k, v) in s_iter.flatten() { settings.insert(k, v); }
+    for (k, v) in s_iter.flatten() {
+        if !is_internal_or_protected_setting_key(&k) {
+            settings.insert(k, v);
+        }
+    }
 
     let exported_at: String = conn.query_row("SELECT datetime('now', 'localtime')", [], |r| r.get(0)).unwrap_or_default();
 
@@ -2834,8 +2860,12 @@ async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData
 }
 
 #[tauri::command]
-async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) -> Result<(), String> {
-    let mut conn = state.db.lock().await;
+async fn export_settings(state: tauri::State<'_, AppState>) -> Result<BackupData, String> {
+    let conn = state.db.lock().await;
+    export_settings_from_conn(&conn)
+}
+
+pub(crate) fn import_settings_into_conn(conn: &mut Connection, backup: BackupData) -> Result<(), String> {
     let tx = conn.transaction().map_err(|e| format!("DB tranzakció hiba: {}", e))?;
 
     // Sources
@@ -2851,16 +2881,17 @@ async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) 
                 time_offset = excluded.time_offset,
                 sort_position = excluded.sort_position",
             params![s.id, s.name, s.url, s.last_downloaded, s.country_code, s.time_offset, sort_pos],
-        ).map_err(|e| e.to_string())?;
+        ).map_err(|e| format!("Forrás importálási hiba: {}", e))?;
     }
 
     // Favorites
-    tx.execute("DELETE FROM favorites", []).ok();
+    tx.execute("DELETE FROM favorites", [])
+        .map_err(|e| format!("Kedvencek törlési hiba: {}", e))?;
     for fav in backup.favorites {
         tx.execute(
             "INSERT OR REPLACE INTO favorites (title) VALUES (?1)",
             params![fav],
-        ).ok();
+        ).map_err(|e| format!("Kedvenc importálási hiba: {}", e))?;
     }
 
     // Channel user settings
@@ -2876,7 +2907,7 @@ async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) 
                 custom_icon = excluded.custom_icon,
                 custom_name = excluded.custom_name",
             params![cus.source_id, cus.channel_id, is_fav, is_hid, cus.custom_icon, cus.custom_name],
-        ).ok();
+        ).map_err(|e| format!("Csatorna beállítás importálási hiba: {}", e))?;
     }
 
     // Channel orders
@@ -2887,31 +2918,32 @@ async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) 
              ON CONFLICT(source_id, channel_id) DO UPDATE SET
                 position = excluded.position",
             params![co.source_id, co.channel_id, co.position],
-        ).ok();
+        ).map_err(|e| format!("Csatornasorrend importálási hiba: {}", e))?;
     }
 
     // Channel sort presets
     if !backup.channel_sort_presets.is_empty() {
-        tx.execute("DELETE FROM channel_sort_presets", []).ok();
+        tx.execute("DELETE FROM channel_sort_presets", [])
+            .map_err(|e| format!("Rendezési preset törlési hiba: {}", e))?;
         for csp in backup.channel_sort_presets {
             let order_json = serde_json::to_string(&csp.channel_order).unwrap_or_else(|_| "[]".to_string());
             tx.execute(
                 "INSERT INTO channel_sort_presets (id, name, source_id, channel_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![csp.id, csp.name, csp.source_id, order_json, csp.created_at],
-            ).ok();
+            ).map_err(|e| format!("Rendezési preset importálási hiba: {}", e))?;
         }
     }
 
     // Settings
     for (k, v) in backup.settings {
-        if k.starts_with("trakt_secure_") {
+        if is_internal_or_protected_setting_key(&k) {
             continue;
         }
         tx.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![k, v],
-        ).ok();
+        ).map_err(|e| format!("Beállítás importálási hiba: {}", e))?;
     }
 
     tx.commit().map_err(|e| format!("Import mentési hiba: {}", e))?;
@@ -2919,29 +2951,47 @@ async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) 
 }
 
 #[tauri::command]
-async fn get_settings(state: tauri::State<'_, AppState>) -> Result<HashMap<String, String>, String> {
-    let conn = state.db.lock().await;
-    let mut stmt = conn.prepare("SELECT key, value FROM settings WHERE key NOT LIKE 'trakt_secure_%'").map_err(|e| e.to_string())?;
+async fn import_settings(state: tauri::State<'_, AppState>, backup: BackupData) -> Result<(), String> {
+    let mut conn = state.db.lock().await;
+    import_settings_into_conn(&mut conn, backup)
+}
+
+pub(crate) fn get_settings_from_conn(conn: &Connection) -> Result<HashMap<String, String>, String> {
+    let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     }).map_err(|e| e.to_string())?;
 
     let mut map = HashMap::new();
-    for (k, v) in rows.flatten() { map.insert(k, v); }
+    for (k, v) in rows.flatten() {
+        if !is_internal_or_protected_setting_key(&k) {
+            map.insert(k, v);
+        }
+    }
     Ok(map)
 }
 
 #[tauri::command]
-async fn set_setting(state: tauri::State<'_, AppState>, key: String, value: String) -> Result<(), String> {
-    if key.starts_with("trakt_secure_") {
+async fn get_settings(state: tauri::State<'_, AppState>) -> Result<HashMap<String, String>, String> {
+    let conn = state.db.lock().await;
+    get_settings_from_conn(&conn)
+}
+
+pub(crate) fn set_setting_in_conn(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
+    if is_internal_or_protected_setting_key(key) {
         return Err("Tiltott beállítási kulcs".to_string());
     }
-    let conn = state.db.lock().await;
     conn.execute(
         "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, value],
     ).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+async fn set_setting(state: tauri::State<'_, AppState>, key: String, value: String) -> Result<(), String> {
+    let conn = state.db.lock().await;
+    set_setting_in_conn(&conn, &key, &value)
 }
 
 #[tauri::command]
@@ -3018,6 +3068,18 @@ async fn restore_languages_to_disk(state: tauri::State<'_, AppState>) -> Result<
             "INSERT INTO app_languages (lang, content, updated_at) VALUES ('hungarian', ?1, datetime('now', 'localtime'))
              ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
             params![EMBEDDED_HUNGARIAN_LNG],
+        ).map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('lng_hash_english', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![migrations::canonical_json_sha256(EMBEDDED_ENGLISH_LNG)],
+        ).map_err(|e| e.to_string())?;
+
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('lng_hash_hungarian', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![migrations::canonical_json_sha256(EMBEDDED_HUNGARIAN_LNG)],
         ).map_err(|e| e.to_string())?;
     }
 
@@ -3444,7 +3506,7 @@ fn build_tmdb_search_req(
 
 /// Why a TMDB request failed. Only a successful (2xx) answer may ever be turned into cache rows;
 /// every `TmdbError` must leave the cache untouched (a transient 429/5xx must not become a permanent "not found").
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum TmdbError {
     Unauthorized,
     NotFound,
@@ -3475,62 +3537,69 @@ const TMDB_NEGATIVE_TTL_DAYS: i64 = 7;
 ///  * 5xx / network error -> one retry after `state.tmdb.retry_delay`, then `Transient`
 ///
 /// The concurrency permit is held for the whole call (including waits) but never together with the DB lock.
-pub(crate) async fn tmdb_get_text<F>(state: &AppState, make_req: F) -> Result<String, TmdbError>
+pub(crate) async fn tmdb_get_text<F>(
+    state: &AppState,
+    flight_key: &str,
+    make_req: F,
+) -> Result<String, TmdbError>
 where
     F: Fn() -> reqwest::RequestBuilder,
 {
-    let _permit = state
-        .tmdb
-        .sem
-        .acquire()
-        .await
-        .map_err(|_| TmdbError::Transient("TMDB limiter closed".to_string()))?;
+    trakt::client::single_flight_shared(&state.tmdb.http_inflight, flight_key, || async {
+        let _permit = state
+            .tmdb
+            .sem
+            .acquire()
+            .await
+            .map_err(|_| TmdbError::Transient("TMDB limiter closed".to_string()))?;
 
-    let mut attempt: u32 = 0;
-    loop {
-        match make_req().send().await {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() {
-                    return resp
-                        .text()
-                        .await
-                        .map_err(|e| TmdbError::Transient(e.to_string()));
+        let mut attempt: u32 = 0;
+        loop {
+            match make_req().send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        return resp
+                            .text()
+                            .await
+                            .map_err(|e| TmdbError::Transient(e.to_string()));
+                    }
+                    match status.as_u16() {
+                        401 => return Err(TmdbError::Unauthorized),
+                        404 => return Err(TmdbError::NotFound),
+                        429 => {
+                            if attempt >= TMDB_MAX_RATE_LIMIT_RETRIES {
+                                return Err(TmdbError::RateLimited);
+                            }
+                            let wait_secs = resp
+                                .headers()
+                                .get(reqwest::header::RETRY_AFTER)
+                                .and_then(|v| v.to_str().ok())
+                                .and_then(|s| s.trim().parse::<u64>().ok())
+                                .unwrap_or(1)
+                                .min(TMDB_MAX_RETRY_AFTER_SECS);
+                            tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+                        }
+                        s if s >= 500 => {
+                            if attempt >= TMDB_MAX_SERVER_RETRIES {
+                                return Err(TmdbError::Transient(format!("HTTP {}", s)));
+                            }
+                            tokio::time::sleep(state.tmdb.retry_delay).await;
+                        }
+                        s => return Err(TmdbError::Transient(format!("HTTP {}", s))),
+                    }
                 }
-                match status.as_u16() {
-                    401 => return Err(TmdbError::Unauthorized),
-                    404 => return Err(TmdbError::NotFound),
-                    429 => {
-                        if attempt >= TMDB_MAX_RATE_LIMIT_RETRIES {
-                            return Err(TmdbError::RateLimited);
-                        }
-                        let wait_secs = resp
-                            .headers()
-                            .get(reqwest::header::RETRY_AFTER)
-                            .and_then(|v| v.to_str().ok())
-                            .and_then(|s| s.trim().parse::<u64>().ok())
-                            .unwrap_or(1)
-                            .min(TMDB_MAX_RETRY_AFTER_SECS);
-                        tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+                Err(e) => {
+                    if attempt >= TMDB_MAX_SERVER_RETRIES {
+                        return Err(TmdbError::Transient(e.to_string()));
                     }
-                    s if s >= 500 => {
-                        if attempt >= TMDB_MAX_SERVER_RETRIES {
-                            return Err(TmdbError::Transient(format!("HTTP {}", s)));
-                        }
-                        tokio::time::sleep(state.tmdb.retry_delay).await;
-                    }
-                    s => return Err(TmdbError::Transient(format!("HTTP {}", s))),
+                    tokio::time::sleep(state.tmdb.retry_delay).await;
                 }
             }
-            Err(e) => {
-                if attempt >= TMDB_MAX_SERVER_RETRIES {
-                    return Err(TmdbError::Transient(e.to_string()));
-                }
-                tokio::time::sleep(state.tmdb.retry_delay).await;
-            }
+            attempt += 1;
         }
-        attempt += 1;
-    }
+    })
+    .await
 }
 
 /// `search/multi` -> raw candidates. Any failure (HTTP or unparsable 2xx body) is an `Err`, never an empty list.
@@ -3540,7 +3609,8 @@ async fn tmdb_search_items(
     query: &str,
     lang: &str,
 ) -> Result<Vec<TmdbRawItem>, String> {
-    let text = tmdb_get_text(state, || build_tmdb_search_req(state, api_key, query, lang))
+    let flight_key = format!("search:{}:{}", lang, query);
+    let text = tmdb_get_text(state, &flight_key, || build_tmdb_search_req(state, api_key, query, lang))
         .await
         .map_err(|e| e.into_user_message("TMDB keresési hiba"))?;
     let parsed: TmdbSearchResponse =
@@ -3561,17 +3631,108 @@ pub(crate) fn clear_automatic_tmdb_cache(conn: &Connection) -> rusqlite::Result<
     conn.execute("DELETE FROM tmdb_cache WHERE is_manual = 0", [])
 }
 
-pub(crate) async fn get_tmdb_api_key_from_state(state: &AppState) -> Option<String> {
-    let conn = state.db.lock().await;
-    let key: Option<String> = conn.query_row(
-        "SELECT value FROM settings WHERE key = 'tmdb_api_key'",
-        [],
-        |row| row.get(0),
-    ).ok();
-    key.and_then(|k| {
-        let trimmed = k.trim().to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+pub(crate) fn save_tmdb_api_key_with_store(
+    conn: &Connection,
+    store: &dyn trakt::secret::SecretStore,
+    api_key: &str,
+) -> Result<(), String> {
+    let clean_key = api_key.trim();
+    if clean_key.is_empty() {
+        conn.execute(
+            "DELETE FROM settings WHERE key IN (?1, ?2)",
+            params![TMDB_SECURE_KEY, LEGACY_TMDB_API_KEY],
+        )
+        .map_err(|e| e.to_string())?;
+    } else {
+        let blob = trakt::secret::protect_str(store, clean_key)?;
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![TMDB_SECURE_KEY, blob],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![LEGACY_TMDB_API_KEY],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub(crate) fn load_tmdb_api_key_with_store(
+    conn: &Connection,
+    store: &dyn trakt::secret::SecretStore,
+) -> Option<String> {
+    let blob: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![TMDB_SECURE_KEY],
+            |row| row.get(0),
+        )
+        .ok();
+    blob.and_then(|b| {
+        if b.trim().is_empty() {
+            return None;
+        }
+        trakt::secret::unprotect_str(store, &b)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
     })
+}
+
+/// Migrates any legacy plaintext `tmdb_api_key` in `settings` to DPAPI-encrypted `tmdb_secure_key`
+/// and deletes the plaintext row.
+pub(crate) fn migrate_plaintext_tmdb_api_key(
+    conn: &mut Connection,
+    store: &dyn trakt::secret::SecretStore,
+) -> Result<(), String> {
+    let legacy: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![LEGACY_TMDB_API_KEY],
+            |r| r.get(0),
+        )
+        .ok();
+    let Some(raw_key) = legacy else {
+        return Ok(());
+    };
+
+    let has_secure: bool = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![TMDB_SECURE_KEY],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+
+    let clean = raw_key.trim();
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    if !has_secure && !clean.is_empty() {
+        let blob = trakt::secret::protect_str(store, clean)?;
+        tx.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![TMDB_SECURE_KEY, blob],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.execute(
+        "DELETE FROM settings WHERE key = ?1",
+        params![LEGACY_TMDB_API_KEY],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub(crate) async fn get_tmdb_api_key_from_state(state: &AppState) -> Option<String> {
+    let store = trakt::secret::default_secret_store();
+    let conn = state.db.lock().await;
+    load_tmdb_api_key_with_store(&conn, store.as_ref())
 }
 
 #[tauri::command]
@@ -3581,17 +3742,9 @@ async fn get_tmdb_api_key(state: tauri::State<'_, AppState>) -> Result<Option<St
 
 #[tauri::command]
 async fn set_tmdb_api_key(state: tauri::State<'_, AppState>, api_key: String) -> Result<(), String> {
+    let store = trakt::secret::default_secret_store();
     let conn = state.db.lock().await;
-    let clean_key = api_key.trim();
-    if clean_key.is_empty() {
-        conn.execute("DELETE FROM settings WHERE key = 'tmdb_api_key'", []).map_err(|e| e.to_string())?;
-    } else {
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('tmdb_api_key', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![clean_key],
-        ).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    save_tmdb_api_key_with_store(&conn, store.as_ref(), &api_key)
 }
 
 #[tauri::command]
@@ -3637,101 +3790,105 @@ pub(crate) async fn get_tmdb_details_inner(
     }
 
     let target_lang = lang.unwrap_or_else(|| "hu-HU".to_string());
+    let flight_key = format!("search:{}:{}", target_lang, clean);
 
-    // 1. Check local cache
-    let cached = {
-        let conn = state.db.lock().await;
-        conn.query_row(
-        "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date,
-                (media_type = 'none' AND is_manual = 0 AND updated_at < datetime('now', 'localtime', ?3)) AS stale_negative
-         FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
-        params![clean, target_lang, format!("-{} days", TMDB_NEGATIVE_TTL_DAYS)],
-        |row| {
-            let tmdb_id: Option<i64> = row.get(0)?;
-            let media_type: Option<String> = row.get(1)?;
-            let title: Option<String> = row.get(2)?;
-            let hu_title: Option<String> = row.get(3)?;
-            let en_title: Option<String> = row.get(4)?;
-            let original_title: Option<String> = row.get(5)?;
-            let original_language: Option<String> = row.get(6)?;
-            let poster_path: Option<String> = row.get(7)?;
-            let backdrop_path: Option<String> = row.get(8)?;
-            let overview: Option<String> = row.get(9)?;
-            let vote_average: Option<f64> = row.get(10)?;
-            let release_date: Option<String> = row.get(11)?;
-            let stale_negative: Option<i64> = row.get(12)?;
-            Ok((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date, stale_negative))
+    trakt::client::single_flight(&state.tmdb.cache_inflight, &flight_key, |_waited| async move {
+        // 1. Check local cache
+        let cached = {
+            let conn = state.db.lock().await;
+            conn.query_row(
+            "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date,
+                    (media_type = 'none' AND is_manual = 0 AND updated_at < datetime('now', 'localtime', ?3)) AS stale_negative
+             FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
+            params![clean, target_lang, format!("-{} days", TMDB_NEGATIVE_TTL_DAYS)],
+            |row| {
+                let tmdb_id: Option<i64> = row.get(0)?;
+                let media_type: Option<String> = row.get(1)?;
+                let title: Option<String> = row.get(2)?;
+                let hu_title: Option<String> = row.get(3)?;
+                let en_title: Option<String> = row.get(4)?;
+                let original_title: Option<String> = row.get(5)?;
+                let original_language: Option<String> = row.get(6)?;
+                let poster_path: Option<String> = row.get(7)?;
+                let backdrop_path: Option<String> = row.get(8)?;
+                let overview: Option<String> = row.get(9)?;
+                let vote_average: Option<f64> = row.get(10)?;
+                let release_date: Option<String> = row.get(11)?;
+                let stale_negative: Option<i64> = row.get(12)?;
+                Ok((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date, stale_negative))
+            }
+        ).ok()
+        };
+
+        if let Some((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date, stale_negative)) = cached {
+            let is_negative = media_type.as_deref() == Some("none") || tmdb_id.is_none();
+            // An automatic negative older than TMDB_NEGATIVE_TTL_DAYS is searched again.
+            // Manual rows (the user's "not this title" marker included) never expire.
+            let expired_negative = is_negative && stale_negative.unwrap_or(0) == 1;
+            if !expired_negative {
+                if is_negative {
+                    return Ok(None);
+                }
+                return Ok(Some(TmdbDetails {
+                    tmdb_id: tmdb_id.unwrap_or(0),
+                    title: title.unwrap_or_else(|| clean.clone()),
+                    hu_title,
+                    en_title,
+                    original_title,
+                    original_language,
+                    media_type,
+                    poster_path,
+                    backdrop_path,
+                    overview,
+                    vote_average,
+                    release_date,
+                }));
+            }
         }
-    ).ok()
-    };
 
-    if let Some((tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date, stale_negative)) = cached {
-        let is_negative = media_type.as_deref() == Some("none") || tmdb_id.is_none();
-        // An automatic negative older than TMDB_NEGATIVE_TTL_DAYS is searched again.
-        // Manual rows (the user's "not this title" marker included) never expire.
-        let expired_negative = is_negative && stale_negative.unwrap_or(0) == 1;
-        if !expired_negative {
-            if is_negative {
+        // 2. Retrieve TMDB API key from settings
+        let api_key = match get_tmdb_api_key_from_state(state).await {
+            Some(k) => k,
+            _ => return Ok(None),
+        };
+
+        // 3. Search. A failed request is an Err and is NEVER cached; only a successful answer with no
+        //    acceptable candidate becomes an (expiring) negative row.
+        let search_res = tmdb_search_items(state, &api_key, &clean, &target_lang).await?;
+
+        // Pick best-matching movie/tv candidate instead of blindly taking the first result
+        let mut matched_item = best_tmdb_match(search_res, &clean, year_hint);
+
+        if matched_item.is_none() && target_lang != "en-US" {
+            let fallback = tmdb_search_items(state, &api_key, &clean, "en-US").await?;
+            matched_item = best_tmdb_match(fallback, &clean, year_hint);
+        }
+
+        let item = match matched_item {
+            Some(it) => it,
+            None => {
+                let conn = state.db.lock().await;
+                conn.execute(
+                    "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at) VALUES (?1, ?2, 'none', 0, datetime('now', 'localtime'))",
+                    params![clean, target_lang],
+                ).ok();
                 return Ok(None);
             }
-            return Ok(Some(TmdbDetails {
-                tmdb_id: tmdb_id.unwrap_or(0),
-                title: title.unwrap_or_else(|| clean.clone()),
-                hu_title,
-                en_title,
-                original_title,
-                original_language,
-                media_type,
-                poster_path,
-                backdrop_path,
-                overview,
-                vote_average,
-                release_date,
-            }));
-        }
-    }
+        };
 
-    // 2. Retrieve TMDB API key from settings
-    let api_key = match get_tmdb_api_key_from_state(state).await {
-        Some(k) => k,
-        _ => return Ok(None),
-    };
+        let details = fetch_tmdb_item_details(
+            state,
+            item,
+            &clean,
+            &clean,
+            &target_lang,
+            &api_key,
+            false,
+        ).await?;
 
-    // 3. Search. A failed request is an Err and is NEVER cached; only a successful answer with no
-    //    acceptable candidate becomes an (expiring) negative row.
-    let search_res = tmdb_search_items(state, &api_key, &clean, &target_lang).await?;
-
-    // Pick best-matching movie/tv candidate instead of blindly taking the first result
-    let mut matched_item = best_tmdb_match(search_res, &clean, year_hint);
-
-    if matched_item.is_none() && target_lang != "en-US" {
-        let fallback = tmdb_search_items(state, &api_key, &clean, "en-US").await?;
-        matched_item = best_tmdb_match(fallback, &clean, year_hint);
-    }
-
-    let item = match matched_item {
-        Some(it) => it,
-        None => {
-            let conn = state.db.lock().await;
-            conn.execute(
-                "INSERT OR REPLACE INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at) VALUES (?1, ?2, 'none', 0, datetime('now', 'localtime'))",
-                params![clean, target_lang],
-            ).ok();
-            return Ok(None);
-        }
-    };
-
-    let details = fetch_tmdb_item_details(
-        state,
-        item,
-        &clean,
-        &clean,
-        &target_lang,
-        &api_key,
-        false,
-    ).await?;
-
-    Ok(Some(details))
+        Ok(Some(details))
+    })
+    .await
 }
 
 /// Builds `TmdbDetails` from a raw TMDB item (+ translations) and stores it under `cache_key`.
@@ -3773,7 +3930,8 @@ async fn fetch_tmdb_item_details(
         None
     } else {
         let trans_url = format!("{}/{}/{}/translations", state.tmdb.base, media_type, tmdb_id);
-        match tmdb_get_text(state, || {
+        let trans_key = format!("translations:{}:{}", media_type, tmdb_id);
+        match tmdb_get_text(state, &trans_key, || {
             apply_tmdb_auth(
                 state.http.get(&trans_url).header("Accept", "application/json"),
                 api_key,
@@ -4035,126 +4193,136 @@ async fn get_tmdb_by_id_inner(
     force_refresh: bool,
     mark_manual: bool,
 ) -> Result<TmdbDetails, String> {
-    if !force_refresh {
-        let conn = state.db.lock().await;
-        let cached = if let Some(key) = cache_key_override {
-            conn.query_row(
-                "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
-                 FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
-                params![key, lang],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<i64>>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, Option<String>>(7)?,
-                        row.get::<_, Option<String>>(8)?,
-                        row.get::<_, Option<String>>(9)?,
-                        row.get::<_, Option<f64>>(10)?,
-                        row.get::<_, Option<String>>(11)?,
-                    ))
-                },
-            ).ok()
+    let flight_key = format!("id:{}:{}:{}", media_type, tmdb_id, lang);
+    trakt::client::single_flight(&state.tmdb.cache_inflight, &flight_key, |waited| async move {
+        let effective_force = if waited && !mark_manual {
+            false
         } else {
-            conn.query_row(
-                "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
-                 FROM tmdb_cache WHERE tmdb_id = ?1 AND media_type = ?2 AND lang = ?3 LIMIT 1",
-                params![tmdb_id, media_type, lang],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<i64>>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, Option<String>>(7)?,
-                        row.get::<_, Option<String>>(8)?,
-                        row.get::<_, Option<String>>(9)?,
-                        row.get::<_, Option<f64>>(10)?,
-                        row.get::<_, Option<String>>(11)?,
-                    ))
-                },
-            ).ok()
+            force_refresh
         };
+        if !effective_force {
+            let conn = state.db.lock().await;
+            let cached = if let Some(key) = cache_key_override {
+                conn.query_row(
+                    "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
+                     FROM tmdb_cache WHERE query_title = ?1 AND lang = ?2",
+                    params![key, lang],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<i64>>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, Option<String>>(6)?,
+                            row.get::<_, Option<String>>(7)?,
+                            row.get::<_, Option<String>>(8)?,
+                            row.get::<_, Option<String>>(9)?,
+                            row.get::<_, Option<f64>>(10)?,
+                            row.get::<_, Option<String>>(11)?,
+                        ))
+                    },
+                ).ok()
+            } else {
+                conn.query_row(
+                    "SELECT tmdb_id, media_type, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date
+                     FROM tmdb_cache WHERE tmdb_id = ?1 AND media_type = ?2 AND lang = ?3 LIMIT 1",
+                    params![tmdb_id, media_type, lang],
+                    |row| {
+                        Ok((
+                            row.get::<_, Option<i64>>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                            row.get::<_, Option<String>>(4)?,
+                            row.get::<_, Option<String>>(5)?,
+                            row.get::<_, Option<String>>(6)?,
+                            row.get::<_, Option<String>>(7)?,
+                            row.get::<_, Option<String>>(8)?,
+                            row.get::<_, Option<String>>(9)?,
+                            row.get::<_, Option<f64>>(10)?,
+                            row.get::<_, Option<String>>(11)?,
+                        ))
+                    },
+                ).ok()
+            };
 
-        if let Some((Some(cached_id), media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
-            if media.as_deref() != Some("none") {
-                return Ok(TmdbDetails {
-                    tmdb_id: cached_id,
-                    title: title.unwrap_or_default(),
-                    hu_title,
-                    en_title,
-                    original_title,
-                    original_language,
-                    media_type: media,
-                    poster_path,
-                    backdrop_path,
-                    overview,
-                    vote_average,
-                    release_date,
-                });
+            if let Some((Some(cached_id), media, title, hu_title, en_title, original_title, original_language, poster_path, backdrop_path, overview, vote_average, release_date)) = cached {
+                if media.as_deref() != Some("none") {
+                    return Ok(TmdbDetails {
+                        tmdb_id: cached_id,
+                        title: title.unwrap_or_default(),
+                        hu_title,
+                        en_title,
+                        original_title,
+                        original_language,
+                        media_type: media,
+                        poster_path,
+                        backdrop_path,
+                        overview,
+                        vote_average,
+                        release_date,
+                    });
+                }
+            }
+
+            // No row for this language: the other language's row may already hold everything (no request).
+            if let Some((details, hu_over, en_over)) = derive_details_from_sibling_lang(&conn, tmdb_id, media_type, lang) {
+                let key = match cache_key_override {
+                    Some(k) => k.to_string(),
+                    None => format!("~id:{}:{}", media_type, tmdb_id),
+                };
+                let _ = write_tmdb_row(&conn, &key, lang, &details, &hu_over, &en_over, mark_manual);
+                return Ok(details);
             }
         }
 
-        // No row for this language: the other language's row may already hold everything (no request).
-        if let Some((details, hu_over, en_over)) = derive_details_from_sibling_lang(&conn, tmdb_id, media_type, lang) {
-            let key = match cache_key_override {
-                Some(k) => k.to_string(),
-                None => format!("~id:{}:{}", media_type, tmdb_id),
-            };
-            let _ = write_tmdb_row(&conn, &key, lang, &details, &hu_over, &en_over, mark_manual);
-            return Ok(details);
-        }
-    }
+        let api_key = match get_tmdb_api_key_from_state(state).await {
+            Some(k) => k,
+            _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
+        };
 
-    let api_key = match get_tmdb_api_key_from_state(state).await {
-        Some(k) => k,
-        _ => return Err("TMDB API kulcs nincs beállítva / TMDB API key is not configured".to_string()),
-    };
+        let details_url = format!("{}/{}/{}", state.tmdb.base, media_type, tmdb_id);
+        let http_key = format!("id:{}:{}:{}", media_type, tmdb_id, lang);
+        let text = tmdb_get_text(state, &http_key, || {
+            apply_tmdb_auth(
+                state.http.get(&details_url)
+                    .header("Accept", "application/json")
+                    .query(&[
+                        ("language", lang),
+                        ("append_to_response", "translations,external_ids"),
+                    ]),
+                &api_key,
+            )
+        })
+        .await
+        .map_err(|e| e.into_user_message("TMDB lekérési hiba"))?;
 
-    let details_url = format!("{}/{}/{}", state.tmdb.base, media_type, tmdb_id);
-    let text = tmdb_get_text(state, || {
-        apply_tmdb_auth(
-            state.http.get(&details_url)
-                .header("Accept", "application/json")
-                .query(&[
-                    ("language", lang),
-                    ("append_to_response", "translations,external_ids"),
-                ]),
+        let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
+        raw_item.media_type = Some(media_type.to_string());
+
+        let fallback_title = raw_item
+            .title
+            .clone()
+            .or_else(|| raw_item.name.clone())
+            .unwrap_or_default();
+        let cache_key = match cache_key_override {
+            Some(k) => k.to_string(),
+            None => format!("~id:{}:{}", media_type, tmdb_id),
+        };
+
+        fetch_tmdb_item_details(
+            state,
+            raw_item,
+            &cache_key,
+            &fallback_title,
+            lang,
             &api_key,
+            mark_manual,
         )
+        .await
     })
-    .await
-    .map_err(|e| e.into_user_message("TMDB lekérési hiba"))?;
-
-    let mut raw_item: TmdbRawItem = serde_json::from_str(&text).map_err(|e| format!("JSON hiba: {}", e))?;
-    raw_item.media_type = Some(media_type.to_string());
-
-    let fallback_title = raw_item
-        .title
-        .clone()
-        .or_else(|| raw_item.name.clone())
-        .unwrap_or_default();
-    let cache_key = match cache_key_override {
-        Some(k) => k.to_string(),
-        None => format!("~id:{}:{}", media_type, tmdb_id),
-    };
-
-    fetch_tmdb_item_details(
-        state,
-        raw_item,
-        &cache_key,
-        &fallback_title,
-        lang,
-        &api_key,
-        mark_manual,
-    )
     .await
 }
 
@@ -5868,6 +6036,158 @@ mod tests {
         let img4_exists: i64 = conn.query_row("SELECT COUNT(*) FROM images_db.images WHERE id = 4", [], |r| r.get(0)).unwrap();
         assert_eq!(img3_exists, 0);
         assert_eq!(img4_exists, 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_tmdb_key_dpapi_migration_and_export_exclusion() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+        let store = trakt::secret::default_secret_store();
+
+        let secret = "tmdb_secret_bearer_token_987654";
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('tmdb_api_key', ?1)",
+            params![secret],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('language', 'hungarian')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('trakt_secure_foo', 'trakt_blob')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('google_secure_bar', 'google_blob')",
+            [],
+        )
+        .unwrap();
+
+        migrate_plaintext_tmdb_api_key(&mut conn, store.as_ref()).unwrap();
+
+        // Plaintext row must be gone; encrypted blob must differ from plaintext and decrypt cleanly
+        let legacy_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM settings WHERE key = 'tmdb_api_key'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(legacy_count, 0);
+
+        let raw_blob: String = conn
+            .query_row("SELECT value FROM settings WHERE key = 'tmdb_secure_key'", [], |r| r.get(0))
+            .unwrap();
+        assert_ne!(raw_blob, secret);
+        assert_eq!(
+            load_tmdb_api_key_with_store(&conn, store.as_ref()).as_deref(),
+            Some(secret)
+        );
+
+        // Export JSON must never contain the TMDB key or any protected/internal setting keys
+        let backup = export_settings_from_conn(&conn).unwrap();
+        let json = serde_json::to_string(&backup).unwrap();
+        assert!(!json.contains(secret), "Export JSON leaked plaintext TMDB key");
+        assert!(!json.contains(&raw_blob), "Export JSON leaked encrypted TMDB blob");
+        assert!(!backup.settings.contains_key("tmdb_api_key"));
+        assert!(!backup.settings.contains_key("tmdb_secure_key"));
+        assert!(!backup.settings.contains_key("trakt_secure_foo"));
+        assert!(!backup.settings.contains_key("google_secure_bar"));
+        assert_eq!(backup.settings.get("language").map(String::as_str), Some("hungarian"));
+
+        // get_settings must also hide protected/internal keys
+        let visible = get_settings_from_conn(&conn).unwrap();
+        assert!(!visible.contains_key("tmdb_api_key"));
+        assert!(!visible.contains_key("tmdb_secure_key"));
+        assert!(!visible.contains_key("trakt_secure_foo"));
+        assert!(!visible.contains_key("google_secure_bar"));
+        assert_eq!(visible.get("language").map(String::as_str), Some("hungarian"));
+
+        // set_setting must block all sensitive keys
+        assert!(set_setting_in_conn(&conn, "tmdb_api_key", "x").is_err());
+        assert!(set_setting_in_conn(&conn, "tmdb_secure_key", "x").is_err());
+        assert!(set_setting_in_conn(&conn, "trakt_secure_tok", "x").is_err());
+        assert!(set_setting_in_conn(&conn, "google_secure_tok", "x").is_err());
+        assert!(set_setting_in_conn(&conn, "theme", "dark").is_ok());
+    }
+
+    #[test]
+    fn test_import_settings_filters_sensitive_keys_and_rolls_back_on_error() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+
+        conn.execute("INSERT INTO favorites (title) VALUES ('Existing Fav')", []).unwrap();
+        conn.execute("INSERT INTO settings (key, value) VALUES ('theme', 'dark')", []).unwrap();
+
+        // 1. Valid import ignores all sensitive/internal keys
+        let mut incoming_settings = HashMap::new();
+        incoming_settings.insert("language".to_string(), "english".to_string());
+        incoming_settings.insert("tmdb_api_key".to_string(), "leaked".to_string());
+        incoming_settings.insert("tmdb_secure_key".to_string(), "blob1".to_string());
+        incoming_settings.insert("trakt_secure_tok".to_string(), "blob2".to_string());
+        incoming_settings.insert("google_secure_tok".to_string(), "blob3".to_string());
+        incoming_settings.insert("lng_hash_english".to_string(), "fakehash".to_string());
+
+        let valid_backup = BackupData {
+            version: 1,
+            exported_at: "2026-11-25".to_string(),
+            sources: vec![],
+            favorites: vec!["New Fav".to_string()],
+            channel_user_settings: vec![],
+            channel_orders: vec![],
+            channel_sort_presets: vec![],
+            settings: incoming_settings,
+        };
+        import_settings_into_conn(&mut conn, valid_backup).unwrap();
+
+        let lang: String = conn
+            .query_row("SELECT value FROM settings WHERE key = 'language'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(lang, "english");
+        for blocked in ["tmdb_api_key", "tmdb_secure_key", "trakt_secure_tok", "google_secure_tok"] {
+            let cnt: i64 = conn
+                .query_row("SELECT COUNT(*) FROM settings WHERE key = ?1", params![blocked], |r| r.get(0))
+                .unwrap();
+            assert_eq!(cnt, 0, "Blocked key {} must not be imported", blocked);
+        }
+
+        // 2. Failing SQL inside import_settings (duplicate preset id) must return Err and roll back favorites & settings
+        let bad_backup = BackupData {
+            version: 1,
+            exported_at: "2026-11-25".to_string(),
+            sources: vec![],
+            favorites: vec!["Should Rollback".to_string()],
+            channel_user_settings: vec![],
+            channel_orders: vec![],
+            channel_sort_presets: vec![
+                SortPreset {
+                    id: 1,
+                    name: "P1".to_string(),
+                    source_id: "s1".to_string(),
+                    channel_order: vec!["c1".to_string()],
+                    created_at: Some("2026-11-25".to_string()),
+                },
+                SortPreset {
+                    id: 1, // Duplicate PRIMARY KEY triggers SQLite constraint error
+                    name: "P2".to_string(),
+                    source_id: "s1".to_string(),
+                    channel_order: vec!["c2".to_string()],
+                    created_at: Some("2026-11-25".to_string()),
+                },
+            ],
+            settings: HashMap::from([("language".to_string(), "should_rollback".to_string())]),
+        };
+        assert!(import_settings_into_conn(&mut conn, bad_backup).is_err());
+
+        // Favorites and settings must still reflect the previous committed state
+        let fav: String = conn
+            .query_row("SELECT title FROM favorites LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(fav, "New Fav");
+        let lang_after: String = conn
+            .query_row("SELECT value FROM settings WHERE key = 'language'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(lang_after, "english");
     }
 }
 

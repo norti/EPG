@@ -685,3 +685,101 @@ fn test_query_epg_airings_deduplicates_same_slot_and_keeps_distinct_airings() {
     assert_eq!(porthu_398[2].stop_ts, 1795912500);
     assert_eq!(porthu_398[2].desc, "Részletes leírás");
 }
+
+#[tokio::test]
+async fn test_parallel_401_token_refresh_runs_once() {
+    let refresh_calls = Arc::new(AtomicUsize::new(0));
+    let rc = refresh_calls.clone();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let rc = rc.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 8192];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                if n == 0 {
+                    return;
+                }
+                let req_str = String::from_utf8_lossy(&buf[..n]).to_string();
+                let first_line = req_str.lines().next().unwrap_or("");
+                let mut parts = first_line.split_whitespace();
+                let method = parts.next().unwrap_or("GET");
+                let path = parts.next().unwrap_or("/");
+
+                let (status, body) = if method == "POST" && path == "/oauth/token" {
+                    let count = rc.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+                    if count == 0 {
+                        (
+                            200,
+                            r#"{"access_token":"fresh_acc","refresh_token":"fresh_ref","expires_in":604800,"created_at":2000000000}"#,
+                        )
+                    } else {
+                        // Trakt invalidates single-use refresh tokens on a second call
+                        (400, r#"{"error":"invalid_grant"}"#)
+                    }
+                } else if req_str
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer fresh_acc")
+                {
+                    (200, r#"{"ok":true}"#)
+                } else {
+                    // Delay the initial 401 slightly so both concurrent callers fail with the same stale token
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                    (401, r#"{"error":"unauthorized"}"#)
+                };
+
+                let reason = match status {
+                    200 => "OK",
+                    400 => "Bad Request",
+                    401 => "Unauthorized",
+                    _ => "Error",
+                };
+                let resp = format!(
+                    "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    status,
+                    reason,
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+            });
+        }
+    });
+
+    let base = format!("http://{}", addr);
+    let state = Arc::new(make_test_state(base.clone(), base));
+    let store = default_secret_store();
+    {
+        let mut conn = state.db.lock().await;
+        save_tokens_tx(
+            &mut conn,
+            store.as_ref(),
+            "stale_acc",
+            "single_use_ref",
+            now_epoch_secs() + 3600,
+        )
+        .unwrap();
+    }
+
+    let s1 = state.clone();
+    let s2 = state.clone();
+    let (r1, r2) = tokio::join!(
+        async move { trakt_get_raw(&s1, None, "/users/settings", true).await },
+        async move { trakt_get_raw(&s2, None, "/sync/last_activities", true).await }
+    );
+
+    assert!(r1.is_ok(), "First concurrent request failed: {:?}", r1);
+    assert!(r2.is_ok(), "Second concurrent request failed: {:?}", r2);
+    assert_eq!(
+        refresh_calls.load(Ordering::SeqCst),
+        1,
+        "Parallel 401s must only trigger one /oauth/token refresh"
+    );
+}

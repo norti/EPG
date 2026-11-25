@@ -21,12 +21,11 @@ fn hits(log: &Log, prefix: &str) -> usize {
 async fn tmdb_state(base: String) -> AppState {
     let mut state = make_test_state("http://127.0.0.1:1".to_string(), "http://127.0.0.1:1".to_string());
     state.tmdb = TmdbRuntime::with_base(base, Duration::from_millis(1));
-    state
-        .db
-        .lock()
-        .await
-        .execute("INSERT INTO settings (key, value) VALUES ('tmdb_api_key', 'test-key')", [])
-        .unwrap();
+    let store = crate::trakt::secret::default_secret_store();
+    {
+        let conn = state.db.lock().await;
+        crate::save_tmdb_api_key_with_store(&conn, store.as_ref(), "test-key").unwrap();
+    }
     state
 }
 
@@ -528,4 +527,93 @@ async fn test_search_tmdb_retries_429_and_propagates_fallback_errors() {
     assert!(res.is_err(), "fallback 5xx error must propagate");
     // 2 calls for hu-HU (429 + retry 200 empty) + 2 calls for en-US (503 + 1 retry 503) = 4
     assert_eq!(calls.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test]
+async fn test_tmdb_single_flight_coalesces_concurrent_details_and_search() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let search_hits = Arc::new(AtomicUsize::new(0));
+    let id_hits = Arc::new(AtomicUsize::new(0));
+    let sh = search_hits.clone();
+    let ih = id_hits.clone();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let sh = sh.clone();
+            let ih = ih.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 8192];
+                let n = socket.read(&mut buf).await.unwrap_or(0);
+                if n == 0 {
+                    return;
+                }
+                let req_str = String::from_utf8_lossy(&buf[..n]).to_string();
+                let path = req_str
+                    .lines()
+                    .next()
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .unwrap_or("/");
+
+                tokio::time::sleep(Duration::from_millis(60)).await;
+
+                let body = if path.starts_with("/search/multi") {
+                    sh.fetch_add(1, Ordering::SeqCst);
+                    search_body(&[tv_item(60622, "Fargo")])
+                } else if path.starts_with("/movie/438631") {
+                    ih.fetch_add(1, Ordering::SeqCst);
+                    details_body(438631, "movie", "Dune")
+                } else {
+                    "{}".to_string()
+                };
+
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+            });
+        }
+    });
+
+    let state = Arc::new(tmdb_state(format!("http://{}", addr)).await);
+
+    // 1. Two concurrent get_tmdb_details_inner calls for the same title -> 1 HTTP search
+    let (s1, s2) = (state.clone(), state.clone());
+    let (d1, d2) = tokio::join!(
+        async move { get_tmdb_details_inner(&s1, "Fargo".to_string(), Some("hu-HU".to_string())).await.unwrap() },
+        async move { get_tmdb_details_inner(&s2, "Fargo".to_string(), Some("hu-HU".to_string())).await.unwrap() }
+    );
+    assert_eq!(d1.unwrap().tmdb_id, 60622);
+    assert_eq!(d2.unwrap().tmdb_id, 60622);
+    assert_eq!(search_hits.load(Ordering::SeqCst), 1, "Concurrent title lookups must coalesce to 1 HTTP search");
+
+    // 2. Two concurrent get_tmdb_by_id calls for the same id -> 1 HTTP id request
+    let (s1, s2) = (state.clone(), state.clone());
+    let (b1, b2) = tokio::join!(
+        async move { get_tmdb_by_id(&s1, 438631, "movie", "hu-HU", None, false).await.unwrap() },
+        async move { get_tmdb_by_id(&s2, 438631, "movie", "hu-HU", None, false).await.unwrap() }
+    );
+    assert_eq!(b1.tmdb_id, 438631);
+    assert_eq!(b2.tmdb_id, 438631);
+    assert_eq!(id_hits.load(Ordering::SeqCst), 1, "Concurrent by-id lookups must coalesce to 1 HTTP request");
+
+    // 3. Two concurrent uncached search_tmdb_inner calls for the same query -> 1 HTTP search via single_flight_shared
+    search_hits.store(0, Ordering::SeqCst);
+    let (s1, s2) = (state.clone(), state.clone());
+    let (q1, q2) = tokio::join!(
+        async move { search_tmdb_inner(&s1, "Fargo".to_string(), Some("hu-HU".to_string())).await.unwrap() },
+        async move { search_tmdb_inner(&s2, "Fargo".to_string(), Some("hu-HU".to_string())).await.unwrap() }
+    );
+    assert_eq!(q1.len(), 1);
+    assert_eq!(q2.len(), 1);
+    assert_eq!(search_hits.load(Ordering::SeqCst), 1, "Concurrent uncached search_tmdb calls must share 1 HTTP request");
 }

@@ -699,7 +699,7 @@ async function testTmdbKey() {
 async function clearTmdbCache() {
   const confirmed = await showConfirm(
     t("tmdb_btn_clear_cache"),
-    t("tmdb_desc") + "\n\n" + t("confirm_clear_db_title") + "?",
+    t("confirm_clear_tmdb_cache"),
   );
   if (!confirmed) return;
   try {

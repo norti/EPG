@@ -176,6 +176,7 @@
   "tmdb_btn_clear": "Kulcs törlése",
   "tmdb_btn_test": "Teszt",
   "tmdb_btn_clear_cache": "TMDB gyorsítótár kiürítése",
+  "confirm_clear_tmdb_cache": "Biztosan ki szeretné üríteni a TMDB gyorsítótárat? Az automatikusan mentett találatok törlődnek, a kézzel beállított párosítások viszont megmaradnak.",
   "tmdb_cache_cleared": "A TMDB gyorsítótár sikeresen kiürítve!",
   "tmdb_saved_success": "TMDB API kulcs sikeresen mentve!",
   "tmdb_copied_to_clipboard": "Cím másolva a vágólapra!",

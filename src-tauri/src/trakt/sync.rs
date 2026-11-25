@@ -233,8 +233,10 @@ pub fn set_sync_state_val(conn: &Connection, key: &str, value: &str) -> Result<(
     Ok(())
 }
 
-pub fn local_yesterday_ymd() -> String {
-    // Conservative UTC-1 day fallback so frontend/backend always covers local yesterday
+/// Returns yesterday's date in UTC (`now_epoch_secs() - 86400`) formatted as `YYYY-MM-DD`.
+/// Used as the conservative UTC-1 day fallback when the frontend has not yet supplied its local
+/// calendar start date via `remember_calendar_start`.
+pub fn utc_yesterday_ymd() -> String {
     let ts = now_epoch_secs() - 86400;
     crate::trakt::epoch_to_iso_utc(ts)[..10].to_string()
 }
@@ -274,7 +276,7 @@ pub fn remember_calendar_start(conn: &Connection, ymd: &str) {
 /// The remembered UI date is used only while it is plausible (at most 2 days older / 1 day newer than the
 /// UTC based guess); otherwise (app was closed for days, clock jump) the guess is used.
 pub fn calendar_start_for_sync(conn: &Connection) -> String {
-    let guess = local_yesterday_ymd();
+    let guess = utc_yesterday_ymd();
     let Some(stored) = get_sync_state_val(conn, CALENDAR_START_KEY) else {
         return guess;
     };

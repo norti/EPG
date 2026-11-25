@@ -14,6 +14,7 @@ pub const MIGRATIONS: &[MigFn] = &[
     migrate_v5,
     migrate_v6,
     migrate_v7,
+    migrate_v8,
 ];
 
 pub fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
@@ -99,6 +100,120 @@ pub fn run_migrations(conn: &Connection, db_path: Option<&Path>) -> Result<(), S
         }
     }
 
+    sync_embedded_languages(conn)
+        .map_err(|e| format!("Nyelvi fájlok szinkronizálási hiba: {}", e))?;
+
+    Ok(())
+}
+
+/// Computes a whitespace- and key-order-independent SHA-256 hex digest for a JSON language file.
+pub fn canonical_json_sha256(content: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let canonical = serde_json::from_str::<serde_json::Value>(content)
+        .ok()
+        .and_then(|v| serde_json::to_string(&v).ok());
+    let bytes = canonical.as_deref().unwrap_or(content).as_bytes();
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+/// Keeps `app_languages` in sync with an embedded `.lng` file using its SHA-256 hash stored in
+/// `settings` (`lng_hash_<lang>`):
+/// - If the DB row is missing/empty or still matches the previously synced embedded hash, it is
+///   replaced with the new embedded content.
+/// - If the user customized translations (or upgraded from a legacy DB without a stored hash),
+///   only missing keys from the new embedded file are merged in without overwriting existing values.
+pub fn sync_embedded_language(
+    conn: &Connection,
+    lang: &str,
+    embedded_content: &str,
+) -> rusqlite::Result<()> {
+    let hash_key = format!("lng_hash_{}", lang);
+    let embedded_hash = canonical_json_sha256(embedded_content);
+
+    let stored_hash: Option<String> = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![hash_key],
+            |r| r.get(0),
+        )
+        .ok();
+
+    let existing_content: Option<String> = conn
+        .query_row(
+            "SELECT content FROM app_languages WHERE lang = ?1",
+            params![lang],
+            |r| r.get(0),
+        )
+        .ok();
+
+    let has_non_empty_row = existing_content
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
+
+    if stored_hash.as_deref() == Some(embedded_hash.as_str()) && has_non_empty_row {
+        return Ok(());
+    }
+
+    let updated_content: Option<String> = match existing_content {
+        Some(ref existing) if !existing.trim().is_empty() => {
+            let existing_hash = canonical_json_sha256(existing);
+            if existing_hash == embedded_hash {
+                None
+            } else if stored_hash.as_deref() == Some(existing_hash.as_str()) {
+                Some(embedded_content.to_string())
+            } else {
+                match (
+                    serde_json::from_str::<serde_json::Value>(existing),
+                    serde_json::from_str::<serde_json::Value>(embedded_content),
+                ) {
+                    (
+                        Ok(serde_json::Value::Object(mut existing_map)),
+                        Ok(serde_json::Value::Object(embedded_map)),
+                    ) => {
+                        let mut changed = false;
+                        for (k, v) in embedded_map {
+                            if !existing_map.contains_key(&k) {
+                                existing_map.insert(k, v);
+                                changed = true;
+                            }
+                        }
+                        if changed {
+                            serde_json::to_string_pretty(&serde_json::Value::Object(existing_map))
+                                .ok()
+                        } else {
+                            None
+                        }
+                    }
+                    _ => Some(embedded_content.to_string()),
+                }
+            }
+        }
+        _ => Some(embedded_content.to_string()),
+    };
+
+    if let Some(content) = updated_content {
+        conn.execute(
+            "INSERT INTO app_languages (lang, content, updated_at) VALUES (?1, ?2, datetime('now', 'localtime'))
+             ON CONFLICT(lang) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at",
+            params![lang, content],
+        )?;
+    }
+
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![hash_key, embedded_hash],
+    )?;
+
+    Ok(())
+}
+
+pub fn sync_embedded_languages(conn: &Connection) -> rusqlite::Result<()> {
+    sync_embedded_language(conn, "english", EMBEDDED_ENGLISH_LNG)?;
+    sync_embedded_language(conn, "hungarian", EMBEDDED_HUNGARIAN_LNG)?;
     Ok(())
 }
 
@@ -552,6 +667,18 @@ fn migrate_v7(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// v8 resets previously protected `media_type = 'none'` rows (`is_manual = 1`) back to automatic
+/// (`is_manual = 0`) while keeping their original `updated_at`, so legacy pre-v5 negative rows
+/// expire under the normal 7-day TTL and can be cleared by `clear_tmdb_cache`. Positive manual
+/// matches (`movie`/`tv`) stay untouched, and future `clear_tmdb_match` clicks remain permanent.
+fn migrate_v8(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE tmdb_cache SET is_manual = 0 WHERE media_type = 'none' AND is_manual = 1",
+        [],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,15 +815,12 @@ mod tests {
         )
         .unwrap();
 
-        run_migrations(&conn, None).unwrap();
-
-        let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
-        assert_eq!(ver, MIGRATIONS.len() as i64);
+        migrate_v5(&conn).unwrap();
 
         let none_manual: i64 = conn
             .query_row("SELECT is_manual FROM tmdb_cache WHERE query_title = 'legacy none'", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(none_manual, 1, "legacy 'none' rows must be protected as manual");
+        assert_eq!(none_manual, 1, "v5 itself marks legacy 'none' rows as manual");
 
         let (hit_manual, hit_title): (i64, String) = conn
             .query_row("SELECT is_manual, title FROM tmdb_cache WHERE query_title = 'dune'", [], |r| {
@@ -705,6 +829,65 @@ mod tests {
             .unwrap();
         assert_eq!(hit_manual, 0);
         assert_eq!(hit_title, "Dune");
+    }
+
+    #[test]
+    fn test_v8_converts_legacy_none_rows_to_expiring_once() {
+        let conn = Connection::open_in_memory().unwrap();
+        make_v6_db(&conn);
+        migrate_v7(&conn).unwrap();
+        conn.execute_batch("PRAGMA user_version = 7;").unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at)
+                 VALUES ('legacy none', 'hu-HU', 'none', 1, '2020-01-01 00:00:00');
+             INSERT INTO tmdb_cache (query_title, lang, tmdb_id, media_type, title, is_manual, updated_at)
+                 VALUES ('manual dune', 'hu-HU', 438631, 'movie', 'Dune', 1, '2020-01-01 00:00:00');",
+        )
+        .unwrap();
+
+        run_migrations(&conn, None).unwrap();
+
+        let ver: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(ver, MIGRATIONS.len() as i64);
+
+        // Legacy 'none' row becomes expiring (is_manual = 0) while preserving its old updated_at
+        let (none_manual, none_updated): (i64, String) = conn
+            .query_row(
+                "SELECT is_manual, updated_at FROM tmdb_cache WHERE query_title = 'legacy none'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(none_manual, 0);
+        assert_eq!(none_updated, "2020-01-01 00:00:00");
+
+        // Positive manual matches must remain protected
+        let movie_manual: i64 = conn
+            .query_row(
+                "SELECT is_manual FROM tmdb_cache WHERE query_title = 'manual dune'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(movie_manual, 1);
+
+        // Any NEW manual 'none' row created after v8 must stay permanent across restarts
+        conn.execute(
+            "INSERT INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at)
+             VALUES ('new manual none', 'hu-HU', 'none', 1, datetime('now', 'localtime'))",
+            [],
+        )
+        .unwrap();
+        run_migrations(&conn, None).unwrap();
+        let new_none_manual: i64 = conn
+            .query_row(
+                "SELECT is_manual FROM tmdb_cache WHERE query_title = 'new manual none'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(new_none_manual, 1, "Post-v8 manual 'none' markers must remain permanent");
     }
 
     #[test]
@@ -957,5 +1140,72 @@ mod tests {
             )
             .unwrap();
         assert_eq!(hangover_stop_2, "20261126045000 +0000");
+    }
+
+    #[test]
+    fn test_sync_embedded_language_updates_unmodified_and_merges_custom_translations() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn, None).unwrap();
+
+        // Both embedded languages must store their hash and contain confirm_clear_tmdb_cache
+        for (lang, embedded) in [("english", EMBEDDED_ENGLISH_LNG), ("hungarian", EMBEDDED_HUNGARIAN_LNG)] {
+            let stored_hash: String = conn
+                .query_row(
+                    "SELECT value FROM settings WHERE key = ?1",
+                    params![format!("lng_hash_{}", lang)],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(stored_hash, canonical_json_sha256(embedded));
+
+            let db_content: String = conn
+                .query_row("SELECT content FROM app_languages WHERE lang = ?1", params![lang], |r| r.get(0))
+                .unwrap();
+            let parsed: serde_json::Value = serde_json::from_str(&db_content).unwrap();
+            assert!(
+                parsed.get("confirm_clear_tmdb_cache").and_then(|v| v.as_str()).is_some(),
+                "{} must contain confirm_clear_tmdb_cache",
+                lang
+            );
+        }
+
+        // 1. Unmodified language (even if minified by i18n.js save_language_content) gets cleanly replaced on update
+        let v1 = r#"{ "greeting": "Hello", "old": "Old" }"#;
+        let v1_minified = r#"{"old":"Old","greeting":"Hello"}"#;
+        let v2 = r#"{ "greeting": "Hello v2", "old": "Old", "new_key": "New" }"#;
+        sync_embedded_language(&conn, "testlang", v1).unwrap();
+        conn.execute(
+            "UPDATE app_languages SET content = ?1 WHERE lang = 'testlang'",
+            params![v1_minified],
+        )
+        .unwrap();
+        sync_embedded_language(&conn, "testlang", v2).unwrap();
+        let after_replace: serde_json::Value = serde_json::from_str(
+            &conn
+                .query_row("SELECT content FROM app_languages WHERE lang = 'testlang'", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(after_replace["greeting"], "Hello v2");
+        assert_eq!(after_replace["new_key"], "New");
+
+        // 2. User-customized language preserves custom values while receiving new keys
+        let customized = r#"{"greeting":"Custom Hello","old":"Old","new_key":"New"}"#;
+        conn.execute(
+            "UPDATE app_languages SET content = ?1 WHERE lang = 'testlang'",
+            params![customized],
+        )
+        .unwrap();
+        let v3 = r#"{ "greeting": "Hello v3", "old": "Old v3", "new_key": "New", "brand_new": "Fresh" }"#;
+        sync_embedded_language(&conn, "testlang", v3).unwrap();
+        let after_merge: serde_json::Value = serde_json::from_str(
+            &conn
+                .query_row("SELECT content FROM app_languages WHERE lang = 'testlang'", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(after_merge["greeting"], "Custom Hello", "User customization must not be overwritten");
+        assert_eq!(after_merge["old"], "Old", "Existing value must stay intact on merge");
+        assert_eq!(after_merge["brand_new"], "Fresh", "Newly added embedded key must be merged in");
     }
 }

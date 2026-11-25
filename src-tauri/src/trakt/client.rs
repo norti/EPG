@@ -2,10 +2,11 @@ use crate::trakt::auth::{ensure_valid_token, force_refresh_token, get_client_id}
 use crate::trakt::{is_trakt_enabled, iso_utc_to_epoch, now_epoch_secs, now_iso_utc};
 use crate::AppState;
 use rusqlite::params;
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 pub const TRAKT_GET_RATE_PER_5MIN: u64 = 450;
 pub const TRAKT_WRITE_RATE_PER_SEC: f64 = 1.0;
@@ -213,25 +214,34 @@ fn touch_http_cache(conn: &rusqlite::Connection, key: &str, ttl_seconds: i64) {
     );
 }
 
-pub async fn single_flight<F, Fut>(
-    state: &AppState,
+pub type InflightMap = std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>;
+pub type SharedInflightMap<T> = std::sync::Mutex<HashMap<String, watch::Receiver<Option<T>>>>;
+
+/// Serializes concurrent executions sharing `key` on `inflight_map`.
+/// Passes `waited: bool` to `fetch` (`false` when acquired immediately, `true` when this caller
+/// waited behind an already in-flight execution).
+pub async fn single_flight<T, F, Fut>(
+    inflight_map: &InflightMap,
     key: &str,
     fetch: F,
-) -> Result<TraktHttpResponse, TraktApiError>
+) -> T
 where
-    F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<TraktHttpResponse, TraktApiError>>,
+    F: FnOnce(bool) -> Fut,
+    Fut: Future<Output = T>,
 {
     let lock = {
-        let mut map = state.trakt.inflight.lock().unwrap();
+        let mut map = inflight_map.lock().unwrap_or_else(|e| e.into_inner());
         map.entry(key.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
     };
-    let _guard = lock.lock().await;
-    let res = fetch().await;
+    let (_guard, waited) = match lock.try_lock() {
+        Ok(guard) => (guard, false),
+        Err(_) => (lock.lock().await, true),
+    };
+    let res = fetch(waited).await;
     {
-        let mut map = state.trakt.inflight.lock().unwrap();
+        let mut map = inflight_map.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(key) {
             if Arc::strong_count(existing) <= 2 {
                 map.remove(key);
@@ -239,6 +249,66 @@ where
         }
     }
     res
+}
+
+/// Coalesces concurrent in-flight executions sharing `key` by broadcasting the leader's result to
+/// all concurrent waiters. If the leader is dropped before completing, a waiter falls back to
+/// running `fetch` itself.
+pub async fn single_flight_shared<T, F, Fut>(
+    inflight_map: &SharedInflightMap<T>,
+    key: &str,
+    fetch: F,
+) -> T
+where
+    T: Clone,
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = T>,
+{
+    enum Role<T> {
+        Leader(watch::Sender<Option<T>>),
+        Waiter(watch::Receiver<Option<T>>),
+    }
+
+    let role = {
+        let mut map = inflight_map.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(rx) = map.get(key) {
+            Role::Waiter(rx.clone())
+        } else {
+            let (tx, rx) = watch::channel(None);
+            map.insert(key.to_string(), rx);
+            Role::Leader(tx)
+        }
+    };
+
+    match role {
+        Role::Waiter(mut rx) => loop {
+            if let Some(val) = rx.borrow().clone() {
+                return val;
+            }
+            if rx.changed().await.is_err() {
+                return fetch().await;
+            }
+        },
+        Role::Leader(tx) => {
+            struct Cleanup<'a, T> {
+                map: &'a SharedInflightMap<T>,
+                key: String,
+            }
+            impl<T> Drop for Cleanup<'_, T> {
+                fn drop(&mut self) {
+                    let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+                    map.remove(&self.key);
+                }
+            }
+            let _cleanup = Cleanup {
+                map: inflight_map,
+                key: key.to_string(),
+            };
+            let result = fetch().await;
+            let _ = tx.send(Some(result.clone()));
+            result
+        }
+    }
 }
 
 pub async fn trakt_get_raw(
@@ -258,8 +328,9 @@ pub async fn trakt_get_cached(
     ttl_seconds: i64,
     force_refresh: bool,
 ) -> Result<TraktHttpResponse, TraktApiError> {
-    single_flight(state, path, || {
-        trakt_get_with_ttl(state, app, path, use_auth, ttl_seconds, force_refresh)
+    single_flight(&state.trakt.inflight, path, |waited| {
+        let effective_force = if waited { false } else { force_refresh };
+        trakt_get_with_ttl(state, app, path, use_auth, ttl_seconds, effective_force)
     })
     .await
 }
@@ -374,7 +445,8 @@ async fn trakt_get_with_ttl(
 
         if status == 401 && use_auth && !refreshed_once {
             refreshed_once = true;
-            let new_tok = force_refresh_token(state, app).await.map_err(|e| {
+            let failed_tok = token_opt.as_ref().map(|s| s.as_str()).unwrap_or("");
+            let new_tok = force_refresh_token(state, app, failed_tok).await.map_err(|e| {
                 if e.contains("TRAKT_AUTH_EXPIRED") {
                     TraktApiError::AuthExpired
                 } else {
@@ -496,7 +568,8 @@ pub async fn trakt_post(
 
         if status == 401 && !refreshed_once {
             refreshed_once = true;
-            token = force_refresh_token(state, app).await.map_err(|e| {
+            let failed_tok = token.as_str().to_string();
+            token = force_refresh_token(state, app, &failed_tok).await.map_err(|e| {
                 if e.contains("TRAKT_AUTH_EXPIRED") {
                     TraktApiError::AuthExpired
                 } else {

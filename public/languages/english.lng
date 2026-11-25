@@ -176,6 +176,7 @@
   "tmdb_btn_clear": "Clear Key",
   "tmdb_btn_test": "Test",
   "tmdb_btn_clear_cache": "Clear TMDB Cache",
+  "confirm_clear_tmdb_cache": "Are you sure you want to clear the TMDB cache? All automatically cached results will be deleted, while your manual matches will be preserved.",
   "tmdb_cache_cleared": "TMDB cache cleared successfully!",
   "tmdb_saved_success": "TMDB API key saved successfully!",
   "tmdb_copied_to_clipboard": "Title copied to clipboard!",

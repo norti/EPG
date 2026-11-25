@@ -925,7 +925,8 @@ pub(crate) async fn prefetch_tmdb_seasons(state: &AppState, api_key: &str, tmdb_
     for chunk in missing.chunks(TMDB_APPEND_MAX) {
         let append = chunk.iter().map(|n| format!("season/{}", n)).collect::<Vec<_>>().join(",");
         let url = format!("{}/tv/{}", state.tmdb.base, tmdb_id);
-        let Ok(text) = tmdb_get_text(state, || {
+        let flight_key = format!("id:tv:{}:{}:append:{}", tmdb_id, lang, append);
+        let Ok(text) = tmdb_get_text(state, &flight_key, || {
             apply_tmdb_auth(
                 state
                     .http
@@ -1052,7 +1053,8 @@ pub async fn trakt_get_show_seasons_progress(
             } else {
                 // The batched prefetch above did not deliver this season: single request as a fallback.
                 let url = format!("{}/tv/{}/season/{}", state.tmdb.base, tid, ts.number);
-                match tmdb_get_text(state.inner(), || {
+                let flight_key = format!("id:tv:{}:{}:season:{}", tid, tmdb_lang, ts.number);
+                match tmdb_get_text(state.inner(), &flight_key, || {
                     apply_tmdb_auth(
                         state
                             .http
@@ -1403,6 +1405,26 @@ pub async fn trakt_rebuild_index(
     Ok(new_ver)
 }
 
+/// Looks up a fresh (< 14 days) `trakt_cache` row by `(media_type, tmdb_id)`.
+/// Positive rows (`not_found = 0`) always take precedence over negative markers (`not_found = 1`),
+/// and newer `updated_at` timestamps win within the same polarity.
+pub(crate) fn lookup_trakt_cache_by_tmdb(
+    conn: &rusqlite::Connection,
+    media_type: &str,
+    tmdb_id: i64,
+) -> Option<(i64, bool)> {
+    conn.query_row(
+        "SELECT trakt_id, not_found = 1 FROM trakt_cache
+         WHERE media_type = ?1 AND tmdb_id = ?2
+           AND updated_at > datetime('now', '-14 days')
+         ORDER BY not_found ASC, updated_at DESC
+         LIMIT 1",
+        params![media_type, tmdb_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )
+    .ok()
+}
+
 #[tauri::command]
 pub async fn trakt_resolve_for_title(
     state: tauri::State<'_, AppState>,
@@ -1465,15 +1487,7 @@ pub async fn trakt_resolve_for_title(
     if let (Some(tid), Some(tmt)) = (tmdb_id, trakt_mt_opt) {
         let cached_row: Option<(i64, bool)> = {
             let conn = state.db.lock().await;
-            conn.query_row(
-                "SELECT trakt_id, not_found = 1 FROM trakt_cache
-                 WHERE media_type = ?1 AND tmdb_id = ?2
-                   AND updated_at > datetime('now', '-14 days')
-                 LIMIT 1",
-                params![tmt, tid],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .ok()
+            lookup_trakt_cache_by_tmdb(&conn, tmt, tid)
         };
 
         if let Some((trakt_id, is_not_found)) = cached_row {

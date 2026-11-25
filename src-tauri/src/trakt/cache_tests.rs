@@ -6,7 +6,7 @@ use crate::trakt::client::{
     prune_http_cache, prune_stale_calendar_keys, trakt_get_cached, HTTP_CACHE_PRUNE_GRACE_SECS,
 };
 use crate::trakt::sync::{
-    calendar_start_for_sync, local_yesterday_ymd, remember_calendar_start, resolve_calendar_start,
+    calendar_start_for_sync, remember_calendar_start, resolve_calendar_start, utc_yesterday_ymd,
 };
 use crate::trakt::tests::{make_test_state, spawn_mock_server};
 use crate::trakt::{epoch_to_iso_utc, now_epoch_secs, now_iso_utc};
@@ -258,7 +258,7 @@ async fn test_global_calendar_download_drops_the_previous_days_body() {
 #[tokio::test]
 async fn test_calendar_start_date_is_shared_between_ui_and_sync() {
     let state = offline_state();
-    let guess = local_yesterday_ymd();
+    let guess = utc_yesterday_ymd();
 
     // nothing remembered yet -> the UTC based guess
     {
@@ -321,4 +321,116 @@ async fn test_ui_and_sync_use_one_calendar_download() {
     assert_eq!(sync_start, ui_start);
     fetch_and_cache_global_calendar(&state, None, &sync_start, false).await.unwrap();
     assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn test_trakt_cache_tmdb_lookup_prefers_positive_and_newest() {
+    let state = offline_state();
+    let conn = state.db.lock().await;
+
+    let older = epoch_to_iso_utc(now_epoch_secs() - 3600);
+    let newer = epoch_to_iso_utc(now_epoch_secs() - 60);
+    let newest = epoch_to_iso_utc(now_epoch_secs() - 10);
+
+    // Insert a newer negative row AND two positive rows for the same (media_type, tmdb_id)
+    conn.execute(
+        "INSERT INTO trakt_cache (media_type, trakt_id, tmdb_id, not_found, updated_at)
+         VALUES ('show', -500, 500, 1, ?1)",
+        rusqlite::params![newest],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO trakt_cache (media_type, trakt_id, tmdb_id, not_found, updated_at)
+         VALUES ('show', 1001, 500, 0, ?1)",
+        rusqlite::params![older],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO trakt_cache (media_type, trakt_id, tmdb_id, not_found, updated_at)
+         VALUES ('show', 1002, 500, 0, ?1)",
+        rusqlite::params![newer],
+    )
+    .unwrap();
+
+    // Positive row must beat newer negative row, and among positives the newest updated_at must win
+    assert_eq!(
+        crate::trakt::commands::lookup_trakt_cache_by_tmdb(&conn, "show", 500),
+        Some((1002, false))
+    );
+
+    // When only a negative row exists, it is returned
+    conn.execute(
+        "INSERT INTO trakt_cache (media_type, trakt_id, tmdb_id, not_found, updated_at)
+         VALUES ('movie', -777, 777, 1, ?1)",
+        rusqlite::params![newer],
+    )
+    .unwrap();
+    assert_eq!(
+        crate::trakt::commands::lookup_trakt_cache_by_tmdb(&conn, "movie", 777),
+        Some((-777, true))
+    );
+
+    // Expired rows (> 14 days) must be ignored
+    conn.execute(
+        "INSERT INTO trakt_cache (media_type, trakt_id, tmdb_id, not_found, updated_at)
+         VALUES ('movie', 888, 888, 0, '2020-01-01T00:00:00Z')",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        crate::trakt::commands::lookup_trakt_cache_by_tmdb(&conn, "movie", 888),
+        None
+    );
+}
+
+#[tokio::test]
+async fn test_trakt_single_flight_waiter_reuses_fresh_cache_on_force_refresh() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let hits = Arc::new(AtomicUsize::new(0));
+    let h = hits.clone();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let h = h.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                h.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                let body = r#"{"ok":true}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = socket.write_all(resp.as_bytes()).await;
+            });
+        }
+    });
+
+    let base = format!("http://{}", addr);
+    let state = Arc::new(make_test_state(base.clone(), base));
+
+    let s1 = state.clone();
+    let s2 = state.clone();
+    let (r1, r2) = tokio::join!(
+        async move { trakt_get_cached(&s1, None, "/shows/sf-test", false, 3600, true).await.unwrap() },
+        async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            trakt_get_cached(&s2, None, "/shows/sf-test", false, 3600, true).await.unwrap()
+        }
+    );
+
+    assert_eq!(hits.load(Ordering::SeqCst), 1, "Waiter must reuse cache populated by leader");
+    assert!(!r1.from_cache);
+    assert!(r2.from_cache);
+    assert_eq!(r1.body, r#"{"ok":true}"#);
+    assert_eq!(r2.body, r#"{"ok":true}"#);
 }
