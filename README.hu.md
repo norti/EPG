@@ -2,8 +2,6 @@
 
 [English](README.md) | **Magyar**
 
-Fejlesztés alatt... Az első verzió megjelent.
-
 Ez egy EPG XML fájlokat megjelenítő alkalmazás. Képes .xml vagy .gz EPG fájlokból (URL forrás) TV-műsorújságokat megjeleníteni.
 A csatornákhoz automatikusan hozzárendeltethetsz csatorna logókat.
 A műsorokhoz és filmekhez TMDB információkat kérhetsz le (API kulcsra szükség van).

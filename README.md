@@ -2,8 +2,6 @@
 
 **English** | [Magyar](README.hu.md)
 
-Under development... Initial version released.
-
 This is an EPG XML file viewer application. It can display TV guides from .xml or .gz EPG file sources (URL).
 You can assign TV channel logos to the channels automatically.
 You can get TMDB information for shows and movies (needs API key).
