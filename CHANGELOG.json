@@ -1,6 +1,29 @@
 {
-  "latestVersion": "1.0.0",
+  "latestVersion": "1.1.0",
   "releases": [
+    {
+      "version": "1.1.0",
+      "pubDate": "2026-11-26T09:50:51Z",
+      "installerFile": "epg-viewer_1.1.0_x64-setup.exe",
+      "sizeBytes": 6050191,
+      "sha256": "5e8339f3cf70d99b4801bf9dd8f14a4a8b1b62d1fcfe5d80f2ff5677cc4c1584",
+      "changelog": {
+        "hu": [
+          "Önálló Kedvenc műsorok modal ablak (kikerült a Beállításokból), összes EPG forrás lekérdezésével, forrásszűrővel, múltbeli adások kapcsolóval, ugrás gombbal és TMDB információs ablakkal a program nevére klikkelve",
+          "Új Trakt 'Watchlist az EPG-n' nézet az összes EPG forrásban szereplő Watchlist műsorhoz (alapértelmezett A-Z rendezés, forrás/csatorna/dátum/nap/idő badge-ek, ugrás, kedvenc csillag, azonnali Watchlist törlés és TMDB információs ablakkal a program nevére klikkelve)",
+          "Max. 3 szintű rendezés (Dátum, A-Z, Csatorna, Forrás) és az 1. szint szerint összecsukható/kibontható szakaszok Mind becsukása / Mind kinyitása gombbal",
+          "Konzisztens EPG / Trakt módváltó gomb a fejléc jobb oldalán azonos mérettel, valamint egységes élő keresőmezők belső X gombbal és ESC törléssel az egész alkalmazásban",
+          "Finomított modal-kezelés (a Beállítások és a Csatorna szerkesztése modal nem záródik be ESC-re vagy mellékattintásra) és egységesített kedvenc csillag / dátum badge stílusok"
+        ],
+        "en": [
+          "Standalone Favorite Programmes modal (moved out of Settings), querying all EPG sources with source filter, past airings toggle, jump-to-EPG button, and TMDB modal support",
+          "New Trakt 'Watchlist on EPG' view, listing all Watchlist programmes across local EPG sources (default A-Z sort, source/channel/date/day/time badges, jump to EPG, favorite toggle, instant Watchlist removal, and TMDB modal)",
+          "Up to 3 level sorting (Date, A-Z, Channel, Source) with collapsible sections by primary sort level and a Collapse all / Expand all toggle button",
+          "Consistent EPG / Trakt mode toggle button on the right side of the header with matching dimensions, plus unified live search inputs with inline X clear button and ESC clearing across the app",
+          "Refined modal behavior (Settings and Edit Channel modals no longer close on ESC or backdrop click) and unified favorite star / date badge styling"
+        ]
+      }
+    },
     {
       "version": "1.0.0",
       "pubDate": "2026-11-25T20:02:40Z",
