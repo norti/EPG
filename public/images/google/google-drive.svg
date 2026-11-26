@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="gd-green" x1="16" y1="6" x2="32" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38B258"/>
+      <stop offset="100%" stop-color="#7AD067"/>
+    </linearGradient>
+    <linearGradient id="gd-blue" x1="6" y1="36" x2="27" y2="26" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4A86FA"/>
+      <stop offset="100%" stop-color="#8097FA"/>
+    </linearGradient>
+    <linearGradient id="gd-yellow" x1="26" y1="18" x2="42" y2="39" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F7B718"/>
+      <stop offset="100%" stop-color="#FDE047"/>
+    </linearGradient>
+    <linearGradient id="gd-blend" x1="14" y1="15" x2="10" y2="31" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#60BA8A"/>
+      <stop offset="100%" stop-color="#6E92F6"/>
+    </linearGradient>
+    <mask id="gd-hole">
+      <rect width="48" height="48" fill="#FFFFFF"/>
+      <polygon points="24,20.2 18.8,29.2 29.2,29.2" fill="#000000"/>
+    </mask>
+  </defs>
+  <g mask="url(#gd-hole)">
+    <!-- Soft rounded triangle silhouette split into 3 gradient regions -->
+    <path fill="url(#gd-blend)" d="M15.4 15.2L6.6 30.4c-1.8 3.1.4 7.1 4.1 7.1h13.3l4.6-8.3H18.5l5.5-9.5-8.6-4.5z"/>
+    <path fill="url(#gd-blue)" d="M6.6 30.4c-1.8 3.1.4 7.1 4.1 7.1h12.8c2.2 0 4.2-1.2 5.3-3.1l2.2-3.8H18.2l2.6-4.5-9.5-3.4-4.7 7.7z"/>
+    <path fill="url(#gd-yellow)" d="M32.6 15.2l8.8 15.2c1.8 3.1-.4 7.1-4.1 7.1H24l5.2-8.3-5.2-9h8.6z"/>
+    <path fill="url(#gd-green)" d="M19.9 7.5c1.8-3.1 6.4-3.1 8.2 0l4.5 7.7-4.5 5H19.9l-4.5-5 4.5-7.7z"/>
+  </g>
+</svg>

@@ -1,5 +1,6 @@
 ﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod google;
 mod migrations;
 mod trakt;
 mod updater;
@@ -105,6 +106,7 @@ pub struct AppState {
     /// Coalesces concurrent image/logo downloads sharing the same URL.
     pub image_inflight: trakt::client::SharedInflightMap<Result<String, String>>,
     pub updater: updater::UpdaterState,
+    pub google: google::GoogleState,
 }
 
 /// Runtime settings of the TMDB layer. The base URL is injectable so tests can point it at a mock server.
@@ -202,7 +204,7 @@ fn get_embedded_language(lang: &str) -> Option<&'static str> {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-struct Source {
+pub(crate) struct Source {
     id: String,
     name: String,
     url: String,
@@ -868,12 +870,12 @@ async fn save_channel_order(state: tauri::State<'_, AppState>, source_id: String
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-struct SortPreset {
-    id: i64,
-    name: String,
-    source_id: String,
-    channel_order: Vec<String>,
-    created_at: Option<String>,
+pub(crate) struct SortPreset {
+    pub id: i64,
+    pub name: String,
+    pub source_id: String,
+    pub channel_order: Vec<String>,
+    pub created_at: Option<String>,
 }
 
 #[tauri::command]
@@ -2091,7 +2093,8 @@ pub(crate) fn maintain_database_inner(
         0
     });
 
-    let pruned_http_cache = trakt::client::prune_http_cache(conn);
+    let pruned_http_cache =
+        trakt::client::prune_http_cache(conn) + google::prune_http_cache(conn);
     let pruned_tmdb_negatives = conn
         .execute(
             "DELETE FROM tmdb_cache
@@ -3424,7 +3427,7 @@ async fn search_channel_logos(state: tauri::State<'_, AppState>, query: String, 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-struct ChannelUserSettingExport {
+pub(crate) struct ChannelUserSettingExport {
     source_id: String,
     channel_id: String,
     is_favorite: bool,
@@ -3435,7 +3438,7 @@ struct ChannelUserSettingExport {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-struct ChannelOrderExport {
+pub(crate) struct ChannelOrderExport {
     source_id: String,
     channel_id: String,
     position: i64,
@@ -3443,16 +3446,16 @@ struct ChannelOrderExport {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-struct BackupData {
-    version: u32,
-    exported_at: String,
-    sources: Vec<Source>,
-    favorites: Vec<String>,
-    channel_user_settings: Vec<ChannelUserSettingExport>,
-    channel_orders: Vec<ChannelOrderExport>,
+pub(crate) struct BackupData {
+    pub version: u32,
+    pub exported_at: String,
+    pub sources: Vec<Source>,
+    pub favorites: Vec<String>,
+    pub channel_user_settings: Vec<ChannelUserSettingExport>,
+    pub channel_orders: Vec<ChannelOrderExport>,
     #[serde(default)]
-    channel_sort_presets: Vec<SortPreset>,
-    settings: HashMap<String, String>,
+    pub channel_sort_presets: Vec<SortPreset>,
+    pub settings: HashMap<String, String>,
 }
 
 // ── Channel-data export/import ───────────────────────────────────────────────
@@ -6063,9 +6066,12 @@ fn validate_http_url(url: &str) -> Result<&str, String> {
 }
 
 #[tauri::command]
-fn open_url(url: String) -> Result<(), String> {
-    let u = validate_http_url(&url)?;
-    open::that(u).map_err(|e| e.to_string())
+async fn open_url(url: String) -> Result<(), String> {
+    let u = validate_http_url(&url)?.to_string();
+    tokio::task::spawn_blocking(move || open::that_detached(&u))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 fn spawn_programmes_backfill(app_handle: tauri::AppHandle) {
@@ -6151,9 +6157,11 @@ fn main() {
 
     let db_conn = open_and_init_db().expect("Adatbázis inicializálási hiba");
     let initial_window_title = resolve_initial_window_title(&db_conn);
-    // Drop Trakt HTTP cache rows that expired long ago (they otherwise pile up, e.g. one calendar body per day).
+    // Drop expired Trakt & Google HTTP cache rows on startup.
     let _ = trakt::client::prune_http_cache(&db_conn);
+    let _ = google::prune_http_cache(&db_conn);
     let trakt_state = trakt::TraktState::new(&db_conn);
+    let google_state = google::GoogleState::new();
 
     // Dedicated read-only connection to images.db for serving cached logos/posters via epgimg://
     // without ever blocking behind epg.db write transactions.
@@ -6216,6 +6224,7 @@ fn main() {
             stats: RequestStats::default(),
             image_inflight: std::sync::Mutex::new(HashMap::new()),
             updater: updater::UpdaterState::default(),
+            google: google_state,
         })
         .setup(move |app| {
             {
@@ -6247,6 +6256,84 @@ fn main() {
                 };
                 if should_sync {
                     let _ = trakt::sync::run_sync(st.inner(), Some(&startup_handle), false).await;
+                }
+            });
+            let google_startup_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::{Emitter, Manager};
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let st = google_startup_handle.state::<AppState>();
+                let (has_auth, auto_enabled, last_remote_modified) = {
+                    let conn = st.db.lock().await;
+                    let auto_enabled = conn
+                        .query_row(
+                            "SELECT value FROM settings WHERE key = 'google_auto_sync_enabled'",
+                            [],
+                            |r| r.get::<_, String>(0),
+                        )
+                        .ok()
+                        .is_some_and(|v| matches!(v.as_str(), "1" | "true"));
+                    let has_auth = conn
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM google_auth WHERE id = 1 AND access_blob != '')",
+                            [],
+                            |r| r.get::<_, bool>(0),
+                        )
+                        .unwrap_or(false);
+                    let last_remote: Option<String> = conn
+                        .query_row(
+                            "SELECT value FROM google_sync_state WHERE key = 'last_remote_modified_at'",
+                            [],
+                            |r| r.get(0),
+                        )
+                        .ok();
+                    (has_auth, auto_enabled, last_remote)
+                };
+                if !has_auth {
+                    return;
+                }
+                // Incremental sync of EPG Viewer calendar events (minimal server sync via syncToken)
+                if let Ok(cal_res) = google::calendar::sync_calendar_events(st.inner(), false).await {
+                    if cal_res.added_or_updated > 0 || cal_res.removed > 0 {
+                        let _ = google_startup_handle.emit(
+                            "google-calendar-events-updated",
+                            serde_json::json!({
+                                "addedOrUpdated": cal_res.added_or_updated,
+                                "removed": cal_res.removed,
+                                "totalTracked": cal_res.total_tracked,
+                            }),
+                        );
+                    }
+                }
+                if !auto_enabled {
+                    return;
+                }
+                match google::drive::fetch_remote_file_meta(st.inner()).await {
+                    Ok(Some(remote)) => {
+                        let remote_is_newer = match (
+                            remote.modified_time.as_deref(),
+                            last_remote_modified.as_deref(),
+                        ) {
+                            (Some(r), Some(l)) => r > l,
+                            (Some(_), None) => true,
+                            _ => false,
+                        };
+                        if remote_is_newer {
+                            let _ = google_startup_handle.emit(
+                                "google-sync-state",
+                                serde_json::json!({
+                                    "status": "newerRemoteAvailable",
+                                    "modifiedTime": remote.modified_time,
+                                }),
+                            );
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = google::drive::save_to_drive(st.inner()).await;
+                    }
+                    Err(e) => {
+                        eprintln!("Google Drive startup ellenőrzés hiba: {e}");
+                    }
                 }
             });
             Ok(())
@@ -6340,7 +6427,25 @@ fn main() {
             trakt::commands::trakt_resolve_for_title,
             trakt::commands::trakt_resolve_tmdb_poster,
             trakt::commands::get_tmdb_details_by_id,
-            trakt::commands::trakt_on_window_focus
+            trakt::commands::trakt_on_window_focus,
+            google::commands::google_start_auth,
+            google::commands::google_cancel_auth,
+            google::commands::google_logout,
+            google::commands::google_get_auth_status,
+            google::commands::google_save_to_drive,
+            google::commands::google_load_from_drive,
+            google::commands::google_apply_drive_data,
+            google::commands::google_set_auto_sync,
+            google::commands::google_add_calendar_event,
+            google::commands::google_remove_calendar_event,
+            google::commands::google_get_calendar_event,
+            google::commands::google_get_calendar_event_keys,
+            google::commands::google_get_calendar_events_count,
+            google::commands::google_sync_calendar_events,
+            google::commands::google_cleanup_calendar_events,
+            google::commands::google_list_calendars,
+            google::commands::google_set_target_calendar,
+            google::commands::google_get_sync_state
         ])
         .run(tauri::generate_context!())
         .expect("Hiba a Tauri indításakor");

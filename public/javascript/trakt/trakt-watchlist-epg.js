@@ -135,6 +135,14 @@ function renderWatchlistEpgList() {
         openModal(item.title, formatTimeRange(item), item.desc, channel, {
           fallbackTmdbId: item.tmdbId || null,
           fallbackMediaType: item.mediaType === "movie" ? "movie" : "tv",
+          airing: {
+            sourceId: item.sourceId || "",
+            channelId: item.channelId || "",
+            startDate: getAiringStartDate(item),
+            stopDate: getAiringStopDate(item),
+            channelName: item.channelName || "",
+            sourceName: item.sourceName || "",
+          },
         });
       },
       onToggleFavorite: async (item, btn) => {

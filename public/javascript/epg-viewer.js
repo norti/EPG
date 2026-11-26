@@ -35,6 +35,7 @@ import { initModal } from "./application/modal.js";
 import { initSettings } from "./application/settings.js";
 import { scheduleStartupUpdateCheck } from "./application/updater.js";
 import { initTraktUI } from "./trakt/trakt-ui.js";
+import { initGoogleUI } from "./google/google-ui.js";
 
 function initHeaderScroll() {
   const scrollArea = document.getElementById("headerScrollArea");
@@ -135,6 +136,7 @@ async function init() {
   });
 
   await initTraktUI();
+  await initGoogleUI();
 
   if (state.settings.view_step_min) {
     state.currentStepMin = parseInt(state.settings.view_step_min, 10);

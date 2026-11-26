@@ -19,6 +19,8 @@ pub const MIGRATIONS: &[MigFn] = &[
     migrate_v10,
     migrate_v11,
     migrate_v12,
+    migrate_v13,
+    migrate_v14,
 ];
 
 fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
@@ -683,6 +685,67 @@ fn migrate_v12(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// v13 adds tables for Google OAuth 2.0 tokens, Drive sync state, offline queue, and HTTP cache.
+fn migrate_v13(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS google_auth (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            access_blob TEXT NOT NULL,
+            refresh_blob TEXT NOT NULL,
+            client_secret_blob TEXT,
+            expires_at INTEGER NOT NULL,
+            id_token_sub TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS google_sync_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS google_pending_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS google_http_cache (
+            key TEXT PRIMARY KEY,
+            etag TEXT,
+            body TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            ttl_seconds INTEGER NOT NULL
+        );",
+    )?;
+    Ok(())
+}
+
+/// v14 adds `google_calendar_events` to track EPG programmes added to Google Calendar
+/// (enabling deduplication, removal, EPG grid badges, syncToken sync, and bulk cleanup).
+fn migrate_v14(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS google_calendar_events (
+            epg_key TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            start_ts INTEGER NOT NULL,
+            stop_ts INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            calendar_id TEXT NOT NULL,
+            calendar_name TEXT,
+            event_id TEXT NOT NULL,
+            html_link TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_gcal_events_time ON google_calendar_events (start_ts);
+        CREATE INDEX IF NOT EXISTS idx_gcal_events_event_id ON google_calendar_events (calendar_id, event_id);",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -722,6 +785,11 @@ mod tests {
             "trakt_pending_actions",
             "trakt_http_cache",
             "trakt_show_fp",
+            "google_auth",
+            "google_sync_state",
+            "google_pending_actions",
+            "google_http_cache",
+            "google_calendar_events",
         ];
         for tbl in trakt_tables {
             let exists: i64 = conn

@@ -11,6 +11,10 @@ import {
   closeFixOverlay,
 } from "../tmdb/tmdb.js";
 import { attachToModal, detachFromModal } from "../trakt/trakt-ui.js";
+import {
+  attachGoogleCalendarToModal,
+  detachGoogleCalendarFromModal,
+} from "../google/google-ui.js";
 
 export function setModalContext(title, channel, desc) {
   state.currentModalTitle = title || "";
@@ -35,6 +39,7 @@ export async function openModal(title, time, desc, channel, options = {}) {
   // Close fix overlay and reset TMDB UI
   closeFixOverlay();
   resetModalTmdbUi();
+  detachGoogleCalendarFromModal();
 
   const tmdbLoading = document.getElementById("modalTmdbLoading");
   tmdbLoading.classList.remove("u-hidden");
@@ -77,6 +82,12 @@ export async function openModal(title, time, desc, channel, options = {}) {
       mediaType: tmdbData?.mediaType ?? options?.fallbackMediaType ?? null,
       tmdbData,
     });
+    attachGoogleCalendarToModal({
+      title,
+      desc,
+      airing: options?.airing || null,
+      tmdbData: tmdbData || null,
+    });
   } catch (e) {
     console.warn("TMDB betöltési hiba:", e);
     if (isStillCurrent()) {
@@ -85,6 +96,12 @@ export async function openModal(title, time, desc, channel, options = {}) {
         title,
         tmdbId: options?.fallbackTmdbId ?? null,
         mediaType: options?.fallbackMediaType ?? null,
+        tmdbData: null,
+      });
+      attachGoogleCalendarToModal({
+        title,
+        desc,
+        airing: options?.airing || null,
         tmdbData: null,
       });
     }
@@ -112,6 +129,7 @@ export function initModal() {
     hidePosterZoom();
     closeFixOverlay();
     detachFromModal();
+    detachGoogleCalendarFromModal();
     document.getElementById("modalOverlay").classList.remove("active");
   };
 
@@ -141,6 +159,7 @@ export function initModal() {
         hidePosterZoom();
         closeFixOverlay();
         detachFromModal();
+        detachGoogleCalendarFromModal();
         modalOverlay.classList.remove("active");
       }
       return;
@@ -165,6 +184,7 @@ export function initModal() {
           hidePosterZoom();
           closeFixOverlay();
           detachFromModal();
+          detachGoogleCalendarFromModal();
           overlay.classList.remove("active");
         } else if (overlay.id === "updateAvailableOverlay") {
           closeUpdateModal();

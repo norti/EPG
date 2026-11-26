@@ -69,7 +69,14 @@ const DEFAULT_ICONS = [
   'link',
   'world',
   'fold-down',
-  'fold-up'
+  'fold-up',
+  'brand-google',
+  'calendar-event',
+  'circle-check',
+  'cloud-upload',
+  'cloud-download',
+  'logout',
+  'loader'
 ];
 
 function findIconSvg(iconName) {

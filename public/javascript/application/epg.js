@@ -32,6 +32,14 @@ import {
   isTraktMode,
   exitTraktMode,
 } from "../trakt/trakt-ui.js";
+import {
+  prepareCalendarMatchesForEpg,
+  isOnGoogleCalendar,
+} from "../google/google-ui.js";
+import {
+  buildCalendarEpgKey,
+  getGoogleCalendarIconSvg,
+} from "../google/google-calendar-utils.js";
 
 export function parseEPGDate(str, manualOffsetHours = 0) {
   if (!str || str.length < 12) return new Date();
@@ -217,7 +225,10 @@ export async function fetchEPG(options = {}) {
   if (cachedEntry) {
     state.epgData = cachedEntry;
     applyActiveSortToEpgChannels();
-    await prepareMatchesForEpg(state.epgData.programmes);
+    await Promise.all([
+      prepareMatchesForEpg(state.epgData.programmes),
+      prepareCalendarMatchesForEpg(),
+    ]);
     if (gen !== epgFetchGen || state.currentSourceId !== requestedSourceId) {
       return;
     }
@@ -293,7 +304,10 @@ export async function fetchEPG(options = {}) {
       setCachedEpgSource(requestedSourceId, state.epgData);
     }
 
-    await prepareMatchesForEpg(state.epgData.programmes);
+    await Promise.all([
+      prepareMatchesForEpg(state.epgData.programmes),
+      prepareCalendarMatchesForEpg(),
+    ]);
     if (gen !== epgFetchGen || state.currentSourceId !== requestedSourceId) {
       return;
     }
@@ -564,7 +578,20 @@ function renderProgramDetails(el) {
   const data = el._progData;
   if (!data) return;
 
-  const { prog, isFav, isTrakt, startStr } = data;
+  const { prog, isFav, isTrakt, isGoogleCal, startStr } = data;
+  const cornerBadgesHtml =
+    isGoogleCal || isTrakt
+      ? `<div class="prog-corner-badges">${
+          isGoogleCal
+            ? `<span class="google-cal-epg-badge" title="${escapeHtml(t("google_calendar_epg_tooltip"))}">${getGoogleCalendarIconSvg(new Date().getDate(), 12)}</span>`
+            : ""
+        }${
+          isTrakt
+            ? `<span class="trakt-epg-badge" title="${escapeHtml(t("trakt_on_watchlist_tooltip"))}">${iconHtml("trakt-epg-badge", 12)}</span>`
+            : ""
+        }</div>`
+      : "";
+
   el.innerHTML = `
           <div class="prog-header">
               <span class="start-badge">${startStr}</span>
@@ -572,7 +599,7 @@ function renderProgramDetails(el) {
               <span class="fav-star ${isFav ? "active" : ""}">${iconHtml(isFav ? "star-filled" : "star", 15)}</span>
           </div>
           ${prog.desc ? `<div class="prog-desc">${escapeHtml(prog.desc)}</div>` : ""}
-          ${isTrakt ? `<span class="trakt-epg-badge" title="${escapeHtml(t("trakt_on_watchlist_tooltip"))}">${iconHtml("trakt-epg-badge", 12)}</span>` : ""}
+          ${cornerBadgesHtml}
         `;
 
   const star = el.querySelector(".fav-star");
@@ -706,6 +733,11 @@ function renderSingleChannelMultiDay(
 
       const isFav = state.favoritesSet.has(prog.title);
       const isTrakt = isOnWatchlist(prog.title);
+      const progSourceId = channel?.sourceId || state.currentSourceId;
+      const progChannelId = channel?.id || prog.channel;
+      const isGoogleCal = isOnGoogleCalendar(
+        buildCalendarEpgKey(progSourceId, progChannelId, prog.start),
+      );
       const isHighlight = filterText ? isProgMatch(prog.title) : false;
       const isActual = prog.start <= now && prog.stop > now;
 
@@ -726,6 +758,7 @@ function renderSingleChannelMultiDay(
         prog,
         isFav,
         isTrakt,
+        isGoogleCal,
         isHighlight,
         isActual,
         startStr,
@@ -738,8 +771,19 @@ function renderSingleChannelMultiDay(
         firstMatchEl = progEl;
       }
 
-      progEl.onclick = () =>
-        openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc, channel);
+      progEl.onclick = () => {
+        const srcObj = state.sources.find((s) => s.id === progSourceId);
+        openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc, channel, {
+          airing: {
+            sourceId: progSourceId,
+            channelId: progChannelId,
+            startDate: prog.start,
+            stopDate: prog.stop,
+            channelName: channel?.name || "",
+            sourceName: channel?.sourceName || srcObj?.name || "",
+          },
+        });
+      };
 
       grid.appendChild(progEl);
       toObserve.push(progEl);
@@ -1122,6 +1166,11 @@ export function renderEPG() {
 
       const isFav = state.favoritesSet.has(prog.title);
       const isTrakt = isOnWatchlist(prog.title);
+      const progSourceId = channel?.sourceId || state.currentSourceId;
+      const progChannelId = channel?.id || prog.channel;
+      const isGoogleCal = isOnGoogleCalendar(
+        buildCalendarEpgKey(progSourceId, progChannelId, prog.start),
+      );
       const isHighlight = filterText ? isProgMatch(prog.title) : false;
       const isActual = prog.start <= now && prog.stop > now;
 
@@ -1142,6 +1191,7 @@ export function renderEPG() {
         prog,
         isFav,
         isTrakt,
+        isGoogleCal,
         isHighlight,
         isActual,
         startStr,
@@ -1154,8 +1204,19 @@ export function renderEPG() {
         firstMatchEl = progEl;
       }
 
-      progEl.onclick = () =>
-        openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc, channel);
+      progEl.onclick = () => {
+        const srcObj = state.sources.find((s) => s.id === progSourceId);
+        openModal(prog.title, `${startStr} - ${stopStr}`, prog.desc, channel, {
+          airing: {
+            sourceId: progSourceId,
+            channelId: progChannelId,
+            startDate: prog.start,
+            stopDate: prog.stop,
+            channelName: channel?.name || "",
+            sourceName: channel?.sourceName || srcObj?.name || "",
+          },
+        });
+      };
 
       grid.appendChild(progEl);
       toObserve.push(progEl);

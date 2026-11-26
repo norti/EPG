@@ -215,11 +215,14 @@ export function updateModalLeftColVisibility() {
   const leftCol = document.getElementById("modalLeftCol");
   const posterCol = document.getElementById("modalPosterCol");
   const posterTraktMeta = document.getElementById("modalPosterTraktMeta");
+  const googleCalSection = document.getElementById("modalGoogleCalendarSection");
   if (!leftCol) return;
   const hasPoster = posterCol && !posterCol.classList.contains("u-hidden");
   const hasTraktMeta =
     posterTraktMeta && !posterTraktMeta.classList.contains("u-hidden");
-  leftCol.classList.toggle("u-hidden", !(hasPoster || hasTraktMeta));
+  const hasGoogleCal =
+    googleCalSection && !googleCalSection.classList.contains("u-hidden");
+  leftCol.classList.toggle("u-hidden", !(hasPoster || hasTraktMeta || hasGoogleCal));
 }
 
 export function resetModalTmdbUi(preserveTrakt = false) {

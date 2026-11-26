@@ -30,6 +30,7 @@ pub(crate) fn make_test_state(api_base: String, auth_base: String) -> AppState {
         stats: crate::RequestStats::default(),
         image_inflight: std::sync::Mutex::new(std::collections::HashMap::new()),
         updater: crate::updater::UpdaterState::default(),
+        google: crate::google::GoogleState::new(),
     }
 }
 

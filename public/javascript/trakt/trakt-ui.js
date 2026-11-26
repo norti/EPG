@@ -18,6 +18,7 @@ import {
   closeFixOverlay,
 } from '../tmdb/tmdb.js';
 import { updateModalFavStar, setModalContext } from '../application/modal.js';
+import { detachGoogleCalendarFromModal } from '../google/google-ui.js';
 import {
   renderDashboard,
   renderWatchlistView,
@@ -844,6 +845,7 @@ import {
     if (typeof closeFixOverlay === 'function') closeFixOverlay();
     if (typeof resetModalTmdbUi === 'function') resetModalTmdbUi();
     detachFromModal();
+    detachGoogleCalendarFromModal();
 
     const seq = ++modalAttachSeq;
     setModalContext(item.title, null, item.overview || '');

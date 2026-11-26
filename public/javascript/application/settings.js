@@ -19,6 +19,7 @@ import {
   invalidateChannelOrderCache,
 } from "./channels.js";
 import { loadSettingsTab as loadTraktSettingsTab } from "../trakt/trakt-ui.js";
+import { loadGoogleSettingsTab } from "../google/google-ui.js";
 import { clearTraktImageCaches } from "../trakt/trakt-dashboard.js";
 import { initUpdater, loadAboutTab } from "./updater.js";
 
@@ -48,6 +49,9 @@ export function switchSettingsTab(tabName) {
   } else if (tabName === "trakt") {
     document.getElementById("tabPaneTrakt").classList.add("active");
     loadTraktSettingsTab();
+  } else if (tabName === "google") {
+    document.getElementById("tabPaneGoogle").classList.add("active");
+    loadGoogleSettingsTab();
   } else if (tabName === "export") {
     document.getElementById("tabPaneExport").classList.add("active");
     updateCacheSectionStats();

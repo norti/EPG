@@ -219,7 +219,16 @@ export function renderFavoritesList() {
             sourceName: item.sourceName,
             countryCode: item.countryCode,
           };
-          openModal(item.title, formatTimeRange(item), item.desc, channel);
+          openModal(item.title, formatTimeRange(item), item.desc, channel, {
+            airing: {
+              sourceId: item.sourceId || "",
+              channelId: item.channelId || "",
+              startDate: getAiringStartDate(item),
+              stopDate: getAiringStopDate(item),
+              channelName: item.channelName || "",
+              sourceName: item.sourceName || "",
+            },
+          });
         },
         onRemoveFavorite: (item) => toggleFavorite(item.title),
       },

@@ -282,6 +282,19 @@
               <span id="modalTraktWatchlistStatus" class="modal-trakt-wl-status u-hidden"></span>
               <div id="modalTraktNetworkBadge" class="trakt-modal-badge trakt-badge-network trakt-poster-network u-hidden"></div>
             </div>
+            <div id="modalGoogleCalendarSection" class="modal-poster-google-meta u-hidden">
+              <button type="button" id="modalCalendarBtn" class="btn btn-blue google-modal-cal-btn">
+                <span id="modalCalendarBrandIcon" class="google-cal-btn-icon-wrap"></span>
+                <span id="modalCalendarBtnText" data-i18n="google_calendar_add_btn">
+                  Hozzáadás a Google Naptárhoz
+                </span>
+              </button>
+              <div id="modalCalendarTargetName" class="google-calendar-target-name u-hidden"></div>
+              <button type="button" id="modalCalendarLinkBtn" class="btn google-modal-cal-open-btn u-hidden">
+                <span data-icon="link" data-icon-size="13"></span>
+                <span data-i18n="google_calendar_open_link">Megnyitás a Naptárban</span>
+              </button>
+            </div>
           </div>
           <div class="modal-details-col">
             <div class="modal-header-row">
@@ -423,6 +436,10 @@
             <div class="settings-nav-item" data-tab="trakt">
               <span data-icon="trakt-logo" data-icon-size="16"></span>
               <span data-i18n="tab_trakt">Trakt</span>
+            </div>
+            <div class="settings-nav-item" data-tab="google">
+              <span data-icon="brand-google" data-icon-size="16"></span>
+              <span data-i18n="google_settings_tab">Google Fiók</span>
             </div>
             <div class="settings-nav-item" data-tab="export">
               <span data-icon="arrows-exchange" data-icon-size="16"></span>
@@ -938,6 +955,162 @@
                   <button type="button" class="btn btn-green" id="traktSaveCustomKeysBtn" data-i18n="tmdb_btn_save">
                     MENTÉS
                   </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4c. GOOGLE FIÓK TAB -->
+            <div class="settings-tab-pane" id="tabPaneGoogle">
+              <div class="tmdb-header-row">
+                <h3 data-i18n="google_settings_heading">Google Integráció</h3>
+                <img src="images/google/google-g.svg" alt="Google" class="google-settings-logo" />
+              </div>
+
+              <div class="trakt-settings-card" id="googleAccountCard">
+                <div id="googleLoggedIn" class="google-profile-row u-hidden">
+                  <div class="google-profile-brand" title="Google">
+                    <img src="images/google/google-g.svg" alt="Google" class="google-profile-brand-icon" />
+                  </div>
+                  <div id="googleAvatarWrap" class="google-avatar-wrap">
+                    <img src="images/google/google-g.svg" alt="Google" class="google-avatar-fallback" />
+                  </div>
+                  <div class="google-user-info">
+                    <div class="google-user-name-row">
+                      <span id="googleUserName" class="google-user-name"></span>
+                      <span class="google-account-badge">Google</span>
+                    </div>
+                    <div id="googleUserEmail" class="google-user-email"></div>
+                  </div>
+                  <button type="button" id="googleLogoutBtn" class="btn btn-red">
+                    <span data-icon="logout" data-icon-size="15"></span>
+                    <span data-i18n="google_logout">Kijelentkezés</span>
+                  </button>
+                </div>
+
+                <div id="googleLoggedOut">
+                  <p class="google-desc" data-i18n="google_login_description">
+                    Jelentkezzen be Google fiókjával a beállítások felhőalapú mentéséhez és a Naptár integrációhoz.
+                  </p>
+                  <p class="google-scope-note" data-i18n="google_drive_scope_info">
+                    Az alkalmazás csak a saját, rejtett appDataFolder mappájához fér hozzá a Google Drive-on. Az Ön többi Drive fájljához nincs hozzáférés.
+                  </p>
+                  <div class="google-login-actions">
+                    <button type="button" id="googleLoginBtn" class="google-signin-btn">
+                      <img src="images/google/google-g.svg" alt="" class="google-signin-icon" />
+                      <span data-i18n="google_login_btn">Bejelentkezés Google fiókkal</span>
+                    </button>
+                    <button type="button" id="googleCancelLoginBtn" class="btn btn-red u-hidden" data-i18n="btn_cancel">
+                      Mégse
+                    </button>
+                    <span id="googleAuthInlineStatus" class="export-import-status u-hidden"></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="trakt-settings-card u-hidden" id="googleDriveCard">
+                <div class="google-calendar-card-header">
+                  <img src="images/google/google-drive.svg" alt="Google Drive" class="google-calendar-card-icon" />
+                  <h4 data-i18n="google_drive_sync_title">Google Drive Szinkronizáció</h4>
+                </div>
+                <p class="google-desc" data-i18n="google_drive_sync_desc">
+                  Beállítások, csatornaadatok mentése/visszaállítása Google Drive használatával
+                </p>
+                <p id="googleLastSaveLabel" class="google-meta-line"></p>
+                <div id="googleNewerRemoteBanner" class="trakt-warning-banner u-hidden">
+                  <span data-icon="alert-triangle" data-icon-size="16"></span>
+                  <span data-i18n="google_newer_remote_available">
+                    Újabb mentés érhető el a Google Drive-on. A visszaállításhoz kattintson a Visszaállítás gombra.
+                  </span>
+                </div>
+                <div class="export-section-actions">
+                  <button type="button" id="googleSaveBtn" class="btn btn-green">
+                    <img src="images/google/google-drive.svg" alt="" class="google-btn-brand-icon" />
+                    <span data-i18n="google_save_btn">Mentés</span>
+                  </button>
+                  <button type="button" id="googleLoadBtn" class="btn btn-blue">
+                    <img src="images/google/google-drive.svg" alt="" class="google-btn-brand-icon" />
+                    <span data-i18n="google_load_btn">Visszaállítás</span>
+                  </button>
+                  <span id="googleDriveStatus" class="export-import-status u-hidden"></span>
+                </div>
+                <label class="logos-checkbox-label google-auto-sync-row">
+                  <input type="checkbox" id="googleAutoSyncToggle" />
+                  <span data-i18n="google_auto_sync_label">Automatikus szinkronizáció ellenőrzés indításkor</span>
+                </label>
+              </div>
+
+              <div class="trakt-settings-card u-hidden" id="googleCalendarCard">
+                <div class="google-calendar-card-header">
+                  <span id="googleCalendarCardIcon" class="google-calendar-card-icon-wrap"></span>
+                  <h4 data-i18n="google_calendar_settings_title">Google Naptár Beállítások</h4>
+                </div>
+                <p class="google-desc" data-i18n="google_calendar_settings_desc">
+                  Válassza ki, melyik Google Naptárba mentődjön az EPG Viewer esemény.
+                </p>
+                <div class="google-calendar-row">
+                  <label class="settings-label" for="googleCalendarDropdownBtn" data-i18n="google_calendar_target_label">
+                    Célnaptár:
+                  </label>
+                  <div class="google-calendar-dropdown" id="googleCalendarDropdown">
+                    <button
+                      type="button"
+                      id="googleCalendarDropdownBtn"
+                      class="google-calendar-dropdown-btn"
+                      aria-haspopup="listbox"
+                      aria-expanded="false"
+                    >
+                      <span id="googleCalendarColorDot" class="google-calendar-color-dot u-hidden"></span>
+                      <span id="googleCalendarSelectedLabel" class="google-calendar-selected-label"></span>
+                      <span class="google-calendar-chevron" data-icon="chevron-down" data-icon-size="14"></span>
+                    </button>
+                    <div
+                      id="googleCalendarDropdownMenu"
+                      class="google-calendar-dropdown-menu custom-scroll u-hidden"
+                      role="listbox"
+                    ></div>
+                  </div>
+                  <button
+                    type="button"
+                    id="googleCalendarRefreshBtn"
+                    class="btn btn-blue btn-icon-only"
+                    data-i18n-title="google_calendar_refresh_title"
+                    title="Naptárlista frissítése"
+                  >
+                    <span data-icon="refresh" data-icon-size="15"></span>
+                  </button>
+                  <span id="googleCalendarStatus" class="export-import-status u-hidden"></span>
+                </div>
+
+                <div class="google-calendar-cleanup-section">
+                  <div id="googleCalendarTrackedCount" class="google-meta-line"></div>
+                  <div class="google-calendar-cleanup-row">
+                    <label class="settings-label" for="googleCalendarCleanupMode" data-i18n="google_calendar_cleanup_label">
+                      Bejegyzések törlése:
+                    </label>
+                    <select id="googleCalendarCleanupMode">
+                      <option value="7" data-i18n="google_calendar_cleanup_7d">7 napnál régebbi</option>
+                      <option value="14" data-i18n="google_calendar_cleanup_14d">14 napnál régebbi</option>
+                      <option value="30" selected data-i18n="google_calendar_cleanup_30d">30 napnál régebbi</option>
+                      <option value="90" data-i18n="google_calendar_cleanup_90d">90 napnál régebbi</option>
+                      <option value="custom" data-i18n="google_calendar_cleanup_custom">Egyéni (nap)...</option>
+                      <option value="all" data-i18n="google_calendar_cleanup_all">Összes törlése</option>
+                    </select>
+                    <div id="googleCalendarCleanupCustomWrap" class="google-calendar-cleanup-custom u-hidden">
+                      <input
+                        type="number"
+                        id="googleCalendarCleanupDays"
+                        min="1"
+                        max="3650"
+                        value="30"
+                      />
+                      <span class="source-offset-hint" data-i18n="google_calendar_cleanup_days_unit">nap</span>
+                    </div>
+                    <button type="button" id="googleCalendarCleanupBtn" class="btn btn-red">
+                      <span data-icon="trash" data-icon-size="15"></span>
+                      <span data-i18n="google_calendar_cleanup_btn">Törlés</span>
+                    </button>
+                    <span id="googleCalendarCleanupStatus" class="export-import-status u-hidden"></span>
+                  </div>
                 </div>
               </div>
             </div>

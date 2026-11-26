@@ -3907,19 +3907,30 @@ body.trakt-mode #epgViewport {
   border-left: 3px solid var(--accent-red) !important;
   box-shadow: inset 0 0 0 1px var(--accent-blue-border-alpha);
 }
-.programme > .trakt-epg-badge {
+.programme > .prog-corner-badges {
   position: absolute;
   bottom: 2px;
   right: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  z-index: 4;
+  pointer-events: auto;
+}
+.programme > .prog-corner-badges .trakt-epg-badge,
+.programme > .prog-corner-badges .google-cal-epg-badge {
   width: 12px;
   height: 12px;
-  color: var(--accent-blue);
-  opacity: 0.9;
-  z-index: 4;
+  opacity: 0.95;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  pointer-events: auto;
+}
+.programme > .prog-corner-badges .trakt-epg-badge {
+  color: var(--accent-blue);
+}
+.programme > .prog-corner-badges .google-cal-epg-badge svg {
+  display: block;
 }
 
 /* Trakt Viewport & Dashboard (50 / 25 / 25) */
@@ -5925,5 +5936,456 @@ body.trakt-mode #epgViewport {
     width: auto;
   }
 }
+
+/* ==========================================================================
+   Google OAuth / Drive / Calendar Integration
+   ========================================================================== */
+
+.google-settings-logo {
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+
+/* Official Google Sign-In button (Dark Theme specification) */
+.google-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 16px 0 12px;
+  border-radius: 20px;
+  border: 1px solid #8e918f;
+  background-color: #131314;
+  color: #e3e3e3;
+  font-family: Roboto, Inter, "Segoe UI", Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.25px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.google-signin-btn:hover:not(:disabled) {
+  background-color: #202124;
+  border-color: #c4c7c5;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.google-signin-btn:active:not(:disabled) {
+  background-color: #28292c;
+}
+
+.google-signin-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.google-signin-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.google-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.google-profile-brand {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.google-profile-brand-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.google-avatar-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  border: 2px solid var(--accent-blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.google-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.google-avatar-fallback {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.google-user-info {
+  flex: 1;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.google-user-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.google-user-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.google-account-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-blue-tint);
+  border: 1px solid var(--accent-blue-border-alpha);
+  color: var(--accent-blue-text-soft);
+}
+
+.google-user-email {
+  font-size: 12.5px;
+  color: var(--text-subtle);
+}
+
+.google-desc {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.google-scope-note {
+  margin: 0 0 12px 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.google-login-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.google-login-actions .btn,
+#googleLogoutBtn,
+#googleSaveBtn,
+#googleLoadBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.google-meta-line {
+  margin: 0 0 10px 0;
+  font-size: 12.5px;
+  color: var(--text-subtle);
+}
+
+.google-auto-sync-row {
+  margin-top: 12px;
+}
+
+.google-calendar-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.google-calendar-card-header h4 {
+  margin: 0;
+}
+
+.google-calendar-card-icon,
+.google-calendar-card-icon-wrap {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.google-btn-brand-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.google-calendar-cleanup-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-divider);
+}
+
+.google-calendar-cleanup-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.google-calendar-cleanup-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#googleCalendarCleanupDays {
+  width: 72px;
+  padding: 6px 8px;
+}
+
+#googleCalendarCleanupBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.google-calendar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.google-calendar-dropdown {
+  position: relative;
+  min-width: 260px;
+  max-width: 100%;
+}
+
+.google-calendar-dropdown-btn {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border-input);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.google-calendar-dropdown-btn:hover:not(:disabled) {
+  border-color: var(--accent-blue-border);
+  background-color: var(--bg-surface-hover);
+}
+
+.google-calendar-dropdown-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.google-calendar-selected-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.google-calendar-chevron {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-subtle);
+  flex-shrink: 0;
+}
+
+.google-calendar-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: var(--z-dialog);
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-modal);
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.google-calendar-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color 0.12s ease;
+}
+
+.google-calendar-option:hover {
+  background: var(--bg-card-hover);
+}
+
+.google-calendar-option.is-selected {
+  background: var(--accent-blue-tint);
+  color: var(--accent-blue-text-soft);
+  font-weight: 600;
+}
+
+.google-calendar-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.google-calendar-option-check {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-blue-light);
+  flex-shrink: 0;
+}
+
+.google-calendar-color-dot {
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+/* Modal left column – matches .modal-poster-trakt-meta & .trakt-modal-wl-btn */
+.modal-poster-google-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.google-modal-cal-btn {
+  width: 100%;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.google-modal-cal-btn.is-on {
+  background: var(--accent-green-tint);
+  border: 1px solid var(--accent-green);
+  color: var(--accent-green);
+}
+
+.google-modal-cal-btn.is-on:hover:not(:disabled) {
+  background: var(--accent-red-tint);
+  border-color: var(--accent-red);
+  color: var(--accent-red-light);
+}
+
+.google-cal-btn-icon,
+.google-cal-btn-icon-wrap {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.google-calendar-target-name {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 10.5px;
+  color: var(--text-subtle);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.google-calendar-target-name .google-calendar-color-dot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+}
+
+.google-modal-cal-open-btn {
+  width: 100%;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--bg-btn-secondary);
+  border: 1px solid var(--border-input);
+  color: var(--text-secondary);
+}
+
+.google-modal-cal-open-btn:hover:not(:disabled) {
+  background: var(--bg-btn-secondary-hover-subtle);
+  border-color: var(--accent-blue-border);
+  color: var(--text-primary);
+}
+
+
 
 
