@@ -18,6 +18,7 @@ import {
   renderEmptyFavoritesState,
   escapeHtml,
   appendSafeImage,
+  attachLiveSearchInput,
 } from "./ui.js";
 import { downloadSource } from "./sources.js";
 import { toggleFavorite } from "./favorites.js";
@@ -1040,11 +1041,8 @@ export function renderEPG() {
           }
         }
 
-        if (state.currentSourceId === "__ALL_FAVORITES__") {
-          epgSourceCache.delete(targetSrc);
-        } else {
-          epgSourceCache.delete("__ALL_FAVORITES__");
-        }
+        epgSourceCache.delete(targetSrc);
+        epgSourceCache.delete("__ALL_FAVORITES__");
         renderEPG();
         if (
           document
@@ -1069,11 +1067,8 @@ export function renderEPG() {
           channelId: targetChId,
         });
         channel.isFavorite = newFav;
-        if (state.currentSourceId === "__ALL_FAVORITES__") {
-          epgSourceCache.delete(targetSrc);
-        } else {
-          epgSourceCache.delete("__ALL_FAVORITES__");
-        }
+        epgSourceCache.delete(targetSrc);
+        epgSourceCache.delete("__ALL_FAVORITES__");
         if (state.currentSourceId === "__ALL_FAVORITES__" && !newFav) {
           state.epgData.channels = state.epgData.channels.filter(
             (c) => c.id !== channel.id,
@@ -1214,6 +1209,7 @@ export async function jumpToEpgAiring(airing) {
     closeFixOverlay();
     detachFromModal();
     document.getElementById("modalOverlay").classList.remove("active");
+    document.getElementById("favoritesModalOverlay")?.classList.remove("active");
 
     if (isTraktMode()) {
       exitTraktMode({ skipRender: true });
@@ -1229,6 +1225,7 @@ export async function jumpToEpgAiring(airing) {
         !fuzzySearchMatch(airing.channelName || "", q, { minFuzzyLength: 6 })
       ) {
         searchInput.value = "";
+        document.getElementById("clearSearchBtn")?.classList.add("u-hidden");
       }
     }
 
@@ -1596,26 +1593,13 @@ function setupViewportPan() {
 
 export function initEpg() {
   const mainSearchInput = document.getElementById("searchInput");
-  mainSearchInput.oninput = () => {
-    clearTimeout(state.searchTimeout);
-    state.searchTimeout = setTimeout(renderEPG, 300);
-  };
-  mainSearchInput.onkeydown = (e) => {
-    if (e.key === "Enter") {
-      clearTimeout(state.searchTimeout);
-      renderEPG();
-    }
-  };
-
-  document.getElementById("searchBtn").onclick = () => {
-    clearTimeout(state.searchTimeout);
-    renderEPG();
-  };
-  document.getElementById("clearSearchBtn").onclick = () => {
-    clearTimeout(state.searchTimeout);
-    mainSearchInput.value = "";
-    renderEPG();
-  };
+  const mainClearBtn = document.getElementById("clearSearchBtn");
+  attachLiveSearchInput({
+    input: mainSearchInput,
+    clearBtn: mainClearBtn,
+    debounceMs: 300,
+    onFilter: () => renderEPG(),
+  });
 
   const viewSelect = document.getElementById("viewSelect");
   if (viewSelect) {

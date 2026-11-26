@@ -181,6 +181,9 @@
   --badge-orig-border: #6b7280;
   --badge-year-bg: #2d3748;
   --badge-year-border: #4a5568;
+  --badge-date-bg: #ffffff;
+  --badge-date-text: #000000;
+  --badge-date-border: #000000;
 
   /* Drag Handle */
   --drag-handle-color: #64748b;

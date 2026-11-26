@@ -581,3 +581,149 @@ export function setExportImportStatus(elementId, text, type = "loading") {
     }, 6000);
   }
 }
+
+export function attachLiveSearchInput({
+  input,
+  clearBtn,
+  onFilter,
+  debounceMs = 300,
+}) {
+  if (!input) return null;
+  let debounceTimer = null;
+
+  const syncClearBtn = () => {
+    if (clearBtn) {
+      clearBtn.classList.toggle("u-hidden", !input.value);
+    }
+  };
+
+  const triggerImmediate = () => {
+    clearTimeout(debounceTimer);
+    syncClearBtn();
+    if (typeof onFilter === "function") {
+      onFilter(input.value);
+    }
+  };
+
+  const clearAndTrigger = () => {
+    clearTimeout(debounceTimer);
+    input.value = "";
+    syncClearBtn();
+    if (typeof input.focus === "function") {
+      input.focus();
+    }
+    if (typeof onFilter === "function") {
+      onFilter("");
+    }
+  };
+
+  input.oninput = () => {
+    syncClearBtn();
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      if (typeof onFilter === "function") {
+        onFilter(input.value);
+      }
+    }, debounceMs);
+  };
+
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      triggerImmediate();
+    } else if (e.key === "Escape" && input.value) {
+      e.preventDefault();
+      if (typeof e.stopPropagation === "function") {
+        e.stopPropagation();
+      }
+      clearAndTrigger();
+    }
+  };
+
+  if (clearBtn) {
+    clearBtn.onclick = (e) => {
+      if (e && typeof e.stopPropagation === "function") {
+        e.stopPropagation();
+      }
+      clearAndTrigger();
+    };
+  }
+
+  syncClearBtn();
+
+  return {
+    input,
+    clearBtn,
+    syncClearBtn,
+    getValue: () => input.value,
+    setValue: (val) => {
+      input.value = val || "";
+      syncClearBtn();
+    },
+    clear: () => {
+      clearTimeout(debounceTimer);
+      input.value = "";
+      syncClearBtn();
+    },
+    destroy: () => {
+      clearTimeout(debounceTimer);
+    },
+  };
+}
+
+export function createLiveSearchBox({
+  inputId,
+  clearBtnId,
+  placeholderKey = "search_placeholder",
+  initialValue = "",
+  debounceMs = 300,
+  onFilter,
+}) {
+  const wrap = document.createElement("div");
+  wrap.className = "search-box";
+
+  const inputWrap = document.createElement("div");
+  inputWrap.className = "search-input-wrap";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  if (inputId) input.id = inputId;
+  input.placeholder = t(placeholderKey);
+  input.setAttribute("data-i18n-placeholder", placeholderKey);
+  input.autocomplete = "off";
+  input.value = initialValue || "";
+
+  const clearBtn = document.createElement("button");
+  clearBtn.type = "button";
+  clearBtn.className = "search-input-clear-btn u-hidden";
+  if (clearBtnId) clearBtn.id = clearBtnId;
+  clearBtn.title = t("clear_search");
+  clearBtn.setAttribute("data-i18n-title", "clear_search");
+  clearBtn.innerHTML = iconHtml("x", 14);
+
+  inputWrap.appendChild(input);
+  inputWrap.appendChild(clearBtn);
+  wrap.appendChild(inputWrap);
+
+  const ctrl = attachLiveSearchInput({
+    input,
+    clearBtn,
+    onFilter,
+    debounceMs,
+  });
+
+  return {
+    element: wrap,
+    input,
+    clearBtn,
+    getValue: ctrl.getValue,
+    setValue: ctrl.setValue,
+    clear: ctrl.clear,
+    syncClearBtn: ctrl.syncClearBtn,
+    refreshLabels: () => {
+      input.placeholder = t(placeholderKey);
+      clearBtn.title = t("clear_search");
+    },
+    destroy: ctrl.destroy,
+  };
+}

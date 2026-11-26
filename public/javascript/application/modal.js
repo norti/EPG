@@ -2,7 +2,6 @@ import { state, invoke } from "./state.js";
 import { t } from "./i18n.js";
 import { iconHtml } from "./ui.js";
 import { toggleFavorite } from "./favorites.js";
-import { closeSettingsModal } from "./settings.js";
 import { closeUpdateModal } from "./updater.js";
 import {
   hidePosterZoom,
@@ -20,7 +19,7 @@ export function setModalContext(title, channel, desc) {
   state.currentModalFetchIndex++;
 }
 
-export async function openModal(title, time, desc, channel) {
+export async function openModal(title, time, desc, channel, options = {}) {
   state.currentModalTitle = title;
   state.currentModalDesc = desc || "";
   state.currentModalChannel = channel;
@@ -44,41 +43,48 @@ export async function openModal(title, time, desc, channel) {
 
   const lang = getCurrentModalLang();
 
+  const isStillCurrent = () =>
+    state.currentModalTitle === title &&
+    fetchIndex === state.currentModalFetchIndex &&
+    document.getElementById("modalOverlay").classList.contains("active");
+
   try {
-    const tmdbData = await invoke("get_tmdb_details", {
+    let tmdbData = await invoke("get_tmdb_details", {
       title,
       lang,
     });
 
-    // Check if modal is still open for the same request
-    if (
-      state.currentModalTitle !== title ||
-      fetchIndex !== state.currentModalFetchIndex ||
-      !document.getElementById("modalOverlay").classList.contains("active")
-    ) {
-      return;
+    if (!isStillCurrent()) return;
+
+    if (!tmdbData && options && options.fallbackTmdbId) {
+      try {
+        tmdbData = await invoke("get_tmdb_details_by_id", {
+          tmdbId: Number(options.fallbackTmdbId),
+          mediaType: options.fallbackMediaType || "tv",
+          lang,
+        });
+      } catch (_) {
+        // Ignore fallback lookup failure and continue with Trakt attachment
+      }
+      if (!isStillCurrent()) return;
     }
 
     tmdbLoading.classList.add("u-hidden");
     renderTmdbDetailsInModal(tmdbData, { activeLang: lang });
     attachToModal({
       title,
-      tmdbId: tmdbData?.tmdbId ?? null,
-      mediaType: tmdbData?.mediaType ?? null,
+      tmdbId: tmdbData?.tmdbId ?? options?.fallbackTmdbId ?? null,
+      mediaType: tmdbData?.mediaType ?? options?.fallbackMediaType ?? null,
       tmdbData,
     });
   } catch (e) {
     console.warn("TMDB betöltési hiba:", e);
-    if (
-      state.currentModalTitle === title &&
-      fetchIndex === state.currentModalFetchIndex &&
-      document.getElementById("modalOverlay").classList.contains("active")
-    ) {
+    if (isStillCurrent()) {
       document.getElementById("modalTmdbLoading").classList.add("u-hidden");
       attachToModal({
         title,
-        tmdbId: null,
-        mediaType: null,
+        tmdbId: options?.fallbackTmdbId ?? null,
+        mediaType: options?.fallbackMediaType ?? null,
         tmdbData: null,
       });
     }
@@ -109,17 +115,57 @@ export function initModal() {
     document.getElementById("modalOverlay").classList.remove("active");
   };
 
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const confirmOverlay = document.getElementById("customConfirmOverlay");
+    const promptOverlay = document.getElementById("customPromptOverlay");
+    const logoSearchModal = document.getElementById("logoSearchModal");
+    const missingLogosModal = document.getElementById("missingLogosModal");
+    const channelEditOverlay = document.getElementById("channelEditModalOverlay");
+    if (
+      confirmOverlay?.classList.contains("active") ||
+      promptOverlay?.classList.contains("active") ||
+      logoSearchModal?.classList.contains("active") ||
+      missingLogosModal?.classList.contains("active") ||
+      channelEditOverlay?.classList.contains("active")
+    ) {
+      return;
+    }
+
+    const fixOverlay = document.getElementById("modalFixOverlay");
+    const modalOverlay = document.getElementById("modalOverlay");
+    if (modalOverlay?.classList.contains("active")) {
+      if (fixOverlay && !fixOverlay.classList.contains("u-hidden")) {
+        closeFixOverlay();
+      } else {
+        hidePosterZoom();
+        closeFixOverlay();
+        detachFromModal();
+        modalOverlay.classList.remove("active");
+      }
+      return;
+    }
+
+    const favOverlay = document.getElementById("favoritesModalOverlay");
+    if (favOverlay?.classList.contains("active")) {
+      favOverlay.classList.remove("active");
+    }
+  });
+
   document.querySelectorAll(".modal-overlay").forEach((overlay) => {
     overlay.onclick = (e) => {
       if (e.target === overlay) {
+        if (
+          overlay.id === "settingsOverlay" ||
+          overlay.id === "channelEditModalOverlay"
+        ) {
+          return;
+        }
         if (overlay.id === "modalOverlay") {
           hidePosterZoom();
           closeFixOverlay();
           detachFromModal();
           overlay.classList.remove("active");
-        } else if (overlay.id === "settingsOverlay") {
-          closeFixOverlay();
-          closeSettingsModal();
         } else if (overlay.id === "updateAvailableOverlay") {
           closeUpdateModal();
         } else {

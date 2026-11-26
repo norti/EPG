@@ -53,10 +53,6 @@
             </button>
           </div>
           <button class="btn epg-only" id="nowBtn" data-i18n="now_btn">MOST</button>
-          <button class="btn epg-only" id="favListBtn">
-            <span data-icon="star" data-icon-size="15"></span>
-            <span data-i18n="favorites_btn">Kedvencek</span>
-          </button>
 
           <select id="viewSelect" class="epg-only">
             <option value="60" data-i18n="view_1h">1 óra</option>
@@ -79,33 +75,39 @@
           </button>
 
           <div class="search-box epg-only">
-            <input
-              type="text"
-              id="searchInput"
-              placeholder="Keresés..."
-              data-i18n-placeholder="search_placeholder"
-            />
-            <button class="btn" id="searchBtn" data-i18n="search_btn">
-              KERESÉS
-            </button>
-            <button
-              class="btn btn-icon-only"
-              id="clearSearchBtn"
-              title="Keresés törlése"
-              data-i18n-title="clear_search"
-            >
-              <span data-icon="x" data-icon-size="15"></span>
-            </button>
+            <div class="search-input-wrap">
+              <input
+                type="text"
+                id="searchInput"
+                placeholder="Keresés..."
+                data-i18n-placeholder="search_placeholder"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="search-input-clear-btn u-hidden"
+                id="clearSearchBtn"
+                title="Keresés törlése"
+                data-i18n-title="clear_search"
+              >
+                <span data-icon="x" data-icon-size="14"></span>
+              </button>
+            </div>
           </div>
 
+          <button class="btn epg-only" id="favListBtn">
+            <span data-icon="star" data-icon-size="15"></span>
+            <span data-i18n="favorites_btn">Kedvenc műsorok</span>
+          </button>
+
           <div id="traktHeaderControls" class="trakt-header-controls u-hidden">
-            <button class="btn trakt-nav-btn" id="traktBackBtn">
-              <span data-icon="arrow-left" data-icon-size="16"></span>
-              <span data-i18n="trakt_btn_back_epg">Vissza az EPG-hez</span>
-            </button>
             <button class="btn trakt-nav-btn" id="traktWatchlistViewBtn">
               <span data-icon="trakt-watchlist-on" data-icon-size="16"></span>
               <span data-i18n="trakt_watchlist_title">Watchlist</span>
+            </button>
+            <button class="btn trakt-nav-btn" id="traktWatchlistEpgBtn">
+              <span data-icon="device-tv" data-icon-size="16"></span>
+              <span data-i18n="trakt_watchlist_epg_title">Watchlist az EPG-n</span>
             </button>
             <button class="btn trakt-nav-btn" id="traktMyCalendarBtn">
               <span data-icon="trakt-calendar-my" data-icon-size="16"></span>
@@ -138,6 +140,15 @@
           <img src="images/trakt/logo.svg" alt="Trakt" class="trakt-logo-btn-img" />
           <span>Trakt</span>
           <span id="traktWatchlistCountBadge" class="trakt-wl-count-badge u-hidden"></span>
+        </button>
+        <button
+          class="btn btn-blue epg-header-btn u-hidden"
+          id="traktBackBtn"
+          title="Vissza az EPG-hez"
+          data-i18n-title="trakt_btn_back_epg"
+        >
+          <span data-icon="device-tv-old" data-icon-size="18"></span>
+          <span data-i18n="trakt_btn_epg_mode">EPG</span>
         </button>
         <button class="btn" id="settingsBtn">
           <span data-icon="settings" data-icon-size="15"></span>
@@ -397,10 +408,6 @@
               <span data-icon="folder" data-icon-size="16"></span>
               <span data-i18n="tab_sources">Források</span>
             </div>
-            <div class="settings-nav-item" data-tab="favorites">
-              <span data-icon="star" data-icon-size="16"></span>
-              <span data-i18n="tab_favorites">Kedvencek</span>
-            </div>
             <div class="settings-nav-item" data-tab="channels">
               <span data-icon="device-tv" data-icon-size="16"></span>
               <span data-i18n="tab_channels">Csatornák</span>
@@ -529,20 +536,7 @@
               ></div>
             </div>
 
-            <!-- 2. KEDVENCEK TAB -->
-            <div class="settings-tab-pane" id="tabPaneFavorites">
-              <h3 class="favorites-heading-row">
-                <span data-icon="star" data-icon-size="18"></span>
-                <span data-i18n="favorites_heading">Kedvenc Műsorok</span>
-                <span class="trakt-cal-active-day u-hidden" id="favActiveDay"></span>
-              </h3>
-              <div
-                id="favListContent"
-                class="custom-scroll"
-              ></div>
-            </div>
-
-            <!-- 3. CSATORNÁK TAB -->
+            <!-- 2. CSATORNÁK TAB -->
             <div class="settings-tab-pane" id="tabPaneChannels">
               <h3 data-i18n="channels_heading">
                 Csatornák Kezelése és Sorrendje
@@ -624,12 +618,24 @@
               </div>
 
               <div class="channels-search-bar">
-                <input
-                  type="text"
-                  id="channelOrderSearchInput"
-                  placeholder="Keresés a csatornák között..."
-                  data-i18n-placeholder="channels_search_placeholder"
-                />
+                <div class="search-input-wrap channels-search-wrap">
+                  <input
+                    type="text"
+                    id="channelOrderSearchInput"
+                    placeholder="Keresés a csatornák között..."
+                    data-i18n-placeholder="channels_search_placeholder"
+                    autocomplete="off"
+                  />
+                  <button
+                    type="button"
+                    class="search-input-clear-btn u-hidden"
+                    id="channelOrderClearSearchBtn"
+                    title="Keresés törlése"
+                    data-i18n-title="clear_search"
+                  >
+                    <span data-icon="x" data-icon-size="14"></span>
+                  </button>
+                </div>
                 <div
                   class="channel-filter-tabs"
                 >
@@ -1207,6 +1213,42 @@
       </div>
     </div>
 
+    <!-- KEDVENC MŰSOROK MODAL -->
+    <div class="modal-overlay" id="favoritesModalOverlay">
+      <div class="modal-content favorites-modal-content">
+        <div class="modal-header">
+          <div class="favorites-modal-title-group">
+            <span data-icon="star" data-icon-size="18"></span>
+            <h2 data-i18n="favorites_heading">Kedvenc műsorok</h2>
+            <span class="missing-logos-count-badge" id="favoritesCountBadge">0</span>
+            <span class="trakt-cal-active-day u-hidden" id="favActiveDay"></span>
+          </div>
+          <button class="modal-close" id="favoritesModalClose">
+            <span data-icon="x" data-icon-size="18"></span>
+          </button>
+        </div>
+        <div class="favorites-modal-body">
+          <div class="favorites-modal-toolbar">
+            <div class="favorites-toolbar-row">
+              <select id="favSourceFilterSelect" class="favorites-source-select"></select>
+              <div id="favSearchBoxMount" class="favorites-search-mount"></div>
+            </div>
+            <div class="favorites-toolbar-bottom">
+              <div class="favorites-past-group">
+                <span id="favCollapseAllMount"></span>
+                <label class="logos-checkbox-label favorites-past-toggle">
+                  <input type="checkbox" id="favIncludePastCheck" />
+                  <span data-i18n="airing_include_past">Múltbeli adások mutatása</span>
+                </label>
+              </div>
+              <div id="favSortControlsMount"></div>
+            </div>
+          </div>
+          <div id="favListContent" class="favorites-list-scroll custom-scroll"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- MEGERŐSÍTŐ MODAL -->
     <div class="modal-overlay" id="customConfirmOverlay">
       <div class="custom-dialog-card">
@@ -1355,14 +1397,25 @@
         </div>
         <div class="modal-body missing-logos-modal-body">
           <div class="missing-logos-toolbar">
-            <input
-              type="text"
-              id="missingLogosSearchInput"
-              class="channel-edit-input"
-              placeholder="Keresés csatorna vagy forrás neve alapján..."
-              data-i18n-placeholder="missing_logos_search_placeholder"
-              autocomplete="off"
-            />
+            <div class="search-input-wrap missing-logos-search-wrap">
+              <input
+                type="text"
+                id="missingLogosSearchInput"
+                class="channel-edit-input"
+                placeholder="Keresés csatorna vagy forrás neve alapján..."
+                data-i18n-placeholder="missing_logos_search_placeholder"
+                autocomplete="off"
+              />
+              <button
+                type="button"
+                class="search-input-clear-btn u-hidden"
+                id="missingLogosClearSearchBtn"
+                title="Keresés törlése"
+                data-i18n-title="clear_search"
+              >
+                <span data-icon="x" data-icon-size="14"></span>
+              </button>
+            </div>
           </div>
           <div class="missing-logos-list custom-scroll" id="missingLogosList"></div>
         </div>

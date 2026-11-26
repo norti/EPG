@@ -8,7 +8,7 @@ use crate::trakt::calendar::{
     CalendarEpisodeItem, GlobalCalendarFilters,
 };
 use crate::trakt::client::{trakt_get_cached, trakt_post};
-use crate::trakt::matcher::{match_titles, rebuild_title_index};
+use crate::trakt::matcher::{find_matching_watchlist_ref, match_titles, rebuild_title_index, TitleIndex};
 use crate::trakt::secret::default_secret_store;
 use crate::trakt::sync::{
     enrich_missing_history_posters, get_sync_runtime_state, get_sync_state_val, is_sync_overdue,
@@ -174,6 +174,31 @@ pub struct EpgAiring {
     pub time_offset: i32,
     pub title: String,
     pub desc: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchlistEpgAiring {
+    pub channel_id: String,
+    pub channel_name: String,
+    pub source_id: String,
+    pub source_name: String,
+    pub country_code: String,
+    pub source_sort_pos: i64,
+    pub start: String,
+    pub stop: String,
+    pub start_ts: i64,
+    pub stop_ts: i64,
+    pub time_offset: i32,
+    pub title: String,
+    pub desc: String,
+    pub trakt_id: i64,
+    pub media_type: String,
+    pub tmdb_id: Option<i64>,
+    pub watchlist_title: String,
+    pub watchlist_title_hu: Option<String>,
+    pub aliases: Vec<String>,
+    pub year: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1395,6 +1420,214 @@ pub async fn trakt_find_epg_airings(
 ) -> Result<Vec<EpgAiring>, String> {
     let conn = state.db.lock().await;
     query_epg_airings(&conn, titles, now_epoch_secs())
+}
+
+struct WatchlistMeta {
+    title: String,
+    title_hu: Option<String>,
+    aliases: Vec<String>,
+    tmdb_id: Option<i64>,
+    year: Option<i64>,
+}
+
+pub fn query_watchlist_epg_airings(
+    conn: &rusqlite::Connection,
+    index: &TitleIndex,
+    include_past: bool,
+    now_ts: i64,
+) -> Result<Vec<WatchlistEpgAiring>, String> {
+    if !is_trakt_enabled(conn) || index.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let norm_keys = index.norm_keys();
+    if norm_keys.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut wl_meta: HashMap<(String, i64), WatchlistMeta> = HashMap::new();
+    {
+        let mut stmt = conn
+            .prepare(
+                "SELECT media_type, trakt_id, title, title_hu, aliases_json, tmdb_id, year
+                 FROM trakt_watchlist_cache",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| {
+                let mt: String = r.get(0)?;
+                let tid: i64 = r.get(1)?;
+                let title: String = r.get(2)?;
+                let title_hu: Option<String> = r.get(3)?;
+                let aliases_str: Option<String> = r.get(4)?;
+                let aliases: Vec<String> = aliases_str
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or_default();
+                let tmdb_id: Option<i64> = r.get(5)?;
+                let year: Option<i64> = r.get(6)?;
+                Ok((
+                    (mt, tid),
+                    WatchlistMeta {
+                        title,
+                        title_hu,
+                        aliases,
+                        tmdb_id,
+                        year,
+                    },
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        for (k, v) in rows.flatten() {
+            wl_meta.insert(k, v);
+        }
+    }
+
+    let time_clause = if include_past {
+        ""
+    } else {
+        "AND (COALESCE(p.stop_ts, p.start_ts, 0) + COALESCE(s.time_offset, 0) * 3600) >= ?"
+    };
+
+    let mut results: Vec<WatchlistEpgAiring> = Vec::new();
+
+    for chunk in norm_keys.chunks(400) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "WITH ranked AS (
+                SELECT p.channel_id,
+                       COALESCE(NULLIF(cus.custom_name, ''), c.name, p.channel_id) AS channel_name,
+                       p.source_id,
+                       COALESCE(s.name, p.source_id) AS source_name,
+                       COALESCE(s.country_code, 'HU') AS country_code,
+                       COALESCE(s.sort_position, s.rowid) AS source_sort_pos,
+                       p.start,
+                       p.stop,
+                       COALESCE(p.start_ts, 0) AS start_ts,
+                       COALESCE(p.stop_ts, p.start_ts, 0) AS stop_ts,
+                       COALESCE(s.time_offset, 0) AS time_offset,
+                       p.title,
+                       COALESCE(p.desc, '') AS desc,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY p.source_id, p.channel_id, COALESCE(CAST(p.start_ts AS TEXT), p.start), p.title_norm
+                           ORDER BY
+                               CASE WHEN p.stop_ts IS NOT NULL AND p.start_ts IS NOT NULL AND p.stop_ts > p.start_ts THEN 0 ELSE 1 END,
+                               LENGTH(COALESCE(p.desc, '')) DESC,
+                               p.id ASC
+                       ) AS rn
+                FROM programmes p
+                JOIN sources s ON s.id = p.source_id
+                LEFT JOIN channels c ON c.id = p.channel_id AND c.source_id = p.source_id
+                LEFT JOIN channel_user_settings cus ON cus.source_id = p.source_id AND cus.channel_id = p.channel_id
+                WHERE p.title_norm != ''
+                  AND p.title_norm IN ({})
+                  AND COALESCE(cus.is_hidden, 0) = 0
+                  {}
+            )
+            SELECT channel_id, channel_name, source_id, source_name, country_code, source_sort_pos,
+                   start, stop, start_ts, stop_ts, time_offset, title, desc
+            FROM ranked
+            WHERE rn = 1",
+            placeholders, time_clause
+        );
+
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let mut param_values: Vec<rusqlite::types::Value> = chunk
+            .iter()
+            .cloned()
+            .map(rusqlite::types::Value::Text)
+            .collect();
+        if !include_past {
+            param_values.push(rusqlite::types::Value::Integer(now_ts));
+        }
+
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(param_values), |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, String>(6)?,
+                    r.get::<_, String>(7)?,
+                    r.get::<_, i64>(8)?,
+                    r.get::<_, i64>(9)?,
+                    r.get::<_, i32>(10)?,
+                    r.get::<_, String>(11)?,
+                    r.get::<_, String>(12)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+
+        for row in rows.flatten() {
+            let (
+                channel_id,
+                channel_name,
+                source_id,
+                source_name,
+                country_code,
+                source_sort_pos,
+                start,
+                stop,
+                start_ts,
+                stop_ts,
+                time_offset,
+                title,
+                desc,
+            ) = row;
+
+            let Some(wl_ref) = find_matching_watchlist_ref(conn, index, &title) else {
+                continue;
+            };
+
+            let meta = wl_meta.get(&(wl_ref.media_type.clone(), wl_ref.trakt_id));
+            results.push(WatchlistEpgAiring {
+                channel_id,
+                channel_name,
+                source_id,
+                source_name,
+                country_code,
+                source_sort_pos,
+                start,
+                stop,
+                start_ts,
+                stop_ts,
+                time_offset,
+                title: title.clone(),
+                desc,
+                trakt_id: wl_ref.trakt_id,
+                media_type: wl_ref.media_type,
+                tmdb_id: meta.and_then(|m| m.tmdb_id).or(wl_ref.tmdb_id),
+                watchlist_title: meta.map(|m| m.title.clone()).unwrap_or(title),
+                watchlist_title_hu: meta.and_then(|m| m.title_hu.clone()),
+                aliases: meta.map(|m| m.aliases.clone()).unwrap_or_default(),
+                year: meta.and_then(|m| m.year).or(wl_ref.year),
+            });
+        }
+    }
+
+    results.sort_by(|a, b| {
+        let a_eff = a.start_ts + (a.time_offset as i64) * 3600;
+        let b_eff = b.start_ts + (b.time_offset as i64) * 3600;
+        a_eff
+            .cmp(&b_eff)
+            .then_with(|| a.title.cmp(&b.title))
+            .then_with(|| a.source_name.cmp(&b.source_name))
+            .then_with(|| a.channel_name.cmp(&b.channel_name))
+    });
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn trakt_get_watchlist_epg_airings(
+    state: tauri::State<'_, AppState>,
+    include_past: Option<bool>,
+) -> Result<Vec<WatchlistEpgAiring>, String> {
+    let idx = state.trakt.title_index.read().await;
+    let conn = state.db.lock().await;
+    query_watchlist_epg_airings(&conn, &idx, include_past.unwrap_or(false), now_epoch_secs())
 }
 
 #[tauri::command]

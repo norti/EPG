@@ -18,6 +18,7 @@ pub const MIGRATIONS: &[MigFn] = &[
     migrate_v9,
     migrate_v10,
     migrate_v11,
+    migrate_v12,
 ];
 
 fn column_exists(conn: &Connection, table: &str, col: &str) -> rusqlite::Result<bool> {
@@ -674,6 +675,14 @@ fn migrate_v11(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// v12 adds an index on `programmes(title, start_ts)` for fast cross-source favorite programme queries.
+fn migrate_v12(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_prog_title ON programmes (title, start_ts);",
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -728,6 +737,16 @@ mod tests {
         // Idempotent second run
         run_migrations(&conn, None).unwrap();
         let ver2: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(ver2, MIGRATIONS.len() as i64);
+
+        let idx_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_prog_title'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx_exists, 1, "Missing index idx_prog_title");
         assert_eq!(ver2, MIGRATIONS.len() as i64);
     }
 

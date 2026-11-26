@@ -786,3 +786,47 @@ async fn test_parallel_401_token_refresh_runs_once() {
         "Parallel 401s must only trigger one /oauth/token refresh"
     );
 }
+
+#[test]
+fn test_query_watchlist_epg_airings_respects_matcher_hidden_and_past() {
+    let conn = Connection::open_in_memory().unwrap();
+    run_migrations(&conn, None).unwrap();
+
+    conn.execute_batch(
+        "INSERT INTO sources (id, name, url, country_code, time_offset, sort_position) VALUES
+            ('s1', 'Magyar EPG', 'https://a', 'HU', 0, 0),
+            ('s2', 'Angol EPG',  'https://b', 'EN', 0, 1);
+         INSERT INTO channels (id, source_id, name, icon) VALUES
+            ('c1', 's1', 'RTL', ''),
+            ('c2', 's1', 'Rejtett', ''),
+            ('c3', 's2', 'BBC', '');
+         INSERT INTO channel_user_settings (source_id, channel_id, is_hidden) VALUES
+            ('s1', 'c2', 1);
+         INSERT INTO trakt_watchlist_cache (trakt_id, media_type, title, title_hu, aliases_json, year, tmdb_id, poster_path, listed_at, updated_at) VALUES
+            (101, 'show', 'Stranger Things', 'Stranger Things', '[\"Különös dolgok\"]', 2016, 66732, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
+            (202, 'movie', 'Dune', 'Dűne', NULL, 2021, 438631, NULL, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+         INSERT INTO tmdb_cache (query_title, lang, media_type, is_manual, updated_at) VALUES
+            ('Dűne', 'hu-HU', 'none', 1, '2026-11-20 00:00:00');
+         INSERT INTO programmes (channel_id, source_id, start, stop, title, desc, title_norm, start_ts, stop_ts) VALUES
+            ('c1', 's1', '20261125100000 +0000', '20261125110000 +0000', 'Különös dolgok S01E01', 'Múltbeli', 'kulonos dolgok', 1000, 1100),
+            ('c1', 's1', '20261126200000 +0000', '20261126210000 +0000', 'Különös dolgok S01E02', 'Jövőbeli', 'kulonos dolgok', 2000, 2100),
+            ('c2', 's1', '20261126200000 +0000', '20261126210000 +0000', 'Stranger Things', 'Rejtett', 'stranger things', 2000, 2100),
+            ('c3', 's2', '20261126220000 +0000', '20261126230000 +0000', 'Dűne', 'Manual none override', 'dune', 2200, 2300),
+            ('c3', 's2', '20261126230000 +0000', '20261126235000 +0000', 'Stranger Things (HD)', 'Angol adás', 'stranger things', 2400, 2500);",
+    )
+    .unwrap();
+
+    let idx = crate::trakt::matcher::TitleIndex::build_from_db(&conn).unwrap();
+    let now_ts = 1500;
+
+    let upcoming = crate::trakt::commands::query_watchlist_epg_airings(&conn, &idx, false, now_ts).unwrap();
+    assert_eq!(upcoming.len(), 2);
+    assert_eq!(upcoming[0].trakt_id, 101);
+    assert_eq!(upcoming[0].media_type, "show");
+    assert_eq!(upcoming[0].tmdb_id, Some(66732));
+    assert_eq!(upcoming[0].source_id, "s1");
+    assert_eq!(upcoming[1].source_id, "s2");
+
+    let with_past = crate::trakt::commands::query_watchlist_epg_airings(&conn, &idx, true, now_ts).unwrap();
+    assert_eq!(with_past.len(), 3);
+}

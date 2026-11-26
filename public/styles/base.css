@@ -25,6 +25,7 @@
 
   /* Z-Index Scale */
   --z-modal: 200;
+  --z-modal-detail: 220;
   --z-dialog: 250;
   --z-dialog-high: 300;
   --z-modal-top: 400;
@@ -179,6 +180,36 @@ header {
   align-items: center;
   gap: 4px;
 }
+.search-input-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.search-input-wrap input[type="text"] {
+  width: 180px;
+  box-sizing: border-box;
+  padding-right: 28px;
+}
+.search-input-clear-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-disabled);
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.search-input-clear-btn:hover {
+  color: var(--text-primary);
+}
 input[type="text"],
 input[type="number"],
 select {
@@ -220,19 +251,6 @@ input[type="text"] {
   transform: scale(0.96);
 }
 
-#searchBtn {
-  background-color: var(--accent-blue);
-}
-#clearSearchBtn {
-  background-color: var(--accent-red-dark);
-  padding: 3px 5px;
-  border-radius: 6px;
-  font-size: 14px;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 #nowBtn {
   background-color: var(--accent-red);
 }
@@ -2781,10 +2799,15 @@ input[type="text"].channel-edit-input:focus {
   flex-wrap: wrap;
 }
 
-#channelOrderSearchInput {
+.channels-search-wrap {
   flex: 1;
   min-width: 180px;
-  padding: 6px 10px;
+}
+
+#channelOrderSearchInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 28px 6px 10px;
 }
 
 .channel-filter-tabs {
@@ -3500,8 +3523,14 @@ input[type="text"].channel-edit-input:focus {
   flex-shrink: 0;
 }
 
-.missing-logos-toolbar .channel-edit-input {
+.missing-logos-search-wrap {
   flex: 1;
+}
+
+.missing-logos-toolbar .channel-edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 28px;
 }
 
 .missing-logos-list {
@@ -3765,13 +3794,32 @@ body.trakt-mode #epgViewport {
   color: var(--text-primary);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 6px 11px;
+  min-width: 88px;
+  min-height: 32px;
+  box-sizing: border-box;
   white-space: nowrap;
 }
 .trakt-header-btn:hover {
   background-color: var(--trakt-red-tint);
   border-color: var(--trakt-red);
+}
+.epg-header-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 11px;
+  width: var(--trakt-mode-btn-width, auto);
+  min-width: 88px;
+  min-height: 32px;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+.epg-header-btn .tabler-icon {
+  margin-right: 0;
 }
 .trakt-logo-btn-img {
   width: 18px;
@@ -3818,9 +3866,6 @@ body.trakt-mode #epgViewport {
   background-color: var(--accent-blue);
   border-color: var(--accent-blue-border);
   color: var(--text-primary);
-}
-#traktBackBtn {
-  background-color: var(--bg-surface-elevated);
 }
 
 .trakt-sync-status {
@@ -4853,12 +4898,23 @@ body.trakt-mode #epgViewport {
   border-color: var(--accent-blue);
   color: var(--accent-blue-text-soft);
 }
+.trakt-airing-fav-btn {
+  color: var(--text-disabled);
+}
+.trakt-airing-fav-btn .tabler-icon {
+  transition:
+    color 0.2s,
+    transform 0.1s;
+}
 .trakt-airing-fav-btn:hover {
   border-color: var(--accent-yellow);
-  color: var(--accent-yellow);
+  color: var(--accent-yellow) !important;
+}
+.trakt-airing-fav-btn:hover .tabler-icon {
+  transform: scale(1.4);
 }
 .trakt-airing-fav-btn.active {
-  color: var(--accent-yellow);
+  color: var(--accent-yellow) !important;
   border-color: var(--accent-yellow-border-alpha);
   background: var(--accent-yellow-tint);
 }
@@ -5497,4 +5553,377 @@ body.trakt-mode #epgViewport {
   align-items: center;
   gap: 6px;
 }
+
+/* ==========================================================================
+   Favorites Modal, Multi-Level Sort & Watchlist on EPG
+   ========================================================================== */
+
+#modalOverlay {
+  z-index: var(--z-modal-detail);
+}
+
+.favorites-modal-content {
+  width: 1040px;
+  max-width: 95vw;
+  height: 84vh;
+  max-height: 88vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.favorites-modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.favorites-modal-body {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.favorites-modal-toolbar {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-card);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.favorites-toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.favorites-source-select {
+  min-width: 180px;
+  max-width: 260px;
+}
+
+.favorites-search-mount {
+  margin-left: auto;
+}
+
+.favorites-toolbar-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-divider);
+}
+
+.favorites-past-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.favorites-past-toggle {
+  margin-left: 0;
+}
+
+.airing-collapse-all-btn {
+  background-color: var(--bg-btn-secondary);
+  border: 1px solid var(--border-input);
+  color: var(--text-secondary);
+  padding: 5px 8px;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.airing-collapse-all-btn:hover:not(:disabled) {
+  background-color: var(--bg-btn-secondary-hover-subtle);
+  border-color: var(--accent-blue-border);
+  color: var(--text-primary);
+}
+
+.airing-collapse-all-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.fav-day-header-btn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-input-subtle);
+  padding: 4px 2px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--accent-yellow-light);
+  transition: color 0.15s;
+}
+
+.fav-day-header-btn:hover {
+  color: var(--text-primary);
+}
+
+.fav-day-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.fav-day-header-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fav-day-header-count {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--bg-btn-secondary);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.fav-day-group.is-collapsed .fav-day-items {
+  display: none;
+}
+
+.fav-day-group.is-collapsed .fav-day-header-btn {
+  margin-bottom: 0;
+}
+
+.favorites-list-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.multi-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.multi-sort-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.multi-sort-label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.multi-sort-select {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.multi-sort-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.airing-list-row {
+  display: grid;
+  grid-template-columns:
+    26px
+    minmax(180px, 1fr)
+    130px
+    160px
+    150px
+    92px
+    54px
+    26px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.airing-list-row:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-input);
+}
+
+.airing-list-row.has-wl-remove {
+  grid-template-columns:
+    26px
+    26px
+    minmax(180px, 1fr)
+    130px
+    160px
+    150px
+    92px
+    54px
+    26px;
+}
+
+.airing-row-title {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.airing-row-title:hover {
+  color: var(--accent-blue-light);
+  text-decoration: underline;
+}
+
+.airing-row-source,
+.airing-row-channel {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.airing-row-channel {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.airing-row-date,
+.airing-row-day,
+.airing-row-time {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.airing-row-date {
+  background-color: var(--badge-date-bg);
+  color: var(--badge-date-text);
+  border: 1px solid var(--badge-date-border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.trakt-wl-epg-past-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.airing-list-row .fav-remove-btn,
+.airing-list-row .trakt-airing-wl-remove-btn {
+  margin-left: 0;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trakt-wl-search-mount {
+  margin-left: auto;
+}
+
+.trakt-wl-epg-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.trakt-wl-epg-toolbar-top,
+.trakt-wl-epg-toolbar-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.trakt-wl-epg-toolbar-top #traktWlEpgSearchMount {
+  margin-left: auto;
+}
+
+.trakt-wl-epg-toolbar-bottom {
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-divider);
+}
+
+.trakt-watchlist-epg-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+@media (max-width: 900px) {
+  .airing-list-row,
+  .airing-list-row.has-wl-remove {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .airing-row-title {
+    flex: 1 1 200px;
+  }
+  .airing-row-source,
+  .airing-row-channel,
+  .airing-row-date,
+  .airing-row-day,
+  .airing-row-time {
+    width: auto;
+  }
+}
+
 

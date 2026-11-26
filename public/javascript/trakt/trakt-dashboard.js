@@ -12,6 +12,7 @@ import {
   jumpToEpgAiring,
 } from '../application/epg.js';
 import { toggleFavorite } from '../application/favorites.js';
+import { createLiveSearchBox } from '../application/airing-list.js';
 import {
   openTraktItemModal,
   showTraktError,
@@ -810,7 +811,7 @@ import {
             <button class="btn trakt-pill ${initialFilter === 'shows' ? 'active' : ''}" data-wl-filter="shows">${esc(t('trakt_filter_shows'))}</button>
             <button class="btn trakt-pill ${initialFilter === 'movies' ? 'active' : ''}" data-wl-filter="movies">${esc(t('trakt_filter_movies'))}</button>
           </div>
-          <input type="text" id="traktWlSearchInput" class="trakt-search-input" placeholder="${esc(t('search_placeholder'))}" value="${esc(stateObj.query || '')}" />
+          <div id="traktWlSearchMount" class="trakt-wl-search-mount"></div>
           <select id="traktWlSortSelect" class="trakt-sort-select">
             <option value="added" ${initialSort === 'added' ? 'selected' : ''}>${esc(t('trakt_sort_added'))}</option>
             <option value="title" ${initialSort === 'title' ? 'selected' : ''}>${esc(t('trakt_sort_title'))}</option>
@@ -964,14 +965,18 @@ import {
       };
     });
 
-    const searchInput = document.getElementById('traktWlSearchInput');
-    if (searchInput) {
-      let wlSearchDebounce = null;
-      searchInput.oninput = (e) => {
-        stateObj.query = e.target.value;
-        clearTimeout(wlSearchDebounce);
-        wlSearchDebounce = setTimeout(renderGrid, 120);
-      };
+    const searchMount = document.getElementById('traktWlSearchMount');
+    if (searchMount) {
+      const searchBox = createLiveSearchBox({
+        inputId: 'traktWlSearchInput',
+        clearBtnId: 'traktWlClearSearchBtn',
+        initialValue: stateObj.query || '',
+        onFilter: (q) => {
+          stateObj.query = q;
+          renderGrid();
+        },
+      });
+      searchMount.appendChild(searchBox.element);
     }
 
     const sortSelect = document.getElementById('traktWlSortSelect');

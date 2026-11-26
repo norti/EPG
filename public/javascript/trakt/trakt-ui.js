@@ -24,6 +24,10 @@ import {
   renderCalendarView,
   renderProgressAndAiringsInto,
 } from './trakt-dashboard.js';
+import {
+  renderWatchlistEpgView,
+  refreshWatchlistEpgIfActive,
+} from './trakt-watchlist-epg.js';
 
   let traktModeActive = false;
   let currentSubView = 'dashboard'; // 'dashboard' | 'watchlist' | 'calendar_my' | 'calendar_global'
@@ -128,6 +132,23 @@ import {
     }
   }
 
+  let lastTraktBtnWidth = 0;
+
+  function syncHeaderModeButtonWidth() {
+    const traktBtn = document.getElementById('traktBtn');
+    if (!traktBtn) return;
+    if (!traktBtn.classList.contains('u-hidden')) {
+      const w = traktBtn.getBoundingClientRect().width;
+      if (w > 0) lastTraktBtnWidth = Math.ceil(w);
+    }
+    if (lastTraktBtnWidth > 0) {
+      document.documentElement.style.setProperty(
+        '--trakt-mode-btn-width',
+        `${lastTraktBtnWidth}px`
+      );
+    }
+  }
+
   function updateWatchlistCountBadge() {
     const badge = document.getElementById('traktWatchlistCountBadge');
     if (!badge) return;
@@ -138,16 +159,20 @@ import {
     } else {
       badge.classList.add('u-hidden');
     }
+    syncHeaderModeButtonWidth();
   }
 
   function updateHeaderVisibility() {
     const traktBtn = document.getElementById('traktBtn');
-    if (!traktBtn) return;
+    const backBtn = document.getElementById('traktBackBtn');
+    syncHeaderModeButtonWidth();
     if (!authStatus.enabled) {
-      traktBtn.classList.add('u-hidden');
+      if (traktBtn) traktBtn.classList.add('u-hidden');
+      if (backBtn) backBtn.classList.add('u-hidden');
       if (traktModeActive) exitTraktMode();
     } else {
-      traktBtn.classList.toggle('u-hidden', traktModeActive);
+      if (traktBtn) traktBtn.classList.toggle('u-hidden', traktModeActive);
+      if (backBtn) backBtn.classList.toggle('u-hidden', !traktModeActive);
     }
     updateWatchlistCountBadge();
   }
@@ -301,6 +326,7 @@ import {
   function updateSubViewButtons() {
     const map = {
       watchlist: 'traktWatchlistViewBtn',
+      watchlist_epg: 'traktWatchlistEpgBtn',
       calendar_my: 'traktMyCalendarBtn',
       calendar_global: 'traktGlobalCalendarBtn',
     };
@@ -436,6 +462,8 @@ import {
         const items = await invoke('trakt_get_watchlist', { filter: null });
         if (seq !== viewLoadSeq || !traktModeActive) return;
         renderWatchlistView(viewport, items, watchlistState);
+      } else if (currentSubView === 'watchlist_epg') {
+        await renderWatchlistEpgView(viewport);
       } else if (currentSubView === 'calendar_my') {
         const eps = await invoke('trakt_get_calendar_my', {
           startDate,
@@ -1139,6 +1167,14 @@ import {
       };
     }
 
+    const wlEpgBtn = document.getElementById('traktWatchlistEpgBtn');
+    if (wlEpgBtn) {
+      wlEpgBtn.onclick = () => {
+        currentSubView = currentSubView === 'watchlist_epg' ? 'dashboard' : 'watchlist_epg';
+        loadActiveTraktView();
+      };
+    }
+
     const myCalBtn = document.getElementById('traktMyCalendarBtn');
     if (myCalBtn) {
       myCalBtn.onclick = () => {
@@ -1227,8 +1263,10 @@ import {
         } else {
           updateWatchlistCountBadge();
         }
-        // Refresh the global calendar or watchlist view so watchlist state reflects the change
-        if (traktModeActive && (currentSubView === 'calendar_global' || currentSubView === 'watchlist')) {
+        // Refresh the global calendar, watchlist, or watchlist-on-EPG view so watchlist state reflects the change
+        if (traktModeActive && currentSubView === 'watchlist_epg') {
+          await refreshWatchlistEpgIfActive();
+        } else if (traktModeActive && (currentSubView === 'calendar_global' || currentSubView === 'watchlist')) {
           const scrollEl =
             document.getElementById('traktCalendarDays') ||
             document.getElementById('traktWatchlistGrid');

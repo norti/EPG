@@ -26,6 +26,7 @@ const DEFAULT_ICONS = [
   'star-filled',
   'chevron-left',
   'chevron-right',
+  'chevron-down',
   'arrow-left',
   'layout-grid',
   'layout-columns',
@@ -39,6 +40,7 @@ const DEFAULT_ICONS = [
   'eye-off',
   'folder',
   'device-tv',
+  'device-tv-old',
   'photo',
   'photo-search',
   'movie',
@@ -65,7 +67,9 @@ const DEFAULT_ICONS = [
   'player-stop',
   'wand',
   'link',
-  'world'
+  'world',
+  'fold-down',
+  'fold-up'
 ];
 
 function findIconSvg(iconName) {

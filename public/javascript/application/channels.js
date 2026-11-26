@@ -13,6 +13,7 @@ import {
   appendSafeImage,
   formatByteSize,
   setExportImportStatus,
+  attachLiveSearchInput,
 } from "./ui.js";
 import {
   updateHeaderSortDropdown,
@@ -26,6 +27,7 @@ export async function openMissingLogosModal(sourceId, onStatsChanged) {
   const modal = document.getElementById("missingLogosModal");
   const closeBtn = document.getElementById("missingLogosClose");
   const searchInput = document.getElementById("missingLogosSearchInput");
+  const clearBtn = document.getElementById("missingLogosClearSearchBtn");
   const listEl = document.getElementById("missingLogosList");
   const countBadge = document.getElementById("missingLogosCountBadge");
 
@@ -34,11 +36,13 @@ export async function openMissingLogosModal(sourceId, onStatsChanged) {
   modal.classList.remove("u-hidden");
   modal.classList.add("active");
   if (searchInput) searchInput.value = "";
+  if (clearBtn) clearBtn.classList.add("u-hidden");
   if (countBadge) countBadge.textContent = "…";
   listEl.innerHTML = `<div class="missing-logos-empty"><span class="spinner-small"></span><span>${escapeHtml(t("missing_logos_loading"))}</span></div>`;
 
   let items = [];
   let isClosed = false;
+  let missingSearchCtrl = null;
 
   const updateCountBadge = () => {
     if (!countBadge) return;
@@ -230,7 +234,12 @@ export async function openMissingLogosModal(sourceId, onStatsChanged) {
     modal.classList.remove("active");
     modal.onclick = null;
     if (closeBtn) closeBtn.onclick = null;
-    if (searchInput) searchInput.oninput = null;
+    if (missingSearchCtrl) missingSearchCtrl.destroy();
+    if (searchInput) {
+      searchInput.oninput = null;
+      searchInput.onkeydown = null;
+    }
+    if (clearBtn) clearBtn.onclick = null;
     document.removeEventListener("keydown", onKeyDown);
   };
 
@@ -248,7 +257,14 @@ export async function openMissingLogosModal(sourceId, onStatsChanged) {
     }
   };
   if (closeBtn) closeBtn.onclick = closeModal;
-  if (searchInput) searchInput.oninput = renderList;
+  if (searchInput) {
+    missingSearchCtrl = attachLiveSearchInput({
+      input: searchInput,
+      clearBtn,
+      debounceMs: 150,
+      onFilter: () => renderList(),
+    });
+  }
   document.addEventListener("keydown", onKeyDown);
 
   try {
@@ -1345,7 +1361,6 @@ function setupChannelOrderPointerDrag(item, handle, container, updateAndSave) {
 
 let channelFilterMode = "all";
 let channelSearchQuery = "";
-let channelSearchDebounce = null;
 const channelOrderSourceCache = new Map();
 
 export function invalidateChannelOrderCache(sourceId = null) {
@@ -1358,14 +1373,17 @@ export function invalidateChannelOrderCache(sourceId = null) {
 
 function initChannelFilterHandlers() {
 const channelSearchInput = document.getElementById("channelOrderSearchInput");
+const channelClearBtn = document.getElementById("channelOrderClearSearchBtn");
 if (channelSearchInput) {
-  channelSearchInput.oninput = (e) => {
-    channelSearchQuery = e.target.value.toLowerCase().trim();
-    clearTimeout(channelSearchDebounce);
-    channelSearchDebounce = setTimeout(() => {
+  attachLiveSearchInput({
+    input: channelSearchInput,
+    clearBtn: channelClearBtn,
+    debounceMs: 300,
+    onFilter: (q) => {
+      channelSearchQuery = q.toLowerCase().trim();
       renderChannelOrderList();
-    }, 180);
-  };
+    },
+  });
 }
 
 ["all", "active", "fav", "hidden"].forEach((mode) => {
@@ -1455,7 +1473,11 @@ export async function renderChannelOrderList() {
     if (channelFilterMode === "hidden" && !ch.isHidden) return false;
     if (channelSearchQuery) {
       const nameMatch = channelOrderQuery
-        ? SearchUtils.matchPrepared(ch.name, channelOrderQuery)
+        ? SearchUtils.matchPrepared(ch.name, channelOrderQuery) ||
+          (ch.originalName &&
+            SearchUtils.matchPrepared(ch.originalName, channelOrderQuery)) ||
+          (ch.sourceName &&
+            SearchUtils.matchPrepared(ch.sourceName, channelOrderQuery))
         : fuzzySearchMatch(ch.name, channelSearchQuery);
       const idMatch = String(ch.id || "")
         .toLowerCase()

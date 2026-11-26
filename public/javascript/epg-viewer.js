@@ -18,7 +18,10 @@ import {
   refreshSourcesFromDb,
   loadSourcesDropdown,
 } from "./application/sources.js";
-import { renderFavoritesList } from "./application/favorites.js";
+import {
+  initFavorites,
+  renderFavoritesList,
+} from "./application/favorites.js";
 import { initChannels } from "./application/channels.js";
 import {
   initEpg,
@@ -108,6 +111,8 @@ async function init() {
     state.settings = {};
   }
 
+  initFavorites();
+
   const initialLang = state.settings.language || "hungarian";
   await setLanguage(initialLang, {
     persist: !state.settings.language,
@@ -120,7 +125,13 @@ async function init() {
     setupDateSelector();
     renderEPG();
     loadSourcesDropdown();
-    renderFavoritesList();
+    if (
+      document
+        .getElementById("favoritesModalOverlay")
+        ?.classList.contains("active")
+    ) {
+      renderFavoritesList();
+    }
   });
 
   await initTraktUI();

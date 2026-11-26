@@ -101,6 +101,9 @@ const BASE_ESM_RULES = {
 
 export default [
   {
+    ignores: ["src-tauri/**"],
+  },
+  {
     files: ["public/javascript/**/*.js"],
     ignores: [
       "public/javascript/tools/**/*.js",

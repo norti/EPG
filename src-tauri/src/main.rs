@@ -701,6 +701,128 @@ async fn clear_entire_database(state: tauri::State<'_, AppState>) -> Result<(), 
     Ok(())
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FavoriteAiring {
+    pub channel_id: String,
+    pub channel_name: String,
+    pub source_id: String,
+    pub source_name: String,
+    pub country_code: String,
+    pub source_sort_pos: i64,
+    pub start: String,
+    pub stop: String,
+    pub start_ts: i64,
+    pub stop_ts: i64,
+    pub time_offset: i32,
+    pub title: String,
+    pub desc: String,
+}
+
+pub(crate) fn query_favorite_programmes_airings(
+    conn: &Connection,
+    source_id: Option<&str>,
+    include_past: bool,
+    now_ts: i64,
+) -> Result<Vec<FavoriteAiring>, String> {
+    let mut where_clauses = vec!["COALESCE(cus.is_hidden, 0) = 0".to_string()];
+    let mut param_values: Vec<rusqlite::types::Value> = Vec::new();
+
+    match source_id.map(str::trim).filter(|s| !s.is_empty()) {
+        Some("__ALL_FAVORITES__") => {
+            where_clauses.push("COALESCE(cus.is_favorite, 0) = 1".to_string());
+        }
+        Some(sid) if sid != "__ALL_SOURCES__" => {
+            where_clauses.push("p.source_id = ?".to_string());
+            param_values.push(rusqlite::types::Value::Text(sid.to_string()));
+        }
+        _ => {}
+    }
+
+    if !include_past {
+        where_clauses.push(
+            "(COALESCE(p.stop_ts, p.start_ts, 0) + COALESCE(s.time_offset, 0) * 3600) >= ?"
+                .to_string(),
+        );
+        param_values.push(rusqlite::types::Value::Integer(now_ts));
+    }
+
+    let sql = format!(
+        "WITH ranked AS (
+            SELECT p.channel_id,
+                   COALESCE(NULLIF(cus.custom_name, ''), c.name, p.channel_id) AS channel_name,
+                   p.source_id,
+                   COALESCE(s.name, p.source_id) AS source_name,
+                   COALESCE(s.country_code, 'HU') AS country_code,
+                   COALESCE(s.sort_position, s.rowid) AS source_sort_pos,
+                   p.start,
+                   p.stop,
+                   COALESCE(p.start_ts, 0) AS start_ts,
+                   COALESCE(p.stop_ts, p.start_ts, 0) AS stop_ts,
+                   COALESCE(s.time_offset, 0) AS time_offset,
+                   p.title,
+                   COALESCE(p.desc, '') AS desc,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY p.source_id, p.channel_id, COALESCE(CAST(p.start_ts AS TEXT), p.start), p.title
+                       ORDER BY
+                           CASE WHEN p.stop_ts IS NOT NULL AND p.start_ts IS NOT NULL AND p.stop_ts > p.start_ts THEN 0 ELSE 1 END,
+                           LENGTH(COALESCE(p.desc, '')) DESC,
+                           p.id ASC
+                   ) AS rn
+            FROM programmes p
+            JOIN favorites f ON f.title = p.title
+            JOIN sources s ON s.id = p.source_id
+            LEFT JOIN channels c ON c.id = p.channel_id AND c.source_id = p.source_id
+            LEFT JOIN channel_user_settings cus ON cus.source_id = p.source_id AND cus.channel_id = p.channel_id
+            WHERE {}
+        )
+        SELECT channel_id, channel_name, source_id, source_name, country_code, source_sort_pos,
+               start, stop, start_ts, stop_ts, time_offset, title, desc
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY (start_ts + time_offset * 3600) ASC, title ASC",
+        where_clauses.join(" AND ")
+    );
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(param_values), |r| {
+            Ok(FavoriteAiring {
+                channel_id: r.get(0)?,
+                channel_name: r.get(1)?,
+                source_id: r.get(2)?,
+                source_name: r.get(3)?,
+                country_code: r.get(4)?,
+                source_sort_pos: r.get(5)?,
+                start: r.get(6)?,
+                stop: r.get(7)?,
+                start_ts: r.get(8)?,
+                stop_ts: r.get(9)?,
+                time_offset: r.get(10)?,
+                title: r.get(11)?,
+                desc: r.get(12)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows.flatten().collect())
+}
+
+#[tauri::command]
+async fn get_favorite_programmes_airings(
+    state: tauri::State<'_, AppState>,
+    source_id: Option<String>,
+    include_past: Option<bool>,
+) -> Result<Vec<FavoriteAiring>, String> {
+    let conn = state.db.lock().await;
+    query_favorite_programmes_airings(
+        &conn,
+        source_id.as_deref(),
+        include_past.unwrap_or(false),
+        trakt::now_epoch_secs(),
+    )
+}
+
 #[tauri::command]
 async fn get_favorites(state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
     let conn = state.db.lock().await;
@@ -6139,6 +6261,7 @@ fn main() {
             clear_entire_database,
             update_source_epg,
             get_favorites,
+            get_favorite_programmes_airings,
             toggle_favorite,
             save_channel_order,
             get_sort_presets,
@@ -6211,6 +6334,7 @@ fn main() {
             trakt::commands::trakt_set_global_calendar_filters,
             trakt::commands::trakt_match_titles,
             trakt::commands::trakt_find_epg_airings,
+            trakt::commands::trakt_get_watchlist_epg_airings,
             trakt::commands::trakt_get_stats,
             trakt::commands::trakt_clear_cache,
             trakt::commands::trakt_resolve_for_title,
@@ -7751,6 +7875,59 @@ mod tests {
             resolve_initial_window_title(&conn),
             extract_app_title(EMBEDDED_ENGLISH_LNG).unwrap()
         );
+    }
+
+    #[test]
+    fn test_query_favorite_programmes_airings_filters_sources_hidden_and_past() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrations::run_migrations(&conn, None).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO sources (id, name, url, country_code, time_offset, sort_position) VALUES
+                ('s1', 'Forrás 1', 'https://a', 'HU', 0, 0),
+                ('s2', 'Forrás 2', 'https://b', 'EN', 1, 1);
+             INSERT INTO channels (id, source_id, name, icon) VALUES
+                ('c1', 's1', 'M1', ''),
+                ('c2', 's1', 'Rejtett', ''),
+                ('c3', 's2', 'HBO', '');
+             INSERT INTO channel_user_settings (source_id, channel_id, is_favorite, is_hidden, custom_name) VALUES
+                ('s1', 'c1', 1, 0, 'M1 HD'),
+                ('s1', 'c2', 0, 1, NULL),
+                ('s2', 'c3', 0, 0, NULL);
+             INSERT INTO favorites (title) VALUES ('Kedvenc Film'), ('Másik Műsor');
+             INSERT INTO programmes (channel_id, source_id, start, stop, title, desc, title_norm, start_ts, stop_ts) VALUES
+                ('c1', 's1', '20261125100000 +0000', '20261125110000 +0000', 'Kedvenc Film', 'Múltbeli', 'kedvenc film', 1000, 1100),
+                ('c1', 's1', '20261126200000 +0000', '20261126210000 +0000', 'Kedvenc Film', 'Jövőbeli 1', 'kedvenc film', 2000, 2100),
+                ('c1', 's1', '20261126200000 +0000', '20261126210000 +0000', 'Kedvenc Film', 'Duplikátum', 'kedvenc film', 2000, 2100),
+                ('c2', 's1', '20261126200000 +0000', '20261126210000 +0000', 'Kedvenc Film', 'Rejtett csatorna', 'kedvenc film', 2000, 2100),
+                ('c3', 's2', '20261126220000 +0000', '20261126230000 +0000', 'Másik Műsor', 'S2 adás', 'masik musor', 2200, 2300),
+                ('c1', 's1', '20261126230000 +0000', '20261126233000 +0000', 'Nem Kedvenc', 'Egyéb', 'nem kedvenc', 2400, 2500);",
+        )
+        .unwrap();
+
+        let now_ts = 1500;
+
+        // Upcoming across all sources: excludes past (1100 < 1500), hidden (c2), non-favorite, and deduplicates c1/2000
+        let all_upcoming = query_favorite_programmes_airings(&conn, None, false, now_ts).unwrap();
+        assert_eq!(all_upcoming.len(), 2);
+        assert_eq!(all_upcoming[0].channel_name, "M1 HD");
+        assert_eq!(all_upcoming[0].source_name, "Forrás 1");
+        assert_eq!(all_upcoming[1].source_id, "s2");
+        assert_eq!(all_upcoming[1].time_offset, 1);
+
+        // Include past: adds the 1000..1100 airing
+        let all_with_past = query_favorite_programmes_airings(&conn, Some("__ALL_SOURCES__"), true, now_ts).unwrap();
+        assert_eq!(all_with_past.len(), 3);
+
+        // Filter by specific source s2
+        let s2_only = query_favorite_programmes_airings(&conn, Some("s2"), false, now_ts).unwrap();
+        assert_eq!(s2_only.len(), 1);
+        assert_eq!(s2_only[0].title, "Másik Műsor");
+
+        // Filter by favorite channels only (__ALL_FAVORITES__)
+        let fav_ch_only = query_favorite_programmes_airings(&conn, Some("__ALL_FAVORITES__"), false, now_ts).unwrap();
+        assert_eq!(fav_ch_only.len(), 1);
+        assert_eq!(fav_ch_only[0].channel_id, "c1");
     }
 }
 

@@ -133,6 +133,10 @@ impl TitleIndex {
         self.index.get(norm_title)
     }
 
+    pub fn norm_keys(&self) -> Vec<String> {
+        self.index.keys().cloned().collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.index.is_empty()
     }
@@ -171,24 +175,22 @@ pub async fn invalidate_match_cache(state: &AppState) {
     mc.1.clear();
 }
 
-pub fn check_title_against_index(
+pub fn find_matching_watchlist_ref(
     conn: &Connection,
     index: &TitleIndex,
     raw_title: &str,
-) -> bool {
+) -> Option<WatchlistRef> {
     if index.is_empty() {
-        return false;
+        return None;
     }
     let year_hint = extract_year_hint(raw_title);
     let clean = clean_title(raw_title);
     let norm = normalise_for_match(&clean);
     if norm.is_empty() {
-        return false;
+        return None;
     }
 
-    let Some(refs) = index.lookup(&norm) else {
-        return false;
-    };
+    let refs = index.lookup(&norm)?;
 
     // Check tmdb_cache for manual Fix overrides or non-expired 'none' negative markers
     let tmdb_row: Option<(Option<i64>, Option<String>)> = conn
@@ -205,18 +207,31 @@ pub fn check_title_against_index(
 
     if let Some((tmdb_id_opt, media_type_opt)) = tmdb_row {
         if media_type_opt.as_deref() == Some("none") || tmdb_id_opt.is_none() {
-            return false;
+            return None;
         }
         if let Some(cache_tmdb_id) = tmdb_id_opt {
-            return refs.iter().any(|r| r.tmdb_id == Some(cache_tmdb_id));
+            return refs
+                .iter()
+                .find(|r| r.tmdb_id == Some(cache_tmdb_id))
+                .cloned();
         }
     }
 
     // No tmdb_cache row: accept unless year hint clearly conflicts with watchlist item year
-    refs.iter().any(|r| match (year_hint, r.year) {
-        (Some(yh), Some(wy)) => (yh as i64 - wy).abs() <= 1,
-        _ => true,
-    })
+    refs.iter()
+        .find(|r| match (year_hint, r.year) {
+            (Some(yh), Some(wy)) => (yh as i64 - wy).abs() <= 1,
+            _ => true,
+        })
+        .cloned()
+}
+
+pub fn check_title_against_index(
+    conn: &Connection,
+    index: &TitleIndex,
+    raw_title: &str,
+) -> bool {
+    find_matching_watchlist_ref(conn, index, raw_title).is_some()
 }
 
 pub async fn match_titles(state: &AppState, raw_titles: Vec<String>) -> Result<Vec<String>, String> {

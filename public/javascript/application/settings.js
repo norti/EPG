@@ -7,7 +7,7 @@ import {
   setExportImportStatus,
 } from "./ui.js";
 import { refreshSourcesFromDb } from "./sources.js";
-import { renderFavoritesList } from "./favorites.js";
+import { refreshFavoritesModalIfOpen } from "./favorites.js";
 import { fetchEPG, invalidateEpgSourceCache } from "./epg.js";
 import { loadTmdbSettings, clearTmdbPosterMemoryCache } from "../tmdb/tmdb.js";
 import {
@@ -33,9 +33,6 @@ export function switchSettingsTab(tabName) {
     .forEach((pane) => pane.classList.remove("active"));
   if (tabName === "sources") {
     document.getElementById("tabPaneSources").classList.add("active");
-  } else if (tabName === "favorites") {
-    document.getElementById("tabPaneFavorites").classList.add("active");
-    renderFavoritesList();
   } else if (tabName === "channels") {
     document.getElementById("tabPaneChannels").classList.add("active");
     invalidateChannelOrderCache();
@@ -125,7 +122,7 @@ function initSettingsExportHandlers() {
       await refreshSourcesFromDb();
       setFavoritesList(await invoke("get_favorites"));
       await fetchEPG({ forceReload: true });
-      renderFavoritesList();
+      refreshFavoritesModalIfOpen();
       await renderChannelOrderList();
     } catch (err) {
       setExportImportStatus(
@@ -180,13 +177,16 @@ function parseCsvRows(text) {
     } else {
       acc += "\n" + rawLine;
     }
-    // Count quotes in rawLine
-    let quoteCount = 0;
+    // Walk the raw line character-by-character to track quote state correctly,
+    // skipping escaped pairs ("") so they never flip the in-quotes flag.
     for (let i = 0; i < rawLine.length; i++) {
-      if (rawLine[i] === '"') quoteCount++;
-    }
-    if (quoteCount % 2 === 1) {
-      inQuotes = !inQuotes;
+      if (rawLine[i] === '"') {
+        if (inQuotes && rawLine[i + 1] === '"') {
+          i++; // skip escaped quote pair
+        } else {
+          inQuotes = !inQuotes;
+        }
+      }
     }
     if (!inQuotes && acc.trim()) {
       lines.push(acc);
@@ -582,11 +582,6 @@ export function initSettings() {
       }
     };
   }
-
-  document.getElementById("favListBtn").onclick = () => {
-    switchSettingsTab("favorites");
-    document.getElementById("settingsOverlay").classList.add("active");
-  };
 
   document.getElementById("settingsBtn").onclick = () => {
     switchSettingsTab("sources");

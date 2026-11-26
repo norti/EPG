@@ -15,12 +15,14 @@ import {
   renderChannelOrderList,
   invalidateChannelOrderCache,
 } from "./channels.js";
+import { populateFavoritesSourceFilter } from "./favorites.js";
 
 export async function refreshSourcesFromDb() {
   invalidateChannelOrderCache();
   state.sources = await invoke("get_sources");
   loadSourcesDropdown();
   loadChannelOrderSourcesDropdown();
+  populateFavoritesSourceFilter();
 }
 
 async function saveSourceOrderFromDom() {
