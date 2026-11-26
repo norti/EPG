@@ -476,10 +476,10 @@ mod tests {
     #[test]
     fn test_embedded_changelog_parses_cleanly() {
         let doc = parse_changelog_doc(EMBEDDED_CHANGELOG_JSON).expect("embedded CHANGELOG.json must parse");
-        assert_eq!(doc.latest_version, "1.0.0");
+        assert_eq!(doc.latest_version, env!("CARGO_PKG_VERSION"));
         let hu = latest_release_from_doc(&doc, "hungarian").expect("hu release");
         let en = latest_release_from_doc(&doc, "english").expect("en release");
-        assert_eq!(hu.version, "1.0.0");
+        assert_eq!(hu.version, env!("CARGO_PKG_VERSION"));
         assert!(!hu.items.is_empty());
         assert!(!en.items.is_empty());
         assert_ne!(hu.items, en.items);
