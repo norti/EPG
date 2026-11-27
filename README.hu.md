@@ -6,13 +6,14 @@ Ez egy EPG XML fájlokat megjelenítő alkalmazás. Képes .xml vagy .gz EPG fá
 A csatornákhoz automatikusan hozzárendeltethetsz csatorna logókat.
 A műsorokhoz és filmekhez TMDB információkat kérhetsz le (API kulcsra szükség van).
 Összekapcsolhatod a Trakt-fiókoddal, megjelenítheted a Watchlistedet és a naptárat, műsorokat/filmeket adhatsz a Watchlisthez, és megkeresheted őket az EPG-ben.
+Opcionálisan bejelentkezhetsz Google fiókoddal a beállítások Google Drive-ra (`appDataFolder`) történő mentéséhez/visszaállításához és műsor-emlékeztetők Google Naptárba rögzítéséhez.
 
 Ez **NEM** lejátszó/stream alkalmazás, csak egy funkciókban gazdag műsorújság-megjelenítő.
 
 ## Letöltés (Windows x64)
 
 - **[Legfrissebb telepítő letöltése (Windows x64)](https://epg.norti.workers.dev/download/latest)** _(Cloudflare R2)_
-- **[Változásnapló](CHANGELOG.md)** · **[Kiadások](https://github.com/norti/epg-viewer/releases)**
+- **[Változásnapló](CHANGELOG.md)** · **[Kiadások](https://github.com/norti/epg-viewer/releases)** · **[Adatvédelmi irányelvek (EN)](PRIVACY_POLICY.md)** · **[Felhasználási feltételek (EN)](TERMS_OF_SERVICE.md)**
 
 ![](screenshots/epg-viewer_01.png)
 ![](screenshots/epg-viewer_02.png)
@@ -48,6 +49,7 @@ A szoftver forráskódja és telepítőcsomagja nem tartalmaz előre becsomagolt
 - **Wikimedia Commons:** Szabad médiafájlok és vektoros SVG logók (https://commons.wikimedia.org)
 - **Trakt.tv API:** Műsorkövetés, Watchlist, naptár és értékelések (https://trakt.tv). _EPG Viewer uses Trakt but is not endorsed or certified by Trakt._
 - **TMDB (The Movie Database):** Film- és sorozatmetaadatok, poszterek és magyar leírások (https://www.themoviedb.org). _This product uses the TMDB API but is not endorsed or certified by TMDB._
+- **Google API-k (Google Drive és Google Naptár):** Opcionális beállítás-mentés/visszaállítás a rejtett `appDataFolder` mappába és műsor-emlékeztetők a Google Naptárba (https://developers.google.com). Lásd az [Adatvédelmi irányelveket](PRIVACY_POLICY.md) és a [Felhasználási feltételeket](TERMS_OF_SERVICE.md).
 
 ### UI ikonok
 

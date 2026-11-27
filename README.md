@@ -5,14 +5,15 @@
 This is an EPG XML file viewer application. It can display TV guides from .xml or .gz EPG file sources (URL).
 You can assign TV channel logos to the channels automatically.
 You can get TMDB information for shows and movies (needs API key).
-You can connect your trakt account and display your watchlist and calendar, add shows/movies to watchlist and search them in the EPG.
+You can connect your Trakt account to display your watchlist and calendar, add shows/movies to your watchlist, and search them in the EPG.
+You can optionally sign in with your Google account to back up/restore settings in Google Drive (`appDataFolder`) and add TV programme reminders to Google Calendar.
 
 This is NOT a player/stream application, only a rich guide viewer.
 
 ## Download (Windows x64)
 
 - **[Download latest installer (Windows x64)](https://epg.norti.workers.dev/download/latest)** _(Cloudflare R2)_
-- **[Changelog](CHANGELOG.md)** · **[Releases](https://github.com/norti/epg-viewer/releases)**
+- **[Changelog](CHANGELOG.md)** · **[Releases](https://github.com/norti/epg-viewer/releases)** · **[Privacy Policy](PRIVACY_POLICY.md)** · **[Terms of Service](TERMS_OF_SERVICE.md)**
 
 ![](screenshots/epg-viewer_01.png)
 ![](screenshots/epg-viewer_02.png)
@@ -48,6 +49,7 @@ Neither the source code nor the installer package bundles any channel logos. Log
 - **Wikimedia Commons:** Free media files and vector SVG logos (https://commons.wikimedia.org)
 - **Trakt.tv API:** Show tracking, Watchlist, calendar, and ratings (https://trakt.tv). _EPG Viewer uses Trakt but is not endorsed or certified by Trakt._
 - **TMDB (The Movie Database):** Movie and TV show metadata, posters, and localized descriptions (https://www.themoviedb.org). _This product uses the TMDB API but is not endorsed or certified by TMDB._
+- **Google APIs (Google Drive & Google Calendar):** Optional settings backup/restore in the hidden `appDataFolder` and TV programme calendar reminders (https://developers.google.com). See our [Privacy Policy](PRIVACY_POLICY.md) and [Terms of Service](TERMS_OF_SERVICE.md).
 
 ### UI Icons
 
