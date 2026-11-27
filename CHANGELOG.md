@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.2.0 (2026-11-27)
+
+### Magyar
+- Google OAuth 2.0 bejelentkezés (PKCE + helyi loopback) DPAPI titkosított tokenkezeléssel és új Google Fiók beállítások füllel
+- Google Drive szinkronizáció: beállítások, források, csatornaadatok, rendezési sablonok és kedvencek mentése/visszaállítása a rejtett appDataFolder mappába (előnézettel és ütközésvédett indításkori ellenőrzéssel)
+- Google Naptár integráció: célnaptár választó színes jelöléssel (csak írható saját naptárak), 1-kattintásos hozzáadás és eltávolítás a műsor részletező modálból dinamikus napi Google Naptár ikonnal
+- Inkrementális Google Naptár szinkronizáció (syncToken) a helyi adatbázissal és naptár jelvény a hozzáadott műsorokon az EPG műsorújságban
+- Régi naptárbejegyzések tömeges törlése a Beállításokban (X napnál régebbi vagy összes, kizárólag az EPG Viewer által létrehozott esemény törlése helyben és a Google Naptárból is)
+
+### English
+- Google OAuth 2.0 sign-in (PKCE + local loopback) with DPAPI-encrypted token storage and a new Google Account tab in Settings
+- Google Drive synchronization: back up and restore settings, sources, channel data, sort presets, and favorites in the hidden appDataFolder (with restore preview and conflict-safe startup check)
+- Google Calendar integration: target calendar selector with calendar color indicators (writable calendars only), one-click add and remove in the programme detail modal with a dynamic daily Google Calendar icon
+- Incremental Google Calendar sync (syncToken) with local database tracking and a calendar badge on added programmes in the EPG grid
+- Bulk cleanup of old calendar events in Settings (delete events older than X days or all events created exclusively by EPG Viewer, both locally and in Google Calendar)
+
 ## v1.1.0 (2026-11-26)
 
 ### Magyar
